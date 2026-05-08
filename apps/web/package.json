@@ -1,5 +1,10 @@
 {
   "name": "@reader-42/web",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch server.ts",
+    "start": "bun run server.ts",
+    "build:fixture": "bun run scripts/build-fixture.ts"
+  }
 }
