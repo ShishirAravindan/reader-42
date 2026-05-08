@@ -21,3 +21,11 @@ Lefthook auto-installs its git hooks via its own package postinstall script. "De
 ## 2026-05-09 — PRs are a diff plus an evidence pack
 
 For PRs whose scope changes user-visible behavior (UI, reader, capture flow, conversion output): attach a screenshot, short recording, or verified test transcript in the PR body. Build/refactor/docs/dependency PRs don't need it. The evidence pack is the user's review surface for asynchronous oversight; the implementing agent captures it before opening the PR, not as a checklist after. The `pr-reviewer` subagent enforces this by treating "missing evidence on a UI/feature PR" as `request-changes`.
+
+## 2026-05-09 — Sandboxed worktrees can't always run `bun install`
+
+A subagent working in `.claude/worktrees/<id>/` may have `bun install`, `bun run`, and headless browsers blocked by the harness sandbox while still permitting `bunx tsc` and `bunx biome` (those download a cached transpiler instead of touching the worktree's `node_modules`). Pattern: when typecheck fails on a server file the subagent didn't touch (e.g., `Cannot find module 'hono'`), suspect the worktree has no `node_modules/` rather than a real bug. The fix is at the orchestrator layer (loosen the sandbox, or hand the subagent a pre-installed worktree); the subagent's only honest move is to scope-verify what it can (`bunx tsc -p` on its own files, `bunx biome check` on its own dir) and document the env constraint in the evidence pack.
+
+## 2026-05-09 — Resuming a rate-limited subagent's WIP starts with a careful read-pass
+
+When picking up `wip:` snapshots from another subagent: read each file before changing anything; cross-check the WIP commit's parent against the current branch and against `main` (the WIP may pre-date later merges, leaving the branch missing context like a server skeleton); then run `bunx tsc -p` to triage real-bug errors from absent-`node_modules` errors. The temptation to rewrite from scratch is wrong — the prior agent's structure is usually fine; what's broken is mostly tsconfig, import-organization, formatting, and a couple of namespace-aware DOM lookups.
