@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+bun.lockb
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Per-user app data — EPUBs, library DB, convert workspaces. Never committed.
+data/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
