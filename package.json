@@ -1,0 +1,19 @@
+{
+  "name": "reader-42",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "bun --filter @reader-42/server dev",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/bun": "latest",
+    "lefthook": "^1.11.0",
+    "typescript": "^5.7.0"
+  }
+}
