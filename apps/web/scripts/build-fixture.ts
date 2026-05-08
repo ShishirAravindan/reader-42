@@ -15,6 +15,16 @@ interface ZipFile {
 
 const enc = new TextEncoder();
 
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let j = 0; j < 8; j++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[i] = c >>> 0;
+  }
+  return table;
+})();
+
 const MIMETYPE = 'application/epub+zip';
 
 const CONTAINER_XML = `<?xml version="1.0"?>
@@ -220,16 +230,6 @@ function buildZip(entries: ZipFile[]): Uint8Array {
   out.set(eocd, cursor);
   return out;
 }
-
-const CRC_TABLE = (() => {
-  const table = new Uint32Array(256);
-  for (let i = 0; i < 256; i++) {
-    let c = i;
-    for (let j = 0; j < 8; j++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    table[i] = c >>> 0;
-  }
-  return table;
-})();
 
 function crc32(bytes: Uint8Array): number {
   let crc = 0xffffffff;
