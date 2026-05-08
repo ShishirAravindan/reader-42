@@ -8,14 +8,16 @@ Tools listed in `CLAUDE.md` § The toolbox. Each tool emits structured JSON when
 
 | Tool | Status | Notes |
 |---|---|---|
-| `drift-check` | pending | Multi-signal drift detection. See task #6 in the project roadmap. |
-| `verify-extract` | pending | Extract-stage sanity check |
-| `verify-structure` | pending | Structure-stage sanity check |
-| `run-epubcheck` | pending | epubcheck CLI wrapper |
+| `drift-check` | ready | Multi-signal drift detection: length ratio, n-gram coverage (raw→cleaned and cleaned→raw), structural preservation (HTML hrefs/srcs/headings), and an LLM-judge stub. Inputs: `--raw`, `--cleaned`, `--mode=html\|text`, `--json`. |
+| `verify-extract` | ready | Extract-stage sanity check. Inputs: `--source-type=url\|pdf`, `--raw`, `--json`. |
+| `verify-structure` | ready | Structure-stage sanity check on `structure.json`. Inputs: `--structure`, `--json`. |
+| `run-epubcheck` | ready | epubcheck CLI wrapper. Positional `<path-to-epub>`, `--json`. Skipped (not failed) if epubcheck not on PATH. |
 | `fetch-url` | pending | Fetch with sensible UA + Playwright fallback |
 | `extract-pdf` | pending | PDF text + image extraction (poppler) |
 
-These get filled out in the next workstream (verify-tool toolbox). For now this template ships with the spec; tools come online incrementally.
+The four verify tools are the deterministic accountability layer that earns the "no manual editing" bar. Run them between stages. Each emits a `{ status, findings, ... }` JSON object when passed `--json`; non-`--json` mode prints a short human summary. Findings follow the shape in `report.schema.json`.
+
+The `drift-check` LLM-judge sub-check is a v1 stub — it returns `{ status: "skipped" }` and documents what would be invoked in a future iteration. Real LLM calls land in a later wiring pass.
 
 ## Adding a tool
 
