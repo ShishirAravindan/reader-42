@@ -6,4 +6,4 @@ pre-commit:
       run: bun run typecheck
     lint:
       glob: "*.{ts,tsx,js,jsx,json}"
-      run: bun run lint
+      run: bunx biome check {staged_files}
