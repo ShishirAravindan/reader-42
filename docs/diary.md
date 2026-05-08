@@ -13,3 +13,11 @@ The user explicitly flagged these as their continued involvement points after ha
 ## 2026-05-09 — Convert is product code, not glue
 
 The convert workspace `CLAUDE.md` + skills + `report.json` schema is the load-bearing artifact for conversion quality. Treat it like product code, not a config file: review it carefully, version it, write decisions about its shape. The agent's behavior is a function of this artifact more than of any single prompt.
+
+## 2026-05-09 — Dev tooling can self-install on `bun install`
+
+Lefthook auto-installs its git hooks via its own package postinstall script. "Defer the decision until later" by skipping the explicit `lefthook install` doesn't actually defer if `bun install` already ran with lefthook in `devDependencies`. Pattern: when the user wants to defer a setup step, also defer adding the package; or explicitly note the postinstall side-effect. Don't assume the lever you reached for is the only one wired up.
+
+## 2026-05-09 — PRs are a diff plus an evidence pack
+
+For PRs whose scope changes user-visible behavior (UI, reader, capture flow, conversion output): attach a screenshot, short recording, or verified test transcript in the PR body. Build/refactor/docs/dependency PRs don't need it. The evidence pack is the user's review surface for asynchronous oversight; the implementing agent captures it before opening the PR, not as a checklist after. The `pr-reviewer` subagent enforces this by treating "missing evidence on a UI/feature PR" as `request-changes`.
