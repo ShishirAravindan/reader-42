@@ -50,7 +50,8 @@ describe('verify-extract', () => {
   });
 
   test('warns when URL extract has no anchors but enough text', () => {
-    const html = `<article><p>A perfectly readable paragraph about the design of reading software, with no hyperlinks at all but plenty of words for the verifier to be content with the body length and proceed.</p></article>`;
+    const html =
+      '<article><p>A perfectly readable paragraph about the design of reading software, with no hyperlinks at all but plenty of words for the verifier to be content with the body length and proceed.</p></article>';
     const path = writeTmp('raw.html', html);
     const result = verifyExtract({ sourceType: 'url', rawPath: path });
     expect(result.status).toBe('warn');

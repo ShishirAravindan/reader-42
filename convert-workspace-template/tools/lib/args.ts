@@ -30,11 +30,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
   return { flags, positional };
 }
 
-export function getString(
-  args: ParsedArgs,
-  key: string,
-  fallback?: string,
-): string | undefined {
+export function getString(args: ParsedArgs, key: string, fallback?: string): string | undefined {
   const v = args.flags[key];
   if (v === undefined || v === true) return fallback;
   return v;

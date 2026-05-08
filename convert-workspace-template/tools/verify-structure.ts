@@ -21,7 +21,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { getString, hasFlag, parseArgs } from './lib/args.ts';
-import { emit, type Finding, type ToolResult } from './lib/findings.ts';
+import { type Finding, type ToolResult, emit } from './lib/findings.ts';
 
 interface StructureFile {
   chapters?: Chapter[];
@@ -64,7 +64,8 @@ export function verifyStructure(structurePath: string): ToolResult {
       stage: 'structure',
       severity: 'fail',
       type: 'structure-invalid',
-      human_message: `structure.json could not be parsed as JSON. Check for trailing commas, unquoted keys, or truncated output from the structure stage.`,
+      human_message:
+        'structure.json could not be parsed as JSON. Check for trailing commas, unquoted keys, or truncated output from the structure stage.',
       technical_detail: {
         path: abs,
         error: err instanceof Error ? err.message : String(err),

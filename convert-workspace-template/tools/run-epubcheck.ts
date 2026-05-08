@@ -19,11 +19,11 @@
  * Exit codes: 0 on pass/warn/skipped, 1 if any ERROR-level message is found.
  */
 
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { hasFlag, parseArgs } from './lib/args.ts';
-import { emit, type Finding, type ToolResult } from './lib/findings.ts';
+import { type Finding, type ToolResult, emit } from './lib/findings.ts';
 
 interface EpubcheckLocation {
   path?: string;
@@ -60,10 +60,7 @@ export interface SpawnLike {
   error?: { code?: string } | null;
 }
 
-export function runEpubcheck(
-  epubPath: string,
-  opts: RunEpubcheckOpts = {},
-): ToolResult {
+export function runEpubcheck(epubPath: string, opts: RunEpubcheckOpts = {}): ToolResult {
   const findings: Finding[] = [];
   const abs = resolve(epubPath);
 
@@ -177,9 +174,7 @@ function formatLocations(locations: EpubcheckLocation[] | undefined): string {
   if (!locations || locations.length === 0) return '';
   const first = locations[0];
   if (!first) return '';
-  const parts = [first.path, first.line ? `line ${first.line}` : null].filter(
-    Boolean,
-  );
+  const parts = [first.path, first.line ? `line ${first.line}` : null].filter(Boolean);
   return parts.length > 0 ? ` (${parts.join(', ')})` : '';
 }
 
@@ -196,9 +191,7 @@ if (import.meta.main) {
   const json = hasFlag(args, 'json');
   const epub = args.positional[0];
   if (!epub) {
-    process.stderr.write(
-      'run-epubcheck: positional <path-to-epub> is required\n',
-    );
+    process.stderr.write('run-epubcheck: positional <path-to-epub> is required\n');
     process.exit(2);
   }
   const result = runEpubcheck(epub);

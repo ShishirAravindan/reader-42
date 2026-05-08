@@ -32,11 +32,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { getString, hasFlag, parseArgs } from './lib/args.ts';
 import {
-  aggregateStatus,
-  emit,
   type Finding,
   type Status,
   type ToolResult,
+  aggregateStatus,
+  emit,
 } from './lib/findings.ts';
 
 // ---- thresholds (kept local to make tuning explicit) ----
@@ -58,12 +58,58 @@ const STRUCTURAL_WARN = 0.9;
 // fraction of stop-words. Distinctive 5-grams give the coverage check signal.
 const STOPWORD_RATIO_MAX = 0.6;
 const STOPWORDS = new Set([
-  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'been', 'but', 'by',
-  'for', 'from', 'has', 'have', 'he', 'her', 'his', 'i', 'in', 'is',
-  'it', 'its', 'me', 'my', 'no', 'not', 'of', 'on', 'or', 'our',
-  'so', 'that', 'the', 'their', 'them', 'then', 'there', 'they',
-  'this', 'to', 'was', 'we', 'were', 'what', 'when', 'which', 'who',
-  'will', 'with', 'would', 'you', 'your',
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'been',
+  'but',
+  'by',
+  'for',
+  'from',
+  'has',
+  'have',
+  'he',
+  'her',
+  'his',
+  'i',
+  'in',
+  'is',
+  'it',
+  'its',
+  'me',
+  'my',
+  'no',
+  'not',
+  'of',
+  'on',
+  'or',
+  'our',
+  'so',
+  'that',
+  'the',
+  'their',
+  'them',
+  'then',
+  'there',
+  'they',
+  'this',
+  'to',
+  'was',
+  'we',
+  'were',
+  'what',
+  'when',
+  'which',
+  'who',
+  'will',
+  'with',
+  'would',
+  'you',
+  'your',
 ]);
 
 // ---- types ----
@@ -99,8 +145,7 @@ export function driftCheck(input: DriftCheckInput): DriftCheckResult {
   const findings: Finding[] = [];
 
   const rawText = input.mode === 'html' ? stripHtml(input.raw) : input.raw;
-  const cleanedText =
-    input.mode === 'html' ? stripHtml(input.cleaned) : input.cleaned;
+  const cleanedText = input.mode === 'html' ? stripHtml(input.cleaned) : input.cleaned;
 
   const lengthSub = checkLengthRatio(rawText, cleanedText);
   if (lengthSub.finding) findings.push(lengthSub.finding);
@@ -283,8 +328,7 @@ function sampleDistinctiveNgrams(
   const seen = new Set<string>();
   for (let i = 0; i + n <= tokens.length; i++) {
     const window = tokens.slice(i, i + n);
-    const stopFraction =
-      window.filter((t) => STOPWORDS.has(t)).length / window.length;
+    const stopFraction = window.filter((t) => STOPWORDS.has(t)).length / window.length;
     if (stopFraction > STOPWORD_RATIO_MAX) continue;
     const ng = window.join(' ');
     if (seen.has(ng)) continue;
@@ -343,13 +387,10 @@ function checkStructural(
 
   const missingHrefs = rawHrefs.filter((h) => !cleanedHrefs.has(h));
   const missingSrcs = rawSrcs.filter((s) => !cleanedSrcs.has(s));
-  const missingHeadings = rawHeadings.filter(
-    (h) => !cleanedFlat.includes(h.toLowerCase()),
-  );
+  const missingHeadings = rawHeadings.filter((h) => !cleanedFlat.includes(h.toLowerCase()));
 
   const totalRequired = rawHrefs.length + rawSrcs.length + rawHeadings.length;
-  const totalMissing =
-    missingHrefs.length + missingSrcs.length + missingHeadings.length;
+  const totalMissing = missingHrefs.length + missingSrcs.length + missingHeadings.length;
 
   if (totalRequired === 0) {
     return {
@@ -386,8 +427,7 @@ function checkStructural(
   const parts: string[] = [];
   if (missingHrefs.length > 0) parts.push(`${missingHrefs.length} hyperlink(s)`);
   if (missingSrcs.length > 0) parts.push(`${missingSrcs.length} image(s)`);
-  if (missingHeadings.length > 0)
-    parts.push(`${missingHeadings.length} heading(s)`);
+  if (missingHeadings.length > 0) parts.push(`${missingHeadings.length} heading(s)`);
   const summary = parts.join(', ');
 
   const human =
@@ -411,10 +451,7 @@ function checkStructural(
 function extractAttr(html: string, tag: string, attr: string): string[] {
   // Capture both quote styles. We only need attribute values for presence
   // checks, not full HTML parsing.
-  const re = new RegExp(
-    `<${tag}\\b[^>]*?\\b${attr}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`,
-    'gi',
-  );
+  const re = new RegExp(`<${tag}\\b[^>]*?\\b${attr}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'gi');
   const out: string[] = [];
   for (const m of html.matchAll(re)) {
     const v = m[1] ?? m[2];
@@ -487,9 +524,7 @@ if (import.meta.main) {
   const json = hasFlag(args, 'json');
 
   if (!rawPath || !cleanedPath) {
-    process.stderr.write(
-      'drift-check: --raw=<path> and --cleaned=<path> are required\n',
-    );
+    process.stderr.write('drift-check: --raw=<path> and --cleaned=<path> are required\n');
     process.exit(2);
   }
   if (mode !== 'html' && mode !== 'text') {

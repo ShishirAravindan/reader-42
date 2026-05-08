@@ -15,10 +15,10 @@
  * report.schema.json finding shape. Exit code 0 on pass/warn, 1 on fail.
  */
 
-import { existsSync, statSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { getString, hasFlag, parseArgs } from './lib/args.ts';
-import { emit, type Finding, type ToolResult } from './lib/findings.ts';
+import { type Finding, type ToolResult, emit } from './lib/findings.ts';
 
 const PARAGRAPH_MIN_CHARS = 80;
 const PDF_MIN_WORDS = 50;
@@ -145,9 +145,7 @@ if (import.meta.main) {
   const json = hasFlag(args, 'json');
 
   if (sourceType !== 'url' && sourceType !== 'pdf') {
-    process.stderr.write(
-      'verify-extract: --source-type=url|pdf is required\n',
-    );
+    process.stderr.write('verify-extract: --source-type=url|pdf is required\n');
     process.exit(2);
   }
   if (!rawPath) {

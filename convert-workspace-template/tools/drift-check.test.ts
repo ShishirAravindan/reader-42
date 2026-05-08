@@ -31,8 +31,10 @@ describe('drift-check', () => {
   });
 
   test('length ratio failure when cleaned is dramatically shorter', () => {
-    const raw = Array.from({ length: 30 }, (_, i) =>
-      `Distinctive paragraph number ${i} about systems thinking, leverage points, scale, and the design of feedback loops in adaptive organizations.`,
+    const raw = Array.from(
+      { length: 30 },
+      (_, i) =>
+        `Distinctive paragraph number ${i} about systems thinking, leverage points, scale, and the design of feedback loops in adaptive organizations.`,
     ).join('\n\n');
     const cleaned = 'Tiny stub.';
 
@@ -59,9 +61,7 @@ describe('drift-check', () => {
     const result = driftCheck({ raw, cleaned, mode: 'html' });
     expect(result.sub_results.structural.status).toBe('fail');
     expect(result.status).toBe('fail');
-    const structFinding = result.findings.find((f) =>
-      f.id.startsWith('drift-structural'),
-    );
+    const structFinding = result.findings.find((f) => f.id.startsWith('drift-structural'));
     expect(structFinding).toBeDefined();
     expect(structFinding?.severity).toBe('fail');
     const detail = structFinding?.technical_detail as
@@ -75,22 +75,23 @@ describe('drift-check', () => {
     // Cleaned version invents content that does NOT appear in raw. Length
     // stays in range so length_ratio doesn't dominate; the inverse coverage
     // check is what catches hallucination.
-    const raw = `Quantum field theory describes elementary particles as excitations of underlying fields. The Standard Model unifies electromagnetism, the weak force, and the strong force, leaving gravity outside its scope and motivating ongoing work in quantum gravity research.`;
-    const cleaned = `Penguins waddle across icy plains in tightly-packed colonies. Emperor penguins migrate hundreds of kilometers each austral winter to breeding grounds on stable sea ice, where males incubate single eggs through brutal blizzards while females hunt at sea.`;
+    const raw =
+      'Quantum field theory describes elementary particles as excitations of underlying fields. The Standard Model unifies electromagnetism, the weak force, and the strong force, leaving gravity outside its scope and motivating ongoing work in quantum gravity research.';
+    const cleaned =
+      'Penguins waddle across icy plains in tightly-packed colonies. Emperor penguins migrate hundreds of kilometers each austral winter to breeding grounds on stable sea ice, where males incubate single eggs through brutal blizzards while females hunt at sea.';
 
     const result = driftCheck({ raw, cleaned, mode: 'text' });
     expect(result.sub_results.ngram_inv.status).toBe('fail');
     expect(result.status).toBe('fail');
-    const invFinding = result.findings.find((f) =>
-      f.id.startsWith('drift-ngram-inv'),
-    );
+    const invFinding = result.findings.find((f) => f.id.startsWith('drift-ngram-inv'));
     expect(invFinding).toBeDefined();
     expect(invFinding?.severity).toBe('fail');
     expect(invFinding?.human_message).toContain('hallucinated');
   });
 
   test('text mode skips structural check', () => {
-    const raw = 'Some plain text content for a PDF chapter that has no markup at all but plenty of words to fill the buffer for the n-gram coverage check to operate over distinctive phrases like underground caverns, stratified rock, and sediment dynamics.';
+    const raw =
+      'Some plain text content for a PDF chapter that has no markup at all but plenty of words to fill the buffer for the n-gram coverage check to operate over distinctive phrases like underground caverns, stratified rock, and sediment dynamics.';
     const cleaned = raw;
     const result = driftCheck({ raw, cleaned, mode: 'text' });
     expect(result.sub_results.structural.status).toBe('skipped');

@@ -54,9 +54,7 @@ describe('verify-structure', () => {
     });
     const result = verifyStructure(path);
     expect(result.status).toBe('fail');
-    expect(
-      result.findings.find((f) => f.type === 'structure-bad-title'),
-    ).toBeDefined();
+    expect(result.findings.find((f) => f.type === 'structure-bad-title')).toBeDefined();
   });
 
   test('warns on all-caps chapter title', () => {
@@ -68,9 +66,7 @@ describe('verify-structure', () => {
     });
     const result = verifyStructure(path);
     expect(result.status).toBe('warn');
-    expect(
-      result.findings.some((f) => f.id.includes('allcaps')),
-    ).toBe(true);
+    expect(result.findings.some((f) => f.id.includes('allcaps'))).toBe(true);
   });
 
   test('warns on dominant-chapter pattern', () => {
@@ -83,9 +79,7 @@ describe('verify-structure', () => {
     });
     const result = verifyStructure(path);
     expect(result.status).toBe('warn');
-    expect(
-      result.findings.some((f) => f.type === 'structure-dominant-chapter'),
-    ).toBe(true);
+    expect(result.findings.some((f) => f.type === 'structure-dominant-chapter')).toBe(true);
   });
 
   test('fails when all chapter lengths are zero', () => {
@@ -97,9 +91,7 @@ describe('verify-structure', () => {
     });
     const result = verifyStructure(path);
     expect(result.status).toBe('fail');
-    expect(
-      result.findings.some((f) => f.id === 'verify-structure-all-zero'),
-    ).toBe(true);
+    expect(result.findings.some((f) => f.id === 'verify-structure-all-zero')).toBe(true);
   });
 
   test('fails on unparseable JSON', () => {

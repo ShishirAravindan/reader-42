@@ -9,7 +9,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runEpubcheck, type SpawnLike } from './run-epubcheck.ts';
+import { type SpawnLike, runEpubcheck } from './run-epubcheck.ts';
 
 function tmpEpubPath(): string {
   const dir = mkdtempSync(join(tmpdir(), 'epubcheck-test-'));
