@@ -1,0 +1,123 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ConvertReport",
+  "description": "Output of one convert-agent run for a single library item. Defines the calibrated-confidence contract surfaced to the user.",
+  "type": "object",
+  "required": [
+    "item_id",
+    "source_type",
+    "started_at",
+    "ended_at",
+    "stages",
+    "findings",
+    "tokens_used",
+    "wall_clock_ms"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "item_id": { "type": "string" },
+    "source_type": { "enum": ["url", "pdf", "url_series"] },
+    "source_ref": { "type": "string" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "ended_at": { "type": "string", "format": "date-time" },
+    "stages": {
+      "type": "object",
+      "required": ["extract", "structure", "cleanup", "verify", "assemble"],
+      "additionalProperties": false,
+      "properties": {
+        "extract": { "$ref": "#/definitions/stageResult" },
+        "structure": { "$ref": "#/definitions/stageResult" },
+        "cleanup": { "$ref": "#/definitions/stageResult" },
+        "verify": { "$ref": "#/definitions/stageResult" },
+        "assemble": { "$ref": "#/definitions/stageResult" }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/finding" }
+    },
+    "tokens_used": {
+      "type": "integer",
+      "description": "Total tokens consumed (input + output) across all LLM calls in this run.",
+      "minimum": 0
+    },
+    "wall_clock_ms": {
+      "type": "integer",
+      "description": "Total wall-clock duration of the run in milliseconds.",
+      "minimum": 0
+    },
+    "tools_proposed": {
+      "type": "array",
+      "description": "Optional: paths to tool_proposal.md files written during this run. Orchestrator reviews these to promote useful tools into the seed toolbox.",
+      "items": { "type": "string" }
+    }
+  },
+  "definitions": {
+    "stageResult": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["pass", "warn", "fail", "skipped"] },
+        "tools_used": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "chapters": {
+          "type": "integer",
+          "description": "Stage-specific: chapter count after structure/cleanup."
+        },
+        "epub_path": {
+          "type": "string",
+          "description": "Stage-specific: emitted EPUB path after assemble."
+        },
+        "skipped_reason": {
+          "type": "string",
+          "description": "If status=skipped, why."
+        }
+      },
+      "additionalProperties": true
+    },
+    "finding": {
+      "type": "object",
+      "required": ["id", "stage", "severity", "type", "human_message"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable identifier within this report. Used for UI dedup."
+        },
+        "stage": {
+          "enum": ["extract", "structure", "cleanup", "verify", "assemble"]
+        },
+        "severity": {
+          "enum": ["warn", "fail"],
+          "description": "Pass-level findings are not emitted. Only warn or fail."
+        },
+        "type": {
+          "type": "string",
+          "description": "Short kind tag, e.g. 'drift', 'image-fetch', 'epubcheck', 'multi-column-suspect', 'paywall-truncation'."
+        },
+        "scope": {
+          "type": "object",
+          "description": "Where the finding applies. Optional fields that contextualize the finding to a chapter or location.",
+          "properties": {
+            "chapter_index": { "type": "integer", "minimum": 0 },
+            "chapter_title": { "type": "string" },
+            "page_range": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "human_message": {
+          "type": "string",
+          "description": "Calm, plain, useful sentence the user reads. NOT a code or jargon. This is the calibrated-confidence promise. Required.",
+          "minLength": 1
+        },
+        "technical_detail": {
+          "type": "object",
+          "description": "Free-form JSON for diagnostics, displayed in the item-detail page if user expands.",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}

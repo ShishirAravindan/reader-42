@@ -9,6 +9,9 @@ build/
 # Per-user app data — EPUBs, library DB, convert workspaces. Never committed.
 data/
 
+# Subagent worktrees (created by Agent tool with isolation: "worktree").
+.claude/worktrees/
+
 # Environment
 .env
 .env.local
