@@ -59,7 +59,7 @@ export function renderChapter(
       ? doc
       : new DOMParser().parseFromString(html, 'text/html');
 
-  const body = parsedDoc.body ?? parsedDoc.documentElement;
+  const body = findBody(parsedDoc);
   const headLinks = collectHeadStyles(parsedDoc, chapter.path, book, blobUrls);
   rewriteUrls(body, chapter.path, book, blobUrls);
 
@@ -125,6 +125,31 @@ function adoptNode(target: Document, node: Node): Node {
   return target.importNode(node, true);
 }
 
+const NS_XHTML = 'http://www.w3.org/1999/xhtml';
+
+function findBody(doc: Document): Element {
+  if (doc.body) return doc.body;
+  const xhtmlBody = doc.getElementsByTagNameNS(NS_XHTML, 'body').item(0);
+  if (xhtmlBody) return xhtmlBody;
+  const anyBody = doc.getElementsByTagName('body').item(0);
+  if (anyBody) return anyBody;
+  return doc.documentElement;
+}
+
+function findHead(doc: Document): Element | null {
+  if (doc.head) return doc.head;
+  const xhtmlHead = doc.getElementsByTagNameNS(NS_XHTML, 'head').item(0);
+  if (xhtmlHead) return xhtmlHead;
+  return doc.getElementsByTagName('head').item(0);
+}
+
+/** Tag-name lookup that works for both HTML and XHTML namespaces. */
+function allByTag(root: Element, name: string): Element[] {
+  const xhtml = Array.from(root.getElementsByTagNameNS(NS_XHTML, name));
+  if (xhtml.length > 0) return xhtml;
+  return Array.from(root.getElementsByTagName(name));
+}
+
 function collectHeadStyles(
   doc: Document,
   chapterPath: string,
@@ -134,10 +159,10 @@ function collectHeadStyles(
   // Inline external stylesheets and <style> blocks into the shadow so the
   // chapter looks correct without polluting the host.
   const out: HTMLStyleElement[] = [];
-  const head = doc.head;
+  const head = findHead(doc);
   if (!head) return out;
 
-  for (const link of Array.from(head.getElementsByTagName('link'))) {
+  for (const link of allByTag(head, 'link')) {
     const rel = (link.getAttribute('rel') ?? '').toLowerCase();
     if (rel !== 'stylesheet') continue;
     const href = link.getAttribute('href');
@@ -151,7 +176,7 @@ function collectHeadStyles(
     out.push(styleEl);
   }
 
-  for (const styleNode of Array.from(head.getElementsByTagName('style'))) {
+  for (const styleNode of allByTag(head, 'style')) {
     const styleEl = document.createElement('style');
     styleEl.textContent = rewriteCssUrls(styleNode.textContent ?? '', chapterPath, book, blobUrls);
     out.push(styleEl);
