@@ -13,5 +13,9 @@
     "lib": ["ESNext", "DOM"],
     "types": ["bun"]
   },
-  "include": ["apps/**/*.ts", "apps/**/*.tsx"]
+  "include": [
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
+    "convert-workspace-template/tools/**/*.ts"
+  ]
 }
