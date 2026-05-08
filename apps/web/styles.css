@@ -5,15 +5,10 @@
   --app-border: #e7e5e4;
   --app-accent: #1d4ed8;
   --sidebar-width: 18rem;
-  font-family:
-    system-ui,
-    -apple-system,
-    Segoe UI,
-    Roboto,
-    sans-serif;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
 
-[data-theme='sepia'] {
+[data-theme="sepia"] {
   --app-bg: #f4ecd8;
   --app-fg: #3a2e1f;
   --app-muted: #6b5a3e;
@@ -21,7 +16,7 @@
   --app-accent: #7a4a17;
 }
 
-[data-theme='dark'] {
+[data-theme="dark"] {
   --app-bg: #0f0f10;
   --app-fg: #e7e5e4;
   --app-muted: #a8a29e;

@@ -32,13 +32,15 @@ const server = Bun.serve({
     // index.html
     if (path === '/index.html') {
       const file = Bun.file(new URL('./index.html', ROOT));
-      if (await file.exists()) return new Response(file, { headers: { 'Content-Type': 'text/html' } });
+      if (await file.exists())
+        return new Response(file, { headers: { 'Content-Type': 'text/html' } });
     }
 
     // styles.css
     if (path === '/styles.css') {
       const file = Bun.file(new URL('./styles.css', ROOT));
-      if (await file.exists()) return new Response(file, { headers: { 'Content-Type': 'text/css' } });
+      if (await file.exists())
+        return new Response(file, { headers: { 'Content-Type': 'text/css' } });
     }
 
     // /src/*.* assets (e.g., when imported relatively, the browser asks for /src/...)

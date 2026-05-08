@@ -160,12 +160,7 @@ function collectHeadStyles(
   return out;
 }
 
-function rewriteUrls(
-  root: Element,
-  chapterPath: string,
-  book: Book,
-  blobUrls: string[],
-): void {
+function rewriteUrls(root: Element, chapterPath: string, book: Book, blobUrls: string[]): void {
   const rewriteAttr = (el: Element, attr: string): void => {
     const value = el.getAttribute(attr);
     if (!value || isExternal(value) || value.startsWith('#') || value.startsWith('data:')) return;
@@ -201,12 +196,7 @@ function rewriteUrls(
   }
 }
 
-function rewriteCssUrls(
-  css: string,
-  ownerPath: string,
-  book: Book,
-  blobUrls: string[],
-): string {
+function rewriteCssUrls(css: string, ownerPath: string, book: Book, blobUrls: string[]): string {
   return css.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, (match, _quote, raw) => {
     const url = String(raw).trim();
     if (isExternal(url) || url.startsWith('data:') || url.startsWith('#')) return match;
@@ -258,7 +248,10 @@ function escapeHtml(s: string): string {
   });
 }
 
-const THEMES: Record<RenderOptions['theme'], { bg: string; fg: string; link: string; muted: string }> = {
+const THEMES: Record<
+  RenderOptions['theme'],
+  { bg: string; fg: string; link: string; muted: string }
+> = {
   light: { bg: '#fafaf9', fg: '#1c1917', link: '#1d4ed8', muted: '#57534e' },
   sepia: { bg: '#f4ecd8', fg: '#3a2e1f', link: '#7a4a17', muted: '#6b5a3e' },
   dark: { bg: '#0f0f10', fg: '#e7e5e4', link: '#93c5fd', muted: '#a8a29e' },

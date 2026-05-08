@@ -1,8 +1,8 @@
 // Public EPUB loader. `loadEpub` returns a `Book` keyed by content hash.
 
+import { buildChapters, parseContainer, parseNav, parseNcx, parseOpf } from './parser.ts';
 import type { Book, Chapter, Resource, TocEntry } from './types.ts';
 import { Zip } from './zip.ts';
-import { buildChapters, parseContainer, parseNav, parseNcx, parseOpf } from './parser.ts';
 
 export type { Book, Chapter, Resource, TocEntry, BookMetadata } from './types.ts';
 
@@ -99,9 +99,10 @@ async function toBytes(input: File | ArrayBuffer | Uint8Array): Promise<Uint8Arr
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   // Always produce a deterministic 16-char prefix to keep storage keys short.
-  const ab = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
-    ? (bytes.buffer as ArrayBuffer)
-    : bytes.slice().buffer;
+  const ab =
+    bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+      ? (bytes.buffer as ArrayBuffer)
+      : bytes.slice().buffer;
   const digest = await crypto.subtle.digest('SHA-256', ab);
   const view = new Uint8Array(digest);
   let hex = '';

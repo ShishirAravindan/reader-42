@@ -2,7 +2,7 @@
 // a single auto-load button that fetches the bundled fixture.
 
 import { loadEpub } from './epub/index.ts';
-import { ReaderUI, type ReaderElements } from './reader/ui.ts';
+import { type ReaderElements, ReaderUI } from './reader/ui.ts';
 
 const FIXTURE_URL = '/fixtures/test-book.epub';
 

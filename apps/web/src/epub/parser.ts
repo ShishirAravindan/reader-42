@@ -7,8 +7,8 @@
 //
 // We use the browser DOMParser. XHTML/XML inside an EPUB is well-formed by spec.
 
-import type { BookMetadata, Chapter, TocEntry } from './types.ts';
 import { resolveAgainst, splitFragment } from './path.ts';
+import type { BookMetadata, Chapter, TocEntry } from './types.ts';
 
 const NS_CONTAINER = 'urn:oasis:names:tc:opendocument:xmlns:container';
 const NS_OPF = 'http://www.idpf.org/2007/opf';
@@ -123,7 +123,8 @@ export function parseNav(xml: string, navPath: string): TocEntry[] {
     const nav = navs.item(i);
     if (!nav) continue;
     // epub:type lives in the EPUB ops namespace; some files leave it unprefixed.
-    const epubType = nav.getAttributeNS('http://www.idpf.org/2007/ops', 'type') ?? nav.getAttribute('epub:type');
+    const epubType =
+      nav.getAttributeNS('http://www.idpf.org/2007/ops', 'type') ?? nav.getAttribute('epub:type');
     if (epubType === 'toc') {
       target = nav;
       break;

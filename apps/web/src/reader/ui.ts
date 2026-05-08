@@ -9,14 +9,14 @@
 //   - Position + prefs persistence
 
 import type { Book, Chapter, TocEntry } from '../epub/index.ts';
-import { applyOptions, renderChapter, type RenderedChapter } from './renderer.ts';
+import { type RenderedChapter, applyOptions, renderChapter } from './renderer.ts';
 import {
   DEFAULT_PREFS,
+  type ReaderPrefs,
   loadBookState,
   loadGlobalPrefs,
   saveBookState,
   saveGlobalPrefs,
-  type ReaderPrefs,
 } from './state.ts';
 
 export interface ReaderElements {
@@ -262,7 +262,10 @@ export class ReaderUI {
     this.elements.nextBtn.disabled = this.chapterIndex >= total - 1 || total === 0;
     for (const btn of this.elements.fontButtons) {
       const size = btn.dataset.size as 's' | 'm' | 'l' | undefined;
-      btn.classList.toggle('is-active', size !== undefined && FONT_SCALES[size] === this.prefs.fontScale);
+      btn.classList.toggle(
+        'is-active',
+        size !== undefined && FONT_SCALES[size] === this.prefs.fontScale,
+      );
     }
     for (const btn of this.elements.themeButtons) {
       btn.classList.toggle('is-active', btn.dataset.theme === this.prefs.theme);
