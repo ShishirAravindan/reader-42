@@ -18,9 +18,13 @@ The convert workspace `CLAUDE.md` + skills + `report.json` schema is the load-be
 
 Lefthook auto-installs its git hooks via its own package postinstall script. "Defer the decision until later" by skipping the explicit `lefthook install` doesn't actually defer if `bun install` already ran with lefthook in `devDependencies`. Pattern: when the user wants to defer a setup step, also defer adding the package; or explicitly note the postinstall side-effect. Don't assume the lever you reached for is the only one wired up.
 
+## 2026-05-09 — `isolation: "worktree"` doesn't auto-relocate the subagent's cwd
+
+Even with `isolation: "worktree"` on the `Agent` invocation, the subagent's process inherits the parent's cwd at startup — the worktree exists on disk at `.claude/worktrees/agent-<id>/` but the subagent must explicitly `cd` there (or pass that absolute path to all file operations) to actually use it. Observed during the verify-toolbox spawn: the worktree was created and locked, but the subagent's writes landed in the main worktree, leaving their isolated worktree empty. Pattern: when prompting subagents for parallel work, give them the explicit absolute worktree path and instruct them to `cd` to it as step 0. Don't rely on the harness alone to relocate them. Worth folding into a reusable subagent-prompt preamble so every parallel spawn gets it.
+
 ## 2026-05-09 — Use `isolation: "worktree"` for parallel subagent work
 
-Spawning a subagent for a contained chunk (the no-deps reader) while continuing different work (server skeleton) on a different branch requires `isolation: "worktree"` on the `Agent` invocation. Without it the subagent shares the orchestrator's cwd and writes WIP files directly into the working tree — you see their untracked files in your `git status`, their errors in your `bun run typecheck`/`lint`, and you risk staging their work into your PR. Pattern: any time you spawn an `Agent` in parallel that will branch+commit, set `isolation: "worktree"`. The orchestrator's PR scope stays clean; the subagent's branch is independent on disk.
+Spawning a subagent for a contained chunk (the no-deps reader) while continuing different work (server skeleton) on a different branch requires `isolation: "worktree"` on the `Agent` invocation. Without it the subagent shares the orchestrator's cwd and writes WIP files directly into the working tree — you see their untracked files in your `git status`, their errors in your `bun run typecheck`/`lint`, and you risk staging their work into your PR. Pattern: any time you spawn an `Agent` in parallel that will branch+commit, set `isolation: "worktree"`. The orchestrator's PR scope stays clean; the subagent's branch is independent on disk. (See companion entry above on the cwd subtlety.)
 
 ## 2026-05-09 — PRs are a diff plus an evidence pack
 
