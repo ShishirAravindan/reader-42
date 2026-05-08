@@ -8,6 +8,8 @@
     "noImplicitOverride": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "lib": ["ESNext", "DOM"],
     "types": ["bun"]
   },

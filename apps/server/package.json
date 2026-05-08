@@ -4,9 +4,17 @@
   "type": "module",
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "start": "bun run src/index.ts"
+    "start": "bun run src/index.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push"
   },
   "dependencies": {
-    "hono": "^4.6.0"
+    "@hono/zod-validator": "^0.7.6",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.6.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.10"
   }
 }
