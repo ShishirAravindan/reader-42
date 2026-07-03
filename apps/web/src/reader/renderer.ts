@@ -108,6 +108,7 @@ export function applyOptions(host: HTMLElement, options: RenderOptions): void {
   host.style.setProperty('--reader-fg', theme.fg);
   host.style.setProperty('--reader-link', theme.link);
   host.style.setProperty('--reader-muted', theme.muted);
+  host.style.setProperty('--reader-mark', theme.mark);
 }
 
 function makeStub(host: HTMLElement): RenderedChapter {
@@ -275,31 +276,52 @@ function escapeHtml(s: string): string {
   });
 }
 
+// Mirrors the app-chrome tokens in styles.css — change them together.
 const THEMES: Record<
   RenderOptions['theme'],
-  { bg: string; fg: string; link: string; muted: string }
+  { bg: string; fg: string; link: string; muted: string; mark: string }
 > = {
-  light: { bg: '#fafaf9', fg: '#1c1917', link: '#1d4ed8', muted: '#57534e' },
-  sepia: { bg: '#f4ecd8', fg: '#3a2e1f', link: '#7a4a17', muted: '#6b5a3e' },
-  dark: { bg: '#0f0f10', fg: '#e7e5e4', link: '#93c5fd', muted: '#a8a29e' },
+  light: {
+    bg: '#f5f4ef',
+    fg: '#24211b',
+    link: '#33518a',
+    muted: '#6e6759',
+    mark: 'rgba(240, 210, 100, 0.45)',
+  },
+  sepia: {
+    bg: '#f1e8d5',
+    fg: '#443929',
+    link: '#4f618e',
+    muted: '#7c6d52',
+    mark: 'rgba(214, 170, 60, 0.4)',
+  },
+  dark: {
+    bg: '#16140f',
+    fg: '#d9d3c5',
+    link: '#94b0e0',
+    muted: '#96907e',
+    mark: 'rgba(228, 190, 80, 0.26)',
+  },
 };
 
 const SHADOW_BASE_CSS = `
   :host {
     --reader-font-scale: 1;
-    --reader-bg: #fafaf9;
-    --reader-fg: #1c1917;
-    --reader-link: #1d4ed8;
-    --reader-muted: #57534e;
+    --reader-bg: #f5f4ef;
+    --reader-fg: #24211b;
+    --reader-link: #33518a;
+    --reader-muted: #6e6759;
+    --reader-mark: rgba(240, 210, 100, 0.45);
     display: block;
     color: var(--reader-fg);
     background: var(--reader-bg);
   }
+  ::selection { background: var(--reader-mark); }
   .reader-chapter {
     max-width: 38rem;
     margin: 0 auto;
     padding: 2.5rem 1.5rem 6rem;
-    font-family: 'Iowan Old Style', 'Georgia', 'Cambria', serif;
+    font-family: 'Charter', 'Bitstream Charter', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
     font-size: calc(1.05rem * var(--reader-font-scale));
     line-height: 1.65;
   }
@@ -308,13 +330,18 @@ const SHADOW_BASE_CSS = `
     font-family: inherit;
     line-height: 1.25;
     margin: 1.6em 0 0.6em;
+    text-wrap: balance;
   }
   .reader-chapter h1 { font-size: calc(1.7rem * var(--reader-font-scale)); }
   .reader-chapter h2 { font-size: calc(1.35rem * var(--reader-font-scale)); }
   .reader-chapter h3 { font-size: calc(1.15rem * var(--reader-font-scale)); }
-  .reader-chapter a { color: var(--reader-link); }
+  .reader-chapter a {
+    color: var(--reader-link);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.15em;
+  }
   .reader-chapter blockquote {
-    border-left: 3px solid var(--reader-muted);
+    border-left: 2px solid var(--reader-link);
     margin: 1em 0;
     padding: 0 0 0 1em;
     color: var(--reader-muted);
