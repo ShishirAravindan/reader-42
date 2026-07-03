@@ -1,7 +1,7 @@
 # 0004 — Convert workspace shape and server integration
 
 Date: 2026-05-09
-Status: Accepted
+Status: Superseded by [0005](0005-rescope-library-reader-highlights.md) — the convert workspace (template, toolbox, and server integration) was deleted when conversion moved to [reflow-to-epub](https://github.com/ShishirAravindan/reflow-to-epub).
 
 ## Context
 

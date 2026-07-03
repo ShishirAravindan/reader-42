@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "08f4efd9-01ef-4c2f-b4af-eba61a2d828a",
+  "id": "ba2e1612-a5e1-4958-ba9d-a8d1631f7e58",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "items": {
@@ -11,20 +11,6 @@
           "name": "id",
           "type": "text",
           "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source_type": {
-          "name": "source_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source_ref": {
-          "name": "source_ref",
-          "type": "text",
-          "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
@@ -48,47 +34,17 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'captured'"
-        },
-        "paused": {
-          "name": "paused",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "quarantined": {
-          "name": "quarantined",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "workspace_path": {
-          "name": "workspace_path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "default": "'unread'"
         },
         "epub_path": {
           "name": "epub_path",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
-        "report_path": {
-          "name": "report_path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "captured_at": {
-          "name": "captured_at",
+        "imported_at": {
+          "name": "imported_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,

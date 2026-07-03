@@ -6,7 +6,7 @@ dist/
 build/
 *.tsbuildinfo
 
-# Per-user app data — EPUBs, library DB, convert workspaces. Never committed.
+# Per-user app data — EPUBs, library DB. Never committed.
 data/
 
 # Subagent worktrees (created by Agent tool with isolation: "worktree").

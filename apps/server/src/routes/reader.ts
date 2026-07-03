@@ -10,8 +10,8 @@ reader.get('/:id/epub', async (c) => {
   const id = c.req.param('id');
   const [item] = await db.select().from(items).where(eq(items.id, id)).limit(1);
   if (!item) return c.json({ error: 'not found' }, 404);
-  if (!item.epubPath || !fs.existsSync(item.epubPath)) {
-    return c.json({ error: 'epub not ready' }, 404);
+  if (!fs.existsSync(item.epubPath)) {
+    return c.json({ error: 'epub file missing' }, 404);
   }
 
   const file = Bun.file(item.epubPath);
@@ -21,18 +21,6 @@ reader.get('/:id/epub', async (c) => {
       'Content-Disposition': `inline; filename="${item.id}.epub"`,
     },
   });
-});
-
-reader.get('/:id/report', async (c) => {
-  const id = c.req.param('id');
-  const [item] = await db.select().from(items).where(eq(items.id, id)).limit(1);
-  if (!item) return c.json({ error: 'not found' }, 404);
-  if (!item.reportPath || !fs.existsSync(item.reportPath)) {
-    return c.json({ report: null });
-  }
-
-  const content = await Bun.file(item.reportPath).text();
-  return c.json({ report: JSON.parse(content) });
 });
 
 export default reader;
