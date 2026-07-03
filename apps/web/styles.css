@@ -68,11 +68,197 @@ body {
 }
 
 #app {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
   height: 100vh;
   background: var(--app-bg);
   color: var(--app-fg);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.reader-app {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+}
+
+/* ---- library shelf ---- */
+
+.library {
+  height: 100%;
+  overflow-y: auto;
+  padding: clamp(1.5rem, 5vh, 3.5rem) clamp(1rem, 5vw, 2.5rem);
+}
+
+.lib-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  max-width: 44rem;
+  margin: 0 auto 1.6rem;
+  border-bottom: 1px solid var(--app-border);
+  padding-bottom: 1.1rem;
+}
+
+.lib-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.9rem;
+}
+
+.lib-title {
+  font-size: 1.9rem;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.lib-count {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  color: var(--app-muted);
+}
+
+.lib-list {
+  list-style: none;
+  margin: 0 auto;
+  padding: 0;
+  max-width: 44rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.lib-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: var(--app-raised);
+  border: 1px solid var(--app-border);
+  border-radius: 5px;
+  padding: 0.85rem 1.1rem;
+}
+
+.lib-open {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--font-serif);
+  color: var(--app-fg);
+  min-width: 0;
+}
+
+.lib-book-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.lib-open:hover .lib-book-title {
+  color: var(--app-accent);
+}
+
+.lib-book-author {
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--app-muted);
+}
+
+.lib-book-author:empty {
+  display: none;
+}
+
+.lib-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex: none;
+}
+
+.lib-date {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--app-muted);
+}
+
+.lib-state {
+  font-family: var(--font-serif);
+  font-size: 0.82rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--app-border);
+  border-radius: 4px;
+  background: var(--app-raised);
+  color: var(--app-muted);
+  cursor: pointer;
+}
+
+.lib-state:hover {
+  border-color: var(--app-accent);
+  color: var(--app-accent);
+}
+
+.lib-state[data-state="reading"] {
+  color: var(--app-accent);
+  border-color: var(--app-accent);
+}
+
+.lib-state:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
+
+.lib-empty {
+  max-width: 44rem;
+  margin: 4rem auto;
+  text-align: center;
+  color: var(--app-muted);
+}
+
+.lib-empty-title {
+  font-size: 1.2rem;
+  font-style: italic;
+  margin: 0 0 0.5rem;
+  color: var(--app-fg);
+}
+
+.lib-empty p {
+  margin: 0 0 0.4rem;
+  line-height: 1.7;
+}
+
+.lib-empty-hint {
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.drop-veil {
+  position: fixed;
+  inset: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--app-accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--app-bg) 82%, transparent);
+  color: var(--app-accent);
+  font-size: 1.3rem;
+  font-style: italic;
+  pointer-events: none;
+  z-index: 40;
 }
 
 .topbar {
@@ -192,6 +378,16 @@ body {
   grid-template-columns: var(--sidebar-width) 1fr;
   min-height: 0;
   overflow: hidden;
+}
+
+@media (max-width: 700px) {
+  .layout {
+    grid-template-columns: 0 1fr;
+  }
+
+  #app:not(.toc-collapsed) .layout {
+    grid-template-columns: min(75vw, var(--sidebar-width)) 1fr;
+  }
 }
 
 #app.toc-collapsed .layout {

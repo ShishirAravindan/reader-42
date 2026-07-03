@@ -6,9 +6,17 @@ export interface ReaderPrefs {
   theme: 'light' | 'sepia' | 'dark';
 }
 
+export interface PositionAnchorState {
+  path: number[];
+  ratio: number;
+}
+
 export interface ReaderPosition {
   chapter: number;
+  /** Raw pixel offset — fallback when no anchor resolves. */
   scroll: number;
+  /** Structural locator (see renderer.ts PositionAnchor); mode-independent. */
+  anchor?: PositionAnchorState;
 }
 
 export interface ReaderState {
@@ -60,10 +68,20 @@ export function loadBookState(bookId: string): ReaderState | null {
     if (!parsed.position) return null;
     const chapter = Number(parsed.position.chapter ?? 0);
     const scroll = Number(parsed.position.scroll ?? 0);
+    const rawAnchor = parsed.position.anchor;
+    const anchor =
+      rawAnchor &&
+      Array.isArray(rawAnchor.path) &&
+      rawAnchor.path.every((step) => Number.isInteger(step) && step >= 0) &&
+      typeof rawAnchor.ratio === 'number' &&
+      Number.isFinite(rawAnchor.ratio)
+        ? { path: rawAnchor.path, ratio: Math.min(Math.max(rawAnchor.ratio, -1), 2) }
+        : undefined;
     return {
       position: {
         chapter: Number.isFinite(chapter) && chapter >= 0 ? Math.floor(chapter) : 0,
         scroll: Number.isFinite(scroll) && scroll >= 0 ? scroll : 0,
+        ...(anchor ? { anchor } : {}),
       },
       prefs: { ...DEFAULT_PREFS, ...(parsed.prefs ?? {}) },
     };

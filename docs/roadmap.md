@@ -10,6 +10,8 @@ Re-scope docs (vision, non-goals, CLAUDE.md, ADR 0005), delete convert/capture c
 
 The walking skeleton: a book gets in, gets read, position survives.
 
+> **Status 2026-07-03:** core landed — import + shelf UI, one-process serving, structural position anchor (restore verified across reload; font-size reflow re-anchors), 14 server tests. Evidence: `docs/evidence/m1-core/`. The paper-and-ink aesthetic was adopted ahead of schedule, so the mockup checkpoint becomes variant tuning (see evidence README's open questions).
+
 - **Import**: `POST /library/import` (multipart) + drag-drop and file-picker in the library UI; title/author parsed from the EPUB's OPF; file stored under `data/epubs/`. Reject invalid EPUBs with a clear message.
 - **Library UI**: list of books (title, author, state, imported date); state transitions (`unread → reading → finished | dnf`); open a book into the reader.
 - **Serve the reader from the server**: `apps/web` served by the Hono app on `:4242` (currently a standalone dev server), reachable from LAN devices.

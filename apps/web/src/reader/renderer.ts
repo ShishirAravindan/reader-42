@@ -16,6 +16,17 @@ export interface RenderOptions {
   theme: 'light' | 'sepia' | 'dark';
 }
 
+/**
+ * Structural position inside a chapter: child-index path from the chapter
+ * wrapper to the topmost visible element, plus how far into that element the
+ * viewport top sits (0..1). Survives font-scale changes and, later, display-
+ * mode switches — unlike a raw pixel offset (ADR 0005).
+ */
+export interface PositionAnchor {
+  path: number[];
+  ratio: number;
+}
+
 export interface RenderedChapter {
   /** Element host for the shadow root. */
   host: HTMLElement;
@@ -26,6 +37,9 @@ export interface RenderedChapter {
   /** Get/set the chapter scroll offset. */
   getScroll(): number;
   setScroll(offset: number): void;
+  /** Structural locator for the current viewport top. */
+  getAnchor(): PositionAnchor | null;
+  scrollToAnchor(anchor: PositionAnchor): void;
 }
 
 const SHADOW_HOST_TAG = 'div';
@@ -97,8 +111,79 @@ export function renderChapter(
   const setScroll = (offset: number): void => {
     mount.scrollTop = offset;
   };
+  const getAnchor = (): PositionAnchor | null => anchorFor(wrapper, mount);
+  const scrollToAnchor = (anchor: PositionAnchor): void => resolveAnchor(wrapper, mount, anchor);
 
-  return { host, dispose, scrollToFragment, getScroll, setScroll };
+  return { host, dispose, scrollToFragment, getScroll, setScroll, getAnchor, scrollToAnchor };
+}
+
+function absoluteTop(el: Element, mount: HTMLElement): number {
+  return el.getBoundingClientRect().top - mount.getBoundingClientRect().top + mount.scrollTop;
+}
+
+function anchorFor(wrapper: HTMLElement, mount: HTMLElement): PositionAnchor | null {
+  const scrollTop = mount.scrollTop;
+  if (scrollTop <= 0) return { path: [], ratio: 0 };
+
+  const path: number[] = [];
+  let current: Element = wrapper;
+  for (;;) {
+    const kids = Array.from(current.children);
+    // Prefer the kid whose box spans the viewport top; when the top sits in a
+    // margin/padding gap between blocks, anchor to the nearest following kid
+    // (negative ratio) or, past the last block, to the last kid (ratio > 1).
+    let spanning = -1;
+    let following = -1;
+    let last = -1;
+    for (let i = 0; i < kids.length; i++) {
+      const kid = kids[i];
+      if (!kid) continue;
+      last = i;
+      const top = absoluteTop(kid, mount);
+      if (top > scrollTop) {
+        following = i;
+        break;
+      }
+      if (top + kid.getBoundingClientRect().height > scrollTop) {
+        spanning = i;
+        break;
+      }
+    }
+    if (spanning >= 0) {
+      const next = kids[spanning];
+      if (!next) break;
+      path.push(spanning);
+      current = next;
+      if (current.children.length === 0) break;
+      continue;
+    }
+    const fallback = following >= 0 ? following : last;
+    const next = fallback >= 0 ? kids[fallback] : undefined;
+    if (next) {
+      path.push(fallback);
+      current = next;
+    }
+    break;
+  }
+
+  if (path.length === 0) return { path: [], ratio: 0 };
+  const height = current.getBoundingClientRect().height;
+  const ratio = height > 0 ? (scrollTop - absoluteTop(current, mount)) / height : 0;
+  return { path, ratio: Math.min(Math.max(ratio, -1), 2) };
+}
+
+function resolveAnchor(wrapper: HTMLElement, mount: HTMLElement, anchor: PositionAnchor): void {
+  let el: Element = wrapper;
+  for (const index of anchor.path) {
+    const kid = el.children.item(index);
+    if (!kid) break;
+    el = kid;
+  }
+  if (el === wrapper) {
+    mount.scrollTop = 0;
+    return;
+  }
+  mount.scrollTop = absoluteTop(el, mount) + anchor.ratio * el.getBoundingClientRect().height;
 }
 
 export function applyOptions(host: HTMLElement, options: RenderOptions): void {
@@ -118,6 +203,8 @@ function makeStub(host: HTMLElement): RenderedChapter {
     scrollToFragment: (): void => {},
     getScroll: (): number => 0,
     setScroll: (): void => {},
+    getAnchor: (): PositionAnchor | null => null,
+    scrollToAnchor: (): void => {},
   };
 }
 
