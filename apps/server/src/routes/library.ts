@@ -6,9 +6,10 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { EPUBS_DIR, ensureDataDirs } from '../data-paths.ts';
 import { db } from '../db/client.ts';
-import { items, readingSessions } from '../db/schema.ts';
+import { highlights as highlightsTable, items, readingSessions } from '../db/schema.ts';
 import { type EpubMeta, InvalidEpubError, readEpubMeta } from '../epub-meta.ts';
 import { readEpubText } from '../epub-text.ts';
+import highlightRoutes from './highlights.ts';
 
 const MAX_EPUB_BYTES = 200 * 1024 * 1024;
 
@@ -140,6 +141,37 @@ library.patch('/:id/progress', zValidator('json', progressSchema), async (c) => 
   if (!item) return c.json({ error: 'not found' }, 404);
   return c.json({ item });
 });
+
+// The Logseq off-ramp: one markdown outline per book, thin by design —
+// highlight text, note, chapter, and a deep link back into the reader.
+library.get('/:id/logseq.md', async (c) => {
+  const id = c.req.param('id');
+  const [item] = await db.select().from(items).where(eq(items.id, id)).limit(1);
+  if (!item) return c.json({ error: 'not found' }, 404);
+  const rows = await db
+    .select()
+    .from(highlightsTable)
+    .where(eq(highlightsTable.itemId, id))
+    .orderBy(highlightsTable.chapter, highlightsTable.startOffset);
+  const origin = new URL(c.req.url).origin;
+  const today = new Date().toISOString().slice(0, 10);
+  const lines: string[] = [
+    `- [[${item.title ?? 'Untitled'}]]${item.author ? ` by ${item.author}` : ''} #reader-42`,
+    `  exported:: ${today}`,
+  ];
+  for (const hl of rows) {
+    lines.push(`\t- "${hl.text.replace(/\s+/g, ' ').trim()}"`);
+    lines.push(`\t  chapter:: ${hl.chapter + 1}`);
+    lines.push(`\t  link:: ${origin}/#/book/${id}/hl/${hl.id}`);
+    if (hl.note) lines.push(`\t  note:: ${hl.note.replace(/\s+/g, ' ').trim()}`);
+  }
+  return c.body(`${lines.join('\n')}\n`, 200, {
+    'Content-Type': 'text/markdown; charset=utf-8',
+    'Content-Disposition': `attachment; filename="${(item.title ?? 'highlights').replace(/[^\w -]/g, '')}.md"`,
+  });
+});
+
+library.route('/:id/highlights', highlightRoutes);
 
 const sessionSchema = z.object({ seconds: z.number().int().min(1).max(86400) });
 

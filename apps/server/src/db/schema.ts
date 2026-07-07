@@ -16,6 +16,20 @@ export const items = sqliteTable('items', {
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 });
 
+export const highlights = sqliteTable('highlights', {
+  id: text('id').primaryKey(),
+  itemId: text('item_id').notNull(),
+  chapter: integer('chapter').notNull(),
+  /** JSON-encoded element-index paths + char offsets (see web renderer). */
+  startPath: text('start_path').notNull(),
+  startOffset: integer('start_offset').notNull(),
+  endPath: text('end_path').notNull(),
+  endOffset: integer('end_offset').notNull(),
+  text: text('text').notNull(),
+  note: text('note'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
 export const readingSessions = sqliteTable('reading_sessions', {
   id: text('id').primaryKey(),
   itemId: text('item_id').notNull(),
