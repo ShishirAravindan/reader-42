@@ -44,10 +44,38 @@
             </div>
           </div>
           <div class="topbar-right">
-            <div class="control-group" role="group" aria-label="Font size">
-              <button class="control-btn" type="button" data-size="s">A-</button>
-              <button class="control-btn" type="button" data-size="m">A</button>
-              <button class="control-btn" type="button" data-size="l">A+</button>
+            <div class="control-group" role="group" aria-label="Display mode">
+              <button class="control-btn" type="button" data-mode="scroll">Scroll</button>
+              <button class="control-btn" type="button" data-mode="paged">Pages</button>
+            </div>
+            <div class="typo-wrap">
+              <button id="btn-typo" type="button" class="control-btn typo-toggle" aria-haspopup="true" aria-expanded="false" aria-label="Typography settings">Aa</button>
+              <div id="typo-panel" class="typo-panel" hidden>
+                <div class="typo-row">
+                  <span class="typo-label">Size</span>
+                  <div class="control-group" role="group" aria-label="Font size">
+                    <button class="control-btn" type="button" data-size="s">A-</button>
+                    <button class="control-btn" type="button" data-size="m">A</button>
+                    <button class="control-btn" type="button" data-size="l">A+</button>
+                  </div>
+                </div>
+                <div class="typo-row">
+                  <span class="typo-label">Measure</span>
+                  <div class="control-group" role="group" aria-label="Line width">
+                    <button class="control-btn" type="button" data-measure="s">Narrow</button>
+                    <button class="control-btn" type="button" data-measure="m">Default</button>
+                    <button class="control-btn" type="button" data-measure="l">Wide</button>
+                  </div>
+                </div>
+                <div class="typo-row">
+                  <span class="typo-label">Leading</span>
+                  <div class="control-group" role="group" aria-label="Line spacing">
+                    <button class="control-btn" type="button" data-leading="s">Compact</button>
+                    <button class="control-btn" type="button" data-leading="m">Default</button>
+                    <button class="control-btn" type="button" data-leading="l">Airy</button>
+                  </div>
+                </div>
+              </div>
             </div>
             <div class="control-group" role="group" aria-label="Theme">
               <button class="control-btn" type="button" data-theme="light">Light</button>

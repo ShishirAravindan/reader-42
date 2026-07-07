@@ -34,6 +34,11 @@ export interface ReaderElements {
   nextBtn: HTMLButtonElement;
   fontButtons: HTMLButtonElement[];
   themeButtons: HTMLButtonElement[];
+  modeButtons: HTMLButtonElement[];
+  measureButtons: HTMLButtonElement[];
+  leadingButtons: HTMLButtonElement[];
+  typoToggle: HTMLButtonElement;
+  typoPanel: HTMLElement;
   tocToggle: HTMLButtonElement;
   chapterLabel: HTMLElement;
 }
@@ -77,35 +82,127 @@ export class ReaderUI {
   }
 
   private bindControls(): void {
-    const { prevBtn, nextBtn, fontButtons, themeButtons, tocToggle, viewport } = this.elements;
+    const {
+      prevBtn,
+      nextBtn,
+      fontButtons,
+      themeButtons,
+      modeButtons,
+      measureButtons,
+      leadingButtons,
+      typoToggle,
+      typoPanel,
+      tocToggle,
+      viewport,
+    } = this.elements;
 
     prevBtn.addEventListener('click', () => this.goPrev());
     nextBtn.addEventListener('click', () => this.goNext());
 
-    for (const btn of fontButtons) {
-      btn.addEventListener('click', () => {
-        const size = btn.dataset.size as 's' | 'm' | 'l' | undefined;
-        if (!size) return;
-        this.prefs = { ...this.prefs, fontScale: FONT_SCALES[size] };
-        this.applyPrefs();
-        this.persist();
-      });
-    }
-    for (const btn of themeButtons) {
-      btn.addEventListener('click', () => {
-        const theme = btn.dataset.theme as ReaderPrefs['theme'] | undefined;
-        if (!theme) return;
-        this.prefs = { ...this.prefs, theme };
-        this.applyPrefs();
-        this.persist();
-      });
-    }
+    const prefButton = (
+      buttons: HTMLButtonElement[],
+      read: (btn: HTMLButtonElement) => Partial<ReaderPrefs> | null,
+    ): void => {
+      for (const btn of buttons) {
+        btn.addEventListener('click', () => {
+          const patch = read(btn);
+          if (!patch) return;
+          this.prefs = { ...this.prefs, ...patch };
+          this.applyPrefs();
+          this.persist();
+        });
+      }
+    };
+
+    prefButton(fontButtons, (btn) => {
+      const size = btn.dataset.size as 's' | 'm' | 'l' | undefined;
+      return size ? { fontScale: FONT_SCALES[size] } : null;
+    });
+    prefButton(themeButtons, (btn) => {
+      const theme = btn.dataset.theme as ReaderPrefs['theme'] | undefined;
+      return theme ? { theme } : null;
+    });
+    prefButton(modeButtons, (btn) => {
+      const mode = btn.dataset.mode as ReaderPrefs['mode'] | undefined;
+      return mode ? { mode } : null;
+    });
+    prefButton(measureButtons, (btn) => {
+      const measure = btn.dataset.measure as ReaderPrefs['measure'] | undefined;
+      return measure ? { measure } : null;
+    });
+    prefButton(leadingButtons, (btn) => {
+      const leading = btn.dataset.leading as ReaderPrefs['leading'] | undefined;
+      return leading ? { leading } : null;
+    });
+
+    typoToggle.addEventListener('click', () => {
+      const open = typoPanel.hidden;
+      typoPanel.hidden = !open;
+      typoToggle.setAttribute('aria-expanded', String(open));
+    });
+    document.addEventListener('click', (event) => {
+      if (typoPanel.hidden) return;
+      const path = event.composedPath();
+      if (path.includes(typoPanel) || path.includes(typoToggle)) return;
+      typoPanel.hidden = true;
+      typoToggle.setAttribute('aria-expanded', 'false');
+    });
+
     tocToggle.addEventListener('click', () => {
       this.elements.root.classList.toggle('toc-collapsed');
     });
 
-    viewport.addEventListener('scroll', () => this.schedulePersist(), { passive: true });
+    viewport.addEventListener(
+      'scroll',
+      () => {
+        this.schedulePersist();
+        this.updateChapterLabel();
+      },
+      { passive: true },
+    );
     viewport.addEventListener('click', (event) => this.onViewportClick(event));
+
+    // Swipe page turns (paged mode).
+    let touchStartX = 0;
+    let touchStartY = 0;
+    viewport.addEventListener(
+      'touchstart',
+      (event) => {
+        const touch = event.touches[0];
+        if (!touch) return;
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+      },
+      { passive: true },
+    );
+    viewport.addEventListener(
+      'touchend',
+      (event) => {
+        if (this.prefs.mode !== 'paged') return;
+        const touch = event.changedTouches[0];
+        if (!touch) return;
+        const dx = touch.clientX - touchStartX;
+        const dy = touch.clientY - touchStartY;
+        if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2) return;
+        if (dx < 0) this.goNext();
+        else this.goPrev();
+      },
+      { passive: true },
+    );
+
+    // Reflow pages on resize, keeping the position via the anchor.
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    window.addEventListener('resize', () => {
+      if (resizeTimer !== null) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        resizeTimer = null;
+        if (!this.rendered || this.prefs.mode !== 'paged') return;
+        const anchor = this.rendered.getAnchor();
+        applyOptions(this.rendered.host, this.renderOptions());
+        if (anchor) this.rendered.scrollToAnchor(anchor);
+        this.updateChapterLabel();
+      }, 150);
+    });
 
     document.addEventListener('keydown', (event) => {
       const target = event.target as HTMLElement | null;
@@ -131,7 +228,18 @@ export class ReaderUI {
         break;
       }
     }
-    if (!anchor) return;
+    if (!anchor) {
+      // No link under the tap: in paged mode the side thirds are page-turn
+      // zones (unless the tap was a text selection).
+      if (this.prefs.mode !== 'paged') return;
+      const selection = document.getSelection();
+      if (selection && !selection.isCollapsed) return;
+      const bounds = this.elements.viewport.getBoundingClientRect();
+      const x = (event.clientX - bounds.left) / Math.max(bounds.width, 1);
+      if (x < 0.3) this.goPrev();
+      else if (x > 0.7) this.goNext();
+      return;
+    }
     const href = anchor.getAttribute('href');
     if (!href) return;
     if (/^[a-z][a-z0-9+.-]*:/i.test(href) && !href.startsWith('blob:')) return; // external
@@ -152,43 +260,81 @@ export class ReaderUI {
 
   private goPrev(): void {
     if (!this.book) return;
+    // In paged mode step a page first; cross the chapter edge onto its last page.
+    if (this.rendered?.pageBy(-1)) {
+      this.afterPageTurn();
+      return;
+    }
     if (this.chapterIndex <= 0) return;
-    this.goToChapter(this.chapterIndex - 1);
+    this.goToChapter(this.chapterIndex - 1, { atEnd: this.prefs.mode === 'paged' });
   }
 
   private goNext(): void {
     if (!this.book) return;
+    if (this.rendered?.pageBy(1)) {
+      this.afterPageTurn();
+      return;
+    }
     if (this.chapterIndex >= this.book.chapters.length - 1) return;
     this.goToChapter(this.chapterIndex + 1);
   }
 
+  private afterPageTurn(): void {
+    this.updateChapterLabel();
+    this.schedulePersist();
+  }
+
+  private renderOptions(): Parameters<typeof renderChapter>[3] {
+    return {
+      fontScale: this.prefs.fontScale,
+      theme: this.prefs.theme,
+      mode: this.prefs.mode,
+      measure: this.prefs.measure,
+      leading: this.prefs.leading,
+    };
+  }
+
   private goToChapter(
     index: number,
-    opts: { scroll?: number; anchor?: PositionAnchor | null; fragment?: string | null } = {},
+    opts: {
+      scroll?: number;
+      anchor?: PositionAnchor | null;
+      fragment?: string | null;
+      atEnd?: boolean;
+    } = {},
   ): void {
     if (!this.book) return;
     const chapter = this.book.chapters[index];
     if (!chapter) return;
     if (this.rendered) this.rendered.dispose();
     this.chapterIndex = index;
-    this.rendered = renderChapter(this.book, chapter, this.elements.viewport, {
-      fontScale: this.prefs.fontScale,
-      theme: this.prefs.theme,
-    });
+    this.elements.viewport.dataset.mode = this.prefs.mode;
+    this.rendered = renderChapter(this.book, chapter, this.elements.viewport, this.renderOptions());
     // Structural anchor wins over the raw pixel offset when it resolves.
     if (opts.anchor && opts.anchor.path.length > 0) this.rendered.scrollToAnchor(opts.anchor);
-    else this.elements.viewport.scrollTop = opts.scroll ?? 0;
+    else if (opts.atEnd) this.rendered.scrollToEnd();
+    else this.rendered.setScroll(opts.scroll ?? 0);
     if (opts.fragment) {
       // Fragment scrolling needs to happen after the browser positions the
       // shadow DOM content; a microtask is sufficient.
       queueMicrotask(() => this.rendered?.scrollToFragment(opts.fragment ?? ''));
     }
-    this.elements.chapterLabel.textContent = chapter.title
-      ? `${index + 1} of ${this.book.chapters.length}: ${chapter.title}`
-      : `${index + 1} of ${this.book.chapters.length}`;
+    this.updateChapterLabel();
     this.refreshControlState();
     this.highlightTocFor(chapter);
     this.persist();
+  }
+
+  private updateChapterLabel(): void {
+    const book = this.book;
+    const chapter = book?.chapters[this.chapterIndex];
+    if (!book || !chapter) return;
+    const base = chapter.title
+      ? `${this.chapterIndex + 1} of ${book.chapters.length}: ${chapter.title}`
+      : `${this.chapterIndex + 1} of ${book.chapters.length}`;
+    const info = this.rendered?.pageInfo();
+    this.elements.chapterLabel.textContent =
+      info && info.pages > 1 ? `${base} · p. ${info.page}/${info.pages}` : base;
   }
 
   private renderToc(entries: TocEntry[]): void {
@@ -277,22 +423,32 @@ export class ReaderUI {
     for (const btn of this.elements.themeButtons) {
       btn.classList.toggle('is-active', btn.dataset.theme === this.prefs.theme);
     }
+    for (const btn of this.elements.modeButtons) {
+      btn.classList.toggle('is-active', btn.dataset.mode === this.prefs.mode);
+    }
+    for (const btn of this.elements.measureButtons) {
+      btn.classList.toggle('is-active', btn.dataset.measure === this.prefs.measure);
+    }
+    for (const btn of this.elements.leadingButtons) {
+      btn.classList.toggle('is-active', btn.dataset.leading === this.prefs.leading);
+    }
     this.elements.root.dataset.theme = this.prefs.theme;
+    this.elements.viewport.dataset.mode = this.prefs.mode;
   }
 
   private applyPrefs(): void {
     if (this.rendered) {
-      // Re-anchor across the reflow so a font-size change keeps your place —
-      // the structural locator earning its keep within scroll mode.
+      // Capture the anchor under the old layout, apply the new one, then
+      // re-anchor: this is what carries a position across font, measure,
+      // leading, and display-mode changes alike.
       const anchor = this.rendered.getAnchor();
-      applyOptions(this.rendered.host, {
-        fontScale: this.prefs.fontScale,
-        theme: this.prefs.theme,
-      });
+      this.elements.viewport.dataset.mode = this.prefs.mode;
+      applyOptions(this.rendered.host, this.renderOptions());
       if (anchor) this.rendered.scrollToAnchor(anchor);
     }
     saveGlobalPrefs(this.prefs);
     this.refreshControlState();
+    this.updateChapterLabel();
   }
 
   private schedulePersist(): void {

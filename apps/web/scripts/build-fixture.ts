@@ -111,6 +111,11 @@ const CH2 = `<?xml version="1.0" encoding="utf-8"?>
     <p>This is a deeper anchor target reached via the table-of-contents nested entry.</p>
     <p>A <a href="ch3.xhtml">forward link</a> walks to the epilogue, exercising intra-EPUB navigation.</p>
     <p>${'A line of small reading-test prose, set down in earnest. '.repeat(20)}</p>
+    ${Array.from(
+      { length: 36 },
+      (_, i) =>
+        `<p>Passage ${i + 1}. ${'Steady prose for the page turner, set to fill columns and exercise pagination. '.repeat(5)}</p>`,
+    ).join('\n    ')}
   </body>
 </html>
 `;
