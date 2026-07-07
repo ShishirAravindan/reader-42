@@ -53,3 +53,7 @@ When picking up `wip:` snapshots from another subagent: read each file before ch
 ## 2026-07-03 — Re-scope means purge, in one change
 
 When a concern is extracted to a sibling repo (convert → reflow-to-epub), the donor repo's identity docs rot silently: vision, ADRs, CLAUDE.md one-liners, DB states, and dead code all kept describing a product that no longer existed here. Pattern: re-scope is a single atomic change — docs *and* code *and* schema together, with an ADR (0005) superseding the outgoing ones — not a docs pass that leaves the code "for later." Also: batch every blocking product decision (ingest contract, reading model, devices, priorities, aesthetics, review cadence) into structured up-front questions before touching anything; eight answers up front bought the whole restructure without another interruption.
+
+## 2026-07-07 — The demo run is the acceptance test
+
+Every milestone's Playwright capture script doubles as its end-to-end test: it drives the real UI against the real server and asserts the load-bearing behavior (position restore, mode-switch invariance, highlight persistence) before taking the frames. Three real bugs were caught only this way — the renderer's clone-instead-of-adopt infinite loop, anchors resolving against a display:none viewport, and shadow-host clipping killing paged scrollWidth. None were reachable by unit tests or typecheck. Pattern: for UI work, write the demo script first-class and keep its assertions; screenshots are the byproduct, the assertions are the point.

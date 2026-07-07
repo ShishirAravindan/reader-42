@@ -4,7 +4,12 @@
 // reader itself stays server-agnostic — it just receives EPUB bytes.
 
 import { loadEpub } from './epub/index.ts';
-import { type OpenTarget, type ReaderElements, ReaderUI } from './reader/ui.ts';
+import {
+  type HighlightRecord,
+  type OpenTarget,
+  type ReaderElements,
+  ReaderUI,
+} from './reader/ui.ts';
 
 type ItemState = 'unread' | 'reading' | 'finished' | 'dnf';
 
@@ -64,6 +69,15 @@ function readerElements(): ReaderElements {
     bookmarksList: el('bookmarks'),
     findInput: el<HTMLInputElement>('find-input'),
     findResults: el('find-results'),
+    hlPop: el('hl-pop'),
+    hlAddBtn: el<HTMLButtonElement>('hl-add'),
+    hlNoteBtn: el<HTMLButtonElement>('hl-note'),
+    notePanel: el('note-panel'),
+    noteText: el<HTMLTextAreaElement>('note-text'),
+    noteSave: el<HTMLButtonElement>('note-save'),
+    noteDelete: el<HTMLButtonElement>('note-delete'),
+    highlightsTitle: el('highlights-title'),
+    highlightsList: el('highlights-list'),
   };
 }
 
@@ -87,13 +101,62 @@ class LibraryApp {
       onProgress: (fraction) => {
         this.latestProgress = fraction;
       },
+      highlightStore: {
+        create: async (draft) => {
+          if (!this.currentItem) return null;
+          const res = await fetch(`/library/${this.currentItem.id}/highlights`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(draft),
+          });
+          if (!res.ok) return null;
+          const { highlight } = (await res.json()) as { highlight: HighlightRecord };
+          return highlight;
+        },
+        updateNote: async (id, note) => {
+          if (!this.currentItem) return false;
+          const res = await fetch(`/library/${this.currentItem.id}/highlights/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ note }),
+          });
+          return res.ok;
+        },
+        remove: async (id) => {
+          if (!this.currentItem) return false;
+          const res = await fetch(`/library/${this.currentItem.id}/highlights/${id}`, {
+            method: 'DELETE',
+          });
+          return res.ok;
+        },
+      },
     });
     // Small screens start with the TOC tucked away; the ☰ button reveals it.
     if (window.matchMedia('(max-width: 700px)').matches) {
       el('app').classList.add('toc-collapsed');
     }
     this.bind();
-    void this.refresh();
+    void this.boot();
+  }
+
+  private async boot(): Promise<void> {
+    await this.refresh();
+    // Deep links: #/book/<id> or #/book/<id>/hl/<highlightId>.
+    const match = location.hash.match(/^#\/book\/([\w-]+)(?:\/hl\/([\w-]+))?/);
+    if (!match) return;
+    const [, itemId, highlightId] = match;
+    try {
+      const res = await fetch(`/library/${itemId}`);
+      if (!res.ok) return;
+      const { item } = (await res.json()) as { item: LibraryItem };
+      await this.open(
+        { ...item, progress: item.progress ?? 0, totalSeconds: 0 },
+        undefined,
+        highlightId,
+      );
+    } catch {
+      // stale link; stay on the shelf
+    }
   }
 
   private bind(): void {
@@ -310,6 +373,11 @@ class LibraryApp {
       stats.textContent = parts.join(' · ');
       meta.appendChild(stats);
     }
+    const exportLink = document.createElement('a');
+    exportLink.className = 'lib-export';
+    exportLink.href = `/library/${item.id}/logseq.md`;
+    exportLink.textContent = 'Export';
+    exportLink.title = 'Download highlights as Logseq markdown';
     const imported = document.createElement('span');
     imported.className = 'lib-date';
     imported.textContent = formatDate(item.importedAt);
@@ -329,7 +397,7 @@ class LibraryApp {
       if (updated) state.dataset.state = state.value;
       else state.value = item.state;
     });
-    meta.append(imported, state);
+    meta.append(exportLink, imported, state);
 
     li.append(open, meta);
     return li;
@@ -365,7 +433,11 @@ class LibraryApp {
     }
   }
 
-  private async open(item: LibraryItem, target?: OpenTarget): Promise<void> {
+  private async open(
+    item: LibraryItem,
+    target?: OpenTarget,
+    jumpToHighlight?: string,
+  ): Promise<void> {
     this.say(`Opening “${item.title ?? 'Untitled'}”…`);
     try {
       const res = await fetch(`/reader/${item.id}/epub`);
@@ -374,16 +446,30 @@ class LibraryApp {
       // Show the reader before opening: position restore measures the layout,
       // and a display:none viewport has no geometry to measure.
       this.showReader();
+      this.currentItem = item;
       try {
         this.ui.open(book, target);
       } catch (err) {
+        this.currentItem = null;
         this.showLibrary();
         throw err;
       }
       this.say('');
+      location.hash = `#/book/${item.id}`;
       this.beginReadingSession(item);
       // Opening an unread book moves it to reading — the shelf is a record.
       if (item.state === 'unread') void this.setState(item.id, 'reading');
+      // Load stored highlights, then honor a highlight deep link.
+      try {
+        const hlRes = await fetch(`/library/${item.id}/highlights`);
+        if (hlRes.ok) {
+          const { highlights } = (await hlRes.json()) as { highlights: HighlightRecord[] };
+          this.ui.setHighlights(highlights);
+          if (jumpToHighlight) this.ui.jumpToHighlight(jumpToHighlight);
+        }
+      } catch {
+        // highlights are additive; the book is already readable
+      }
     } catch (err) {
       this.say(`Could not open the book: ${(err as Error).message}`);
     }
@@ -396,6 +482,9 @@ class LibraryApp {
 
   private showLibrary(): void {
     this.endReadingSession();
+    if (location.hash.startsWith('#/book/')) {
+      history.replaceState(null, '', location.pathname);
+    }
     this.readerView.hidden = true;
     this.libraryView.hidden = false;
     void this.refresh();
