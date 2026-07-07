@@ -48,6 +48,10 @@ export interface RenderedChapter {
   scrollToAnchor(anchor: PositionAnchor): void;
   /** Text content of the element an anchor points at (for bookmark labels). */
   textAt(anchor: PositionAnchor): string | null;
+  /** How far through this chapter the viewport is, 0..1. */
+  chapterFraction(): number;
+  /** Find the first occurrence of term, mark it, scroll to it. */
+  findAndMark(term: string): boolean;
   /** Paged mode: 1-based current page and page count (1/1 in scroll mode). */
   pageInfo(): { page: number; pages: number };
   /** Paged mode: step one page; returns false at the chapter edge. */
@@ -194,6 +198,47 @@ export function renderChapter(
     }
   };
 
+  const chapterFraction = (): number => {
+    if (isPaged()) {
+      const { page, pages } = pageInfo();
+      return pages > 1 ? (page - 1) / pages : 0;
+    }
+    const max = mount.scrollHeight - mount.clientHeight;
+    return max > 0 ? Math.min(mount.scrollTop / max, 1) : 0;
+  };
+
+  const findAndMark = (term: string): boolean => {
+    // Clear any previous hit so repeated finds don't accumulate marks.
+    for (const previous of Array.from(wrapper.querySelectorAll('mark.find-hit'))) {
+      const parent = previous.parentNode;
+      while (previous.firstChild) parent?.insertBefore(previous.firstChild, previous);
+      previous.remove();
+      parent?.normalize();
+    }
+    const needle = term.toLowerCase();
+    if (needle.length === 0) return false;
+    const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const text = node.textContent ?? '';
+      const at = text.toLowerCase().indexOf(needle);
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + term.length);
+      const mark = document.createElement('mark');
+      mark.className = 'find-hit';
+      try {
+        range.surroundContents(mark);
+      } catch {
+        return false;
+      }
+      if (isPaged()) snapToPage(absoluteStart(mark, mount, 'h'));
+      else mount.scrollTop = Math.max(absoluteStart(mark, mount, 'v') - 80, 0);
+      return true;
+    }
+    return false;
+  };
+
   return {
     host,
     dispose,
@@ -206,6 +251,8 @@ export function renderChapter(
     pageInfo,
     pageBy,
     scrollToEnd,
+    chapterFraction,
+    findAndMark,
   };
 }
 
@@ -333,6 +380,8 @@ function makeStub(host: HTMLElement): RenderedChapter {
     pageInfo: (): { page: number; pages: number } => ({ page: 1, pages: 1 }),
     pageBy: (): boolean => false,
     scrollToEnd: (): void => {},
+    chapterFraction: (): number => 0,
+    findAndMark: (): boolean => false,
   };
 }
 
@@ -539,6 +588,7 @@ const SHADOW_BASE_CSS = `
     background: var(--reader-bg);
   }
   ::selection { background: var(--reader-mark); }
+  mark.find-hit { background: var(--reader-mark); color: inherit; padding: 0 0.1em; border-radius: 2px; }
   .reader-chapter {
     max-width: var(--reader-measure);
     margin: 0 auto;

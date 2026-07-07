@@ -16,6 +16,7 @@
             <p id="lib-count" class="lib-count"></p>
           </div>
           <div class="lib-actions">
+            <input id="lib-search" class="lib-search" type="search" placeholder="Search library…" aria-label="Search library" />
             <label class="file-input-label" for="file-input">Import EPUB</label>
             <input id="file-input" type="file" accept=".epub,application/epub+zip" multiple hidden />
           </div>
@@ -90,6 +91,8 @@
 
         <div class="layout">
           <aside class="sidebar" aria-label="Table of contents and bookmarks">
+            <input id="find-input" class="find-input" type="search" placeholder="Find in book…" aria-label="Find in book" />
+            <ol id="find-results" class="find-results" hidden></ol>
             <h2 class="sidebar-title">Contents</h2>
             <nav id="toc" class="toc"></nav>
             <h2 class="sidebar-title bm-title" id="bookmarks-title" hidden>Bookmarks</h2>
