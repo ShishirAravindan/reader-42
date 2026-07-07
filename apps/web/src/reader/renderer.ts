@@ -11,9 +11,15 @@
 import type { Book, Chapter, Resource } from '../epub/index.ts';
 import { resolveAgainst } from '../epub/path.ts';
 
+export type DisplayMode = 'scroll' | 'paged';
+export type TypoStep = 's' | 'm' | 'l';
+
 export interface RenderOptions {
   fontScale: number;
   theme: 'light' | 'sepia' | 'dark';
+  mode: DisplayMode;
+  measure: TypoStep;
+  leading: TypoStep;
 }
 
 /**
@@ -40,6 +46,12 @@ export interface RenderedChapter {
   /** Structural locator for the current viewport top. */
   getAnchor(): PositionAnchor | null;
   scrollToAnchor(anchor: PositionAnchor): void;
+  /** Paged mode: 1-based current page and page count (1/1 in scroll mode). */
+  pageInfo(): { page: number; pages: number };
+  /** Paged mode: step one page; returns false at the chapter edge. */
+  pageBy(direction: 1 | -1): boolean;
+  /** Jump to the end of the chapter (last page / bottom). */
+  scrollToEnd(): void;
 }
 
 const SHADOW_HOST_TAG = 'div';
@@ -100,36 +112,113 @@ export function renderChapter(
     host.remove();
   };
 
+  // Mode is read from the host attribute at call time, so a mode switch
+  // between getAnchor (old layout) and scrollToAnchor (new layout) does the
+  // right thing on each side.
+  const isPaged = (): boolean => host.dataset.mode === 'paged';
+  const pageWidth = (): number => Math.max(mount.clientWidth, 1);
+
+  const snapToPage = (target: number): void => {
+    const width = pageWidth();
+    const maxLeft = Math.max(mount.scrollWidth - width, 0);
+    mount.scrollLeft = Math.min(Math.max(Math.round(target / width) * width, 0), maxLeft);
+  };
+
   const scrollToFragment = (id: string): void => {
     const target = shadow.getElementById(id);
-    if (target) {
+    if (!target) return;
+    if (isPaged()) {
+      snapToPage(absoluteStart(target, mount, 'h'));
+    } else {
       target.scrollIntoView({ block: 'start' });
     }
   };
 
-  const getScroll = (): number => mount.scrollTop;
+  const getScroll = (): number => (isPaged() ? mount.scrollLeft : mount.scrollTop);
   const setScroll = (offset: number): void => {
-    mount.scrollTop = offset;
+    if (isPaged()) snapToPage(offset);
+    else mount.scrollTop = offset;
   };
-  const getAnchor = (): PositionAnchor | null => anchorFor(wrapper, mount);
-  const scrollToAnchor = (anchor: PositionAnchor): void => resolveAnchor(wrapper, mount, anchor);
+  const getAnchor = (): PositionAnchor | null => anchorFor(wrapper, mount, isPaged() ? 'h' : 'v');
+  const scrollToAnchor = (anchor: PositionAnchor): void => {
+    if (isPaged()) {
+      const target = anchorTarget(wrapper, mount, anchor, 'h');
+      if (target === null) mount.scrollLeft = 0;
+      else snapToPage(target);
+    } else {
+      const target = anchorTarget(wrapper, mount, anchor, 'v');
+      mount.scrollTop = target ?? 0;
+    }
+  };
 
-  return { host, dispose, scrollToFragment, getScroll, setScroll, getAnchor, scrollToAnchor };
+  const pageInfo = (): { page: number; pages: number } => {
+    if (!isPaged()) return { page: 1, pages: 1 };
+    const width = pageWidth();
+    const pages = Math.max(Math.round(mount.scrollWidth / width), 1);
+    const page = Math.min(Math.round(mount.scrollLeft / width) + 1, pages);
+    return { page, pages };
+  };
+
+  const pageBy = (direction: 1 | -1): boolean => {
+    if (!isPaged()) return false;
+    const width = pageWidth();
+    const maxLeft = Math.max(mount.scrollWidth - width, 0);
+    const current = Math.round(mount.scrollLeft / width) * width;
+    const target = current + direction * width;
+    if (target < 0 || target > maxLeft + width / 2) return false;
+    mount.scrollLeft = Math.min(target, maxLeft);
+    return true;
+  };
+
+  const scrollToEnd = (): void => {
+    if (isPaged()) {
+      const width = pageWidth();
+      const maxLeft = Math.max(mount.scrollWidth - width, 0);
+      mount.scrollLeft = maxLeft;
+    } else {
+      mount.scrollTop = mount.scrollHeight;
+    }
+  };
+
+  return {
+    host,
+    dispose,
+    scrollToFragment,
+    getScroll,
+    setScroll,
+    getAnchor,
+    scrollToAnchor,
+    pageInfo,
+    pageBy,
+    scrollToEnd,
+  };
 }
 
-function absoluteTop(el: Element, mount: HTMLElement): number {
-  return el.getBoundingClientRect().top - mount.getBoundingClientRect().top + mount.scrollTop;
+type Axis = 'v' | 'h';
+
+/** Element start offset (top or left) in the mount's scroll coordinates. */
+function absoluteStart(el: Element, mount: HTMLElement, axis: Axis): number {
+  const rect = el.getBoundingClientRect();
+  const mountRect = mount.getBoundingClientRect();
+  return axis === 'v'
+    ? rect.top - mountRect.top + mount.scrollTop
+    : rect.left - mountRect.left + mount.scrollLeft;
 }
 
-function anchorFor(wrapper: HTMLElement, mount: HTMLElement): PositionAnchor | null {
-  const scrollTop = mount.scrollTop;
-  if (scrollTop <= 0) return { path: [], ratio: 0 };
+function boxSize(el: Element, axis: Axis): number {
+  const rect = el.getBoundingClientRect();
+  return axis === 'v' ? rect.height : rect.width;
+}
+
+function anchorFor(wrapper: HTMLElement, mount: HTMLElement, axis: Axis): PositionAnchor | null {
+  const scrollPos = axis === 'v' ? mount.scrollTop : mount.scrollLeft;
+  if (scrollPos <= 0) return { path: [], ratio: 0 };
 
   const path: number[] = [];
   let current: Element = wrapper;
   for (;;) {
     const kids = Array.from(current.children);
-    // Prefer the kid whose box spans the viewport top; when the top sits in a
+    // Prefer the kid whose box spans the viewport start; when it sits in a
     // margin/padding gap between blocks, anchor to the nearest following kid
     // (negative ratio) or, past the last block, to the last kid (ratio > 1).
     let spanning = -1;
@@ -139,12 +228,12 @@ function anchorFor(wrapper: HTMLElement, mount: HTMLElement): PositionAnchor | n
       const kid = kids[i];
       if (!kid) continue;
       last = i;
-      const top = absoluteTop(kid, mount);
-      if (top > scrollTop) {
+      const start = absoluteStart(kid, mount, axis);
+      if (start > scrollPos) {
         following = i;
         break;
       }
-      if (top + kid.getBoundingClientRect().height > scrollTop) {
+      if (start + boxSize(kid, axis) > scrollPos) {
         spanning = i;
         break;
       }
@@ -167,23 +256,33 @@ function anchorFor(wrapper: HTMLElement, mount: HTMLElement): PositionAnchor | n
   }
 
   if (path.length === 0) return { path: [], ratio: 0 };
-  const height = current.getBoundingClientRect().height;
-  const ratio = height > 0 ? (scrollTop - absoluteTop(current, mount)) / height : 0;
+  const size = boxSize(current, axis);
+  const ratio = size > 0 ? (scrollPos - absoluteStart(current, mount, axis)) / size : 0;
   return { path, ratio: Math.min(Math.max(ratio, -1), 2) };
 }
 
-function resolveAnchor(wrapper: HTMLElement, mount: HTMLElement, anchor: PositionAnchor): void {
+/**
+ * Resolve an anchor to a scroll offset along the given axis, or null for
+ * "top of chapter". The anchor's path/ratio are axis-independent — captured
+ * vertically they resolve horizontally and vice versa, which is what makes
+ * positions survive display-mode switches.
+ */
+function anchorTarget(
+  wrapper: HTMLElement,
+  mount: HTMLElement,
+  anchor: PositionAnchor,
+  axis: Axis,
+): number | null {
   let el: Element = wrapper;
   for (const index of anchor.path) {
     const kid = el.children.item(index);
     if (!kid) break;
     el = kid;
   }
-  if (el === wrapper) {
-    mount.scrollTop = 0;
-    return;
-  }
-  mount.scrollTop = absoluteTop(el, mount) + anchor.ratio * el.getBoundingClientRect().height;
+  if (el === wrapper) return null;
+  // Cross-axis capture ratios can overshoot; keep restore inside the element.
+  const ratio = Math.min(Math.max(anchor.ratio, 0), 1);
+  return absoluteStart(el, mount, axis) + ratio * boxSize(el, axis);
 }
 
 export function applyOptions(host: HTMLElement, options: RenderOptions): void {
@@ -194,6 +293,16 @@ export function applyOptions(host: HTMLElement, options: RenderOptions): void {
   host.style.setProperty('--reader-link', theme.link);
   host.style.setProperty('--reader-muted', theme.muted);
   host.style.setProperty('--reader-mark', theme.mark);
+  host.style.setProperty('--reader-measure', MEASURES[options.measure]);
+  host.style.setProperty('--reader-leading', LEADINGS[options.leading]);
+  host.dataset.mode = options.mode;
+  if (options.mode === 'paged') {
+    // Column stride must equal the visible width: column + gap = clientWidth,
+    // with the wrapper's side padding folded into the gap.
+    const mount = host.parentElement;
+    const width = Math.max((mount?.clientWidth ?? 800) - PAGE_GUTTER * 2, 240);
+    host.style.setProperty('--reader-col-w', `${width}px`);
+  }
 }
 
 function makeStub(host: HTMLElement): RenderedChapter {
@@ -205,6 +314,9 @@ function makeStub(host: HTMLElement): RenderedChapter {
     setScroll: (): void => {},
     getAnchor: (): PositionAnchor | null => null,
     scrollToAnchor: (): void => {},
+    pageInfo: (): { page: number; pages: number } => ({ page: 1, pages: 1 }),
+    pageBy: (): boolean => false,
+    scrollToEnd: (): void => {},
   };
 }
 
@@ -391,6 +503,11 @@ const THEMES: Record<
   },
 };
 
+const PAGE_GUTTER = 48;
+
+const MEASURES: Record<TypoStep, string> = { s: '32rem', m: '38rem', l: '46rem' };
+const LEADINGS: Record<TypoStep, string> = { s: '1.45', m: '1.65', l: '1.85' };
+
 const SHADOW_BASE_CSS = `
   :host {
     --reader-font-scale: 1;
@@ -399,18 +516,35 @@ const SHADOW_BASE_CSS = `
     --reader-link: #33518a;
     --reader-muted: #6e6759;
     --reader-mark: rgba(240, 210, 100, 0.45);
+    --reader-measure: 38rem;
+    --reader-leading: 1.65;
     display: block;
     color: var(--reader-fg);
     background: var(--reader-bg);
   }
   ::selection { background: var(--reader-mark); }
   .reader-chapter {
-    max-width: 38rem;
+    max-width: var(--reader-measure);
     margin: 0 auto;
     padding: 2.5rem 1.5rem 6rem;
     font-family: 'Charter', 'Bitstream Charter', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
     font-size: calc(1.05rem * var(--reader-font-scale));
-    line-height: 1.65;
+    line-height: var(--reader-leading);
+  }
+  :host([data-mode='paged']) {
+    height: 100%;
+    /* Columns must overflow the host horizontally so the viewport (the
+       scroll container, overflow:hidden) gains scrollWidth to page through. */
+  }
+  :host([data-mode='paged']) .reader-chapter {
+    box-sizing: border-box;
+    height: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 2.5rem ${PAGE_GUTTER}px;
+    column-width: var(--reader-col-w, 640px);
+    column-gap: ${PAGE_GUTTER * 2}px;
+    column-fill: auto;
   }
   .reader-chapter p { margin: 0 0 1em; }
   .reader-chapter h1, .reader-chapter h2, .reader-chapter h3, .reader-chapter h4 {

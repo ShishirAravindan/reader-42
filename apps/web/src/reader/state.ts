@@ -4,6 +4,9 @@
 export interface ReaderPrefs {
   fontScale: number;
   theme: 'light' | 'sepia' | 'dark';
+  mode: 'scroll' | 'paged';
+  measure: 's' | 'm' | 'l';
+  leading: 's' | 'm' | 'l';
 }
 
 export interface PositionAnchorState {
@@ -30,23 +33,36 @@ const PREFS_KEY = 'reader-42:prefs';
 export const DEFAULT_PREFS: ReaderPrefs = {
   fontScale: 1,
   theme: 'light',
+  mode: 'scroll',
+  measure: 'm',
+  leading: 'm',
 };
+
+function step(value: unknown): 's' | 'm' | 'l' | undefined {
+  return value === 's' || value === 'm' || value === 'l' ? value : undefined;
+}
+
+export function sanitizePrefs(parsed: Partial<ReaderPrefs> | undefined): ReaderPrefs {
+  return {
+    fontScale:
+      typeof parsed?.fontScale === 'number' && parsed.fontScale > 0
+        ? parsed.fontScale
+        : DEFAULT_PREFS.fontScale,
+    theme:
+      parsed?.theme === 'light' || parsed?.theme === 'sepia' || parsed?.theme === 'dark'
+        ? parsed.theme
+        : DEFAULT_PREFS.theme,
+    mode: parsed?.mode === 'paged' || parsed?.mode === 'scroll' ? parsed.mode : DEFAULT_PREFS.mode,
+    measure: step(parsed?.measure) ?? DEFAULT_PREFS.measure,
+    leading: step(parsed?.leading) ?? DEFAULT_PREFS.leading,
+  };
+}
 
 export function loadGlobalPrefs(): ReaderPrefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     if (!raw) return { ...DEFAULT_PREFS };
-    const parsed = JSON.parse(raw) as Partial<ReaderPrefs>;
-    return {
-      fontScale:
-        typeof parsed.fontScale === 'number' && parsed.fontScale > 0
-          ? parsed.fontScale
-          : DEFAULT_PREFS.fontScale,
-      theme:
-        parsed.theme === 'light' || parsed.theme === 'sepia' || parsed.theme === 'dark'
-          ? parsed.theme
-          : DEFAULT_PREFS.theme,
-    };
+    return sanitizePrefs(JSON.parse(raw) as Partial<ReaderPrefs>);
   } catch {
     return { ...DEFAULT_PREFS };
   }
@@ -83,7 +99,7 @@ export function loadBookState(bookId: string): ReaderState | null {
         scroll: Number.isFinite(scroll) && scroll >= 0 ? scroll : 0,
         ...(anchor ? { anchor } : {}),
       },
-      prefs: { ...DEFAULT_PREFS, ...(parsed.prefs ?? {}) },
+      prefs: sanitizePrefs(parsed.prefs),
     };
   } catch {
     return null;
