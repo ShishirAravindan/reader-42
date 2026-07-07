@@ -28,7 +28,45 @@ export interface ReaderState {
 }
 
 const STORAGE_PREFIX = 'reader-42:book:';
+const BOOKMARKS_PREFIX = 'reader-42:bookmarks:';
 const PREFS_KEY = 'reader-42:prefs';
+
+export interface Bookmark {
+  chapter: number;
+  anchor: PositionAnchorState;
+  snippet: string;
+  createdAt: number;
+}
+
+export function loadBookmarks(bookId: string): Bookmark[] {
+  try {
+    const raw = localStorage.getItem(BOOKMARKS_PREFIX + bookId);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (bm): bm is Bookmark =>
+        bm &&
+        Number.isInteger(bm.chapter) &&
+        bm.chapter >= 0 &&
+        bm.anchor &&
+        Array.isArray(bm.anchor.path) &&
+        typeof bm.anchor.ratio === 'number' &&
+        typeof bm.snippet === 'string' &&
+        typeof bm.createdAt === 'number',
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function saveBookmarks(bookId: string, bookmarks: Bookmark[]): void {
+  try {
+    localStorage.setItem(BOOKMARKS_PREFIX + bookId, JSON.stringify(bookmarks));
+  } catch {
+    // ignore quota / private mode
+  }
+}
 
 export const DEFAULT_PREFS: ReaderPrefs = {
   fontScale: 1,

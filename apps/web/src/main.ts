@@ -52,6 +52,9 @@ function readerElements(): ReaderElements {
     typoPanel: el('typo-panel'),
     tocToggle: el<HTMLButtonElement>('btn-toc'),
     chapterLabel: el('chapter-label'),
+    bookmarkBtn: el<HTMLButtonElement>('btn-bookmark'),
+    bookmarksTitle: el('bookmarks-title'),
+    bookmarksList: el('bookmarks'),
   };
 }
 

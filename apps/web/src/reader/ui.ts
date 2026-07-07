@@ -16,11 +16,14 @@ import {
   renderChapter,
 } from './renderer.ts';
 import {
+  type Bookmark,
   DEFAULT_PREFS,
   type ReaderPrefs,
   loadBookState,
+  loadBookmarks,
   loadGlobalPrefs,
   saveBookState,
+  saveBookmarks,
   saveGlobalPrefs,
 } from './state.ts';
 
@@ -41,6 +44,9 @@ export interface ReaderElements {
   typoPanel: HTMLElement;
   tocToggle: HTMLButtonElement;
   chapterLabel: HTMLElement;
+  bookmarkBtn: HTMLButtonElement;
+  bookmarksTitle: HTMLElement;
+  bookmarksList: HTMLElement;
 }
 
 const FONT_SCALES: Record<'s' | 'm' | 'l', number> = { s: 0.9, m: 1, l: 1.15 };
@@ -52,6 +58,7 @@ export class ReaderUI {
   private chapterIndex = 0;
   private prefs: ReaderPrefs;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private bookmarks: Bookmark[] = [];
 
   constructor(elements: ReaderElements) {
     this.elements = elements;
@@ -75,6 +82,8 @@ export class ReaderUI {
     this.elements.title.textContent = book.metadata.title;
     this.elements.author.textContent = book.metadata.author;
     this.renderToc(book.toc);
+    this.bookmarks = loadBookmarks(book.id);
+    this.renderBookmarks();
     this.refreshControlState();
 
     const safeIndex = Math.min(Math.max(startChapter, 0), book.chapters.length - 1);
@@ -151,6 +160,8 @@ export class ReaderUI {
     tocToggle.addEventListener('click', () => {
       this.elements.root.classList.toggle('toc-collapsed');
     });
+
+    this.elements.bookmarkBtn.addEventListener('click', () => this.toggleBookmark());
 
     viewport.addEventListener(
       'scroll',
@@ -335,6 +346,94 @@ export class ReaderUI {
     const info = this.rendered?.pageInfo();
     this.elements.chapterLabel.textContent =
       info && info.pages > 1 ? `${base} · p. ${info.page}/${info.pages}` : base;
+    this.refreshBookmarkButton();
+  }
+
+  // --- bookmarks ---
+
+  private currentAnchor(): { chapter: number; anchor: Bookmark['anchor'] } | null {
+    if (!this.rendered) return null;
+    return {
+      chapter: this.chapterIndex,
+      anchor: this.rendered.getAnchor() ?? { path: [], ratio: 0 },
+    };
+  }
+
+  private bookmarkIndexAt(chapter: number, path: number[]): number {
+    return this.bookmarks.findIndex(
+      (bm) =>
+        bm.chapter === chapter &&
+        bm.anchor.path.length === path.length &&
+        bm.anchor.path.every((step, i) => step === path[i]),
+    );
+  }
+
+  private toggleBookmark(): void {
+    const book = this.book;
+    const position = this.currentAnchor();
+    if (!book || !position || !this.rendered) return;
+    const existing = this.bookmarkIndexAt(position.chapter, position.anchor.path);
+    if (existing >= 0) {
+      this.bookmarks.splice(existing, 1);
+    } else {
+      const chapterTitle =
+        book.chapters[position.chapter]?.title ?? `Chapter ${position.chapter + 1}`;
+      const snippet = this.rendered.textAt(position.anchor) ?? chapterTitle;
+      this.bookmarks.push({
+        chapter: position.chapter,
+        anchor: position.anchor,
+        snippet: snippet.slice(0, 70),
+        createdAt: Date.now(),
+      });
+      this.bookmarks.sort((a, b) => a.chapter - b.chapter);
+    }
+    saveBookmarks(book.id, this.bookmarks);
+    this.renderBookmarks();
+    this.refreshBookmarkButton();
+  }
+
+  private refreshBookmarkButton(): void {
+    const position = this.currentAnchor();
+    const marked = position
+      ? this.bookmarkIndexAt(position.chapter, position.anchor.path) >= 0
+      : false;
+    this.elements.bookmarkBtn.classList.toggle('is-active', marked);
+    this.elements.bookmarkBtn.setAttribute('aria-pressed', String(marked));
+  }
+
+  private renderBookmarks(): void {
+    const { bookmarksList, bookmarksTitle } = this.elements;
+    bookmarksTitle.hidden = this.bookmarks.length === 0;
+    bookmarksList.replaceChildren(
+      ...this.bookmarks.map((bm, index) => {
+        const li = document.createElement('li');
+        li.className = 'bm-item';
+        const go = document.createElement('button');
+        go.type = 'button';
+        go.className = 'bm-link';
+        const where = document.createElement('span');
+        where.className = 'bm-where';
+        where.textContent = this.book?.chapters[bm.chapter]?.title ?? `Chapter ${bm.chapter + 1}`;
+        const snippet = document.createElement('span');
+        snippet.className = 'bm-snippet';
+        snippet.textContent = bm.snippet;
+        go.append(where, snippet);
+        go.addEventListener('click', () => this.goToChapter(bm.chapter, { anchor: bm.anchor }));
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'bm-remove';
+        remove.setAttribute('aria-label', 'Remove bookmark');
+        remove.textContent = '×';
+        remove.addEventListener('click', () => {
+          this.bookmarks.splice(index, 1);
+          if (this.book) saveBookmarks(this.book.id, this.bookmarks);
+          this.renderBookmarks();
+          this.refreshBookmarkButton();
+        });
+        li.append(go, remove);
+        return li;
+      }),
+    );
   }
 
   private renderToc(entries: TocEntry[]): void {
@@ -477,6 +576,9 @@ export class ReaderUI {
     this.rendered = null;
     this.book = null;
     this.chapterIndex = 0;
+    this.bookmarks = [];
+    this.elements.bookmarksList.replaceChildren();
+    this.elements.bookmarksTitle.hidden = true;
     this.elements.toc.replaceChildren();
     this.elements.title.textContent = '';
     this.elements.author.textContent = '';
