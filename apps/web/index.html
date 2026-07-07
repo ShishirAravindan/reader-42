@@ -44,6 +44,9 @@
             </div>
           </div>
           <div class="topbar-right">
+            <button id="btn-bookmark" type="button" class="icon-btn" aria-label="Bookmark this position" aria-pressed="false">
+              <span aria-hidden="true">&#9873;</span>
+            </button>
             <div class="control-group" role="group" aria-label="Display mode">
               <button class="control-btn" type="button" data-mode="scroll">Scroll</button>
               <button class="control-btn" type="button" data-mode="paged">Pages</button>
@@ -86,9 +89,11 @@
         </header>
 
         <div class="layout">
-          <aside class="sidebar" aria-label="Table of contents">
+          <aside class="sidebar" aria-label="Table of contents and bookmarks">
             <h2 class="sidebar-title">Contents</h2>
             <nav id="toc" class="toc"></nav>
+            <h2 class="sidebar-title bm-title" id="bookmarks-title" hidden>Bookmarks</h2>
+            <ul id="bookmarks" class="bm-list"></ul>
           </aside>
 
           <section class="reader">
