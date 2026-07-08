@@ -179,13 +179,8 @@ export function renderChapter(
   };
 
   const textAt = (anchor: PositionAnchor): string | null => {
-    let el: Element = wrapper;
-    for (const index of anchor.path) {
-      const kid = el.children.item(index);
-      if (!kid) break;
-      el = kid;
-    }
-    if (el === wrapper) return null;
+    const el = elementAtPath(anchor.path);
+    if (!el || el === wrapper) return null;
     const text = (el.textContent ?? '').trim();
     return text.length > 0 ? text : null;
   };
@@ -236,7 +231,9 @@ export function renderChapter(
     while (current && current !== wrapper) {
       const parent: Element | null = current.parentElement;
       if (!parent) return null;
-      path.unshift(Array.prototype.indexOf.call(parent.children, current));
+      const index = structuralChildren(parent).indexOf(current);
+      if (index < 0) return null;
+      path.unshift(index);
       current = parent;
     }
     return current === wrapper ? path : null;
@@ -245,7 +242,7 @@ export function renderChapter(
   const elementAtPath = (path: number[]): Element | null => {
     let el: Element = wrapper;
     for (const index of path) {
-      const kid = el.children.item(index);
+      const kid = structuralChildren(el)[index];
       if (!kid) return null;
       el = kid;
     }
@@ -276,8 +273,12 @@ export function renderChapter(
     return null;
   };
 
-  const nearestElement = (node: Node): Element | null =>
-    node instanceof Element ? node : node.parentElement;
+  const nearestElement = (node: Node): Element | null => {
+    let el = node instanceof Element ? node : node.parentElement;
+    // Climb out of overlay marks so boundaries anchor to real structure.
+    while (el && el !== wrapper && isOverlayMark(el)) el = el.parentElement;
+    return el;
+  };
 
   const serializeSelection = (): HighlightRange | null => {
     // Chromium exposes in-shadow selections via the shadow root; fall back
@@ -427,6 +428,25 @@ export function renderChapter(
 
 type Axis = 'v' | 'h';
 
+// Highlight/find <mark> wrappers are presentation, not structure: locator
+// paths (positions, bookmarks, highlights alike) must be computed as if they
+// don't exist, or a locator captured in an already-marked paragraph
+// serializes against the mutated DOM and never resolves again after reload.
+function isOverlayMark(el: Element): boolean {
+  return (
+    el.tagName === 'MARK' && (el.classList.contains('hl') || el.classList.contains('find-hit'))
+  );
+}
+
+function structuralChildren(el: Element): Element[] {
+  const kids: Element[] = [];
+  for (const kid of Array.from(el.children)) {
+    if (isOverlayMark(kid)) continue; // overlay marks contain only text, never elements
+    kids.push(kid);
+  }
+  return kids;
+}
+
 /** Element start offset (top or left) in the mount's scroll coordinates. */
 function absoluteStart(el: Element, mount: HTMLElement, axis: Axis): number {
   const rect = el.getBoundingClientRect();
@@ -448,7 +468,7 @@ function anchorFor(wrapper: HTMLElement, mount: HTMLElement, axis: Axis): Positi
   const path: number[] = [];
   let current: Element = wrapper;
   for (;;) {
-    const kids = Array.from(current.children);
+    const kids = structuralChildren(current);
     // Prefer the kid whose box spans the viewport start; when it sits in a
     // margin/padding gap between blocks, anchor to the nearest following kid
     // (negative ratio) or, past the last block, to the last kid (ratio > 1).
@@ -506,7 +526,7 @@ function anchorTarget(
 ): number | null {
   let el: Element = wrapper;
   for (const index of anchor.path) {
-    const kid = el.children.item(index);
+    const kid = structuralChildren(el)[index];
     if (!kid) break;
     el = kid;
   }
