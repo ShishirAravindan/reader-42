@@ -103,10 +103,11 @@
 
           <section class="reader">
             <div id="viewport" class="viewport" tabindex="0"></div>
+            <button id="btn-prev" type="button" class="edge-nav edge-prev" aria-label="Previous page" disabled>&lsaquo;</button>
+            <button id="btn-next" type="button" class="edge-nav edge-next" aria-label="Next page" disabled>&rsaquo;</button>
             <footer class="reader-footer">
-              <button id="btn-prev" type="button" class="nav-btn" disabled>&larr; Prev</button>
+              <div class="progress-rail" aria-hidden="true"><div id="progress-fill" class="progress-fill"></div></div>
               <span id="chapter-label" class="chapter-label"></span>
-              <button id="btn-next" type="button" class="nav-btn" disabled>Next &rarr;</button>
             </footer>
           </section>
         </div>

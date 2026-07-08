@@ -809,9 +809,82 @@ body {
 }
 
 .reader {
+  position: relative;
   display: grid;
   grid-template-rows: 1fr auto;
   min-height: 0;
+}
+
+/* Ghost page-turn chevrons — mouse users only, visible on hover. */
+.edge-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 5;
+  font-family: var(--font-serif);
+  font-size: 2.2rem;
+  line-height: 1;
+  padding: 1.2rem 0.7rem;
+  background: transparent;
+  border: none;
+  color: var(--app-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.edge-prev {
+  left: 0.2rem;
+}
+
+.edge-next {
+  right: 0.2rem;
+}
+
+@media (hover: hover) {
+  .reader:hover .edge-nav:not([disabled]) {
+    opacity: 0.35;
+  }
+
+  .edge-nav:not([disabled]):hover {
+    opacity: 1;
+    color: var(--app-accent);
+  }
+}
+
+.edge-nav[disabled] {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
+.edge-nav:focus-visible {
+  opacity: 1;
+}
+
+/* Immersive reading: chrome folds away; center tap or Esc brings it back.
+   The topbar collapses in-flow (not display:none) so the reader-app grid
+   keeps its auto/1fr row assignment. */
+#app.immersive .topbar {
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  border-bottom: none;
+  overflow: hidden;
+}
+
+#app.immersive .layout {
+  grid-template-columns: 0 1fr;
+}
+
+#app.immersive .sidebar {
+  visibility: hidden;
+  width: 0;
+  padding: 0;
+  border-right: none;
+}
+
+#app.immersive .reader-footer .chapter-label {
+  opacity: 0.55;
 }
 
 .viewport {
@@ -868,31 +941,42 @@ body {
   min-height: 100%;
 }
 
+/* The folio: a hairline of progress and one faint line of place. */
 .reader-footer {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0.6rem 1rem;
-  border-top: 1px solid var(--app-border);
-  gap: 1rem;
+  justify-content: center;
+  padding: 0.4rem 1rem 0.5rem;
+}
+
+.progress-rail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--app-border-soft);
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--app-accent);
+  transition: width 0.25s ease;
 }
 
 .chapter-label {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   letter-spacing: 0.08em;
   font-variant-numeric: tabular-nums;
   color: var(--app-muted);
   text-align: center;
-  flex: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.nav-btn[disabled] {
-  opacity: 0.45;
-  cursor: not-allowed;
+  max-width: 100%;
 }
 
 .status {

@@ -7,6 +7,8 @@ export interface ReaderPrefs {
   mode: 'scroll' | 'paged';
   measure: 's' | 'm' | 'l';
   leading: 's' | 'm' | 'l';
+  /** 'hidden' = immersive reading; chrome returns via center tap or Escape. */
+  chrome: 'full' | 'hidden';
 }
 
 export interface PositionAnchorState {
@@ -74,6 +76,7 @@ export const DEFAULT_PREFS: ReaderPrefs = {
   mode: 'scroll',
   measure: 'm',
   leading: 'm',
+  chrome: 'full',
 };
 
 function step(value: unknown): 's' | 'm' | 'l' | undefined {
@@ -93,6 +96,10 @@ export function sanitizePrefs(parsed: Partial<ReaderPrefs> | undefined): ReaderP
     mode: parsed?.mode === 'paged' || parsed?.mode === 'scroll' ? parsed.mode : DEFAULT_PREFS.mode,
     measure: step(parsed?.measure) ?? DEFAULT_PREFS.measure,
     leading: step(parsed?.leading) ?? DEFAULT_PREFS.leading,
+    chrome:
+      parsed?.chrome === 'hidden' || parsed?.chrome === 'full'
+        ? parsed.chrome
+        : DEFAULT_PREFS.chrome,
   };
 }
 

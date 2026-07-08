@@ -529,10 +529,17 @@ export function applyOptions(host: HTMLElement, options: RenderOptions): void {
   host.dataset.mode = options.mode;
   if (options.mode === 'paged') {
     // Column stride must equal the visible width: column + gap = clientWidth,
-    // with the wrapper's side padding folded into the gap.
+    // with the wrapper's side padding folded into the gap. The column itself
+    // is capped at the chosen measure so a wide window reads like a book
+    // page, not a banner — the surplus becomes symmetric margins.
     const mount = host.parentElement;
-    const width = Math.max((mount?.clientWidth ?? 800) - PAGE_GUTTER * 2, 240);
+    const viewportWidth = mount?.clientWidth ?? 800;
+    const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const measurePx = Number.parseFloat(MEASURES[options.measure]) * rem * options.fontScale;
+    const pad = Math.max(PAGE_GUTTER, Math.floor((viewportWidth - measurePx) / 2));
+    const width = Math.max(viewportWidth - pad * 2, 240);
     host.style.setProperty('--reader-col-w', `${width}px`);
+    host.style.setProperty('--reader-page-pad', `${pad}px`);
   }
 }
 
@@ -783,9 +790,9 @@ const SHADOW_BASE_CSS = `
     height: 100%;
     max-width: none;
     margin: 0;
-    padding: 2.5rem ${PAGE_GUTTER}px;
+    padding: 2.5rem var(--reader-page-pad, ${PAGE_GUTTER}px);
     column-width: var(--reader-col-w, 640px);
-    column-gap: ${PAGE_GUTTER * 2}px;
+    column-gap: calc(var(--reader-page-pad, ${PAGE_GUTTER}px) * 2);
     column-fill: auto;
   }
   .reader-chapter p { margin: 0 0 1em; }
