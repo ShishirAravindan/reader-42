@@ -106,6 +106,21 @@ library.post('/import', async (c) => {
     throw err;
   }
 
+  // Same bytes already on the shelf: hand back the existing book instead of
+  // silently growing a twin.
+  const contentHash = new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
+  const [existing] = await db
+    .select()
+    .from(items)
+    .where(eq(items.contentHash, contentHash))
+    .limit(1);
+  if (existing) {
+    return c.json({
+      item: { ...existing, position: parsePosition(existing.position) },
+      duplicate: true,
+    });
+  }
+
   ensureDataDirs();
   const id = crypto.randomUUID();
   const epubPath = path.join(EPUBS_DIR, `${id}.epub`);
@@ -121,6 +136,7 @@ library.post('/import', async (c) => {
       author: meta.author,
       state: 'unread',
       epubPath,
+      contentHash,
       importedAt: now,
       updatedAt: now,
     })

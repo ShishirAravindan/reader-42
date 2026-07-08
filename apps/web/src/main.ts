@@ -443,8 +443,20 @@ class LibraryApp {
       const body = new FormData();
       body.append('file', file);
       const res = await fetch('/library/import', { method: 'POST', body });
-      const data = (await res.json()) as { item?: LibraryItem; error?: string };
+      const data = (await res.json()) as {
+        item?: LibraryItem;
+        duplicate?: boolean;
+        error?: string;
+      };
+      if (res.status === 422) {
+        this.say(`Couldn't import ${file.name} — it doesn't look like a valid EPUB.`);
+        return;
+      }
       if (!res.ok || !data.item) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (data.duplicate) {
+        this.say(`“${data.item.title ?? file.name}” is already on your shelf.`);
+        return;
+      }
       this.say(`Imported “${data.item.title ?? file.name}”.`);
       await this.refresh();
     } catch (err) {
