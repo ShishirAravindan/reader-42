@@ -64,6 +64,7 @@ function readerElements(): ReaderElements {
     typoPanel: el('typo-panel'),
     tocToggle: el<HTMLButtonElement>('btn-toc'),
     chapterLabel: el('chapter-label'),
+    progressFill: el('progress-fill'),
     bookmarkBtn: el<HTMLButtonElement>('btn-bookmark'),
     bookmarksTitle: el('bookmarks-title'),
     bookmarksList: el('bookmarks'),

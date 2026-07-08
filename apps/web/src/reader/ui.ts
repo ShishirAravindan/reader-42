@@ -45,6 +45,7 @@ export interface ReaderElements {
   typoPanel: HTMLElement;
   tocToggle: HTMLButtonElement;
   chapterLabel: HTMLElement;
+  progressFill: HTMLElement;
   bookmarkBtn: HTMLButtonElement;
   bookmarksTitle: HTMLElement;
   bookmarksList: HTMLElement;
@@ -235,7 +236,9 @@ export class ReaderUI {
     });
 
     tocToggle.addEventListener('click', () => {
+      const anchor = this.rendered?.getAnchor() ?? null;
       this.elements.root.classList.toggle('toc-collapsed');
+      this.relayoutAfterResize(anchor);
     });
 
     this.elements.bookmarkBtn.addEventListener('click', () => this.toggleBookmark());
@@ -332,8 +335,31 @@ export class ReaderUI {
       } else if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
         event.preventDefault();
         this.goPrev();
+      } else if (event.key === ' ' && this.prefs.mode === 'paged' && this.book) {
+        // Space pages in paged mode (scroll mode keeps native scrolling).
+        event.preventDefault();
+        if (event.shiftKey) this.goPrev();
+        else this.goNext();
+      } else if (event.key === 'Escape' && this.book) {
+        this.toggleChrome();
       }
     });
+  }
+
+  private toggleChrome(): void {
+    const anchor = this.rendered?.getAnchor() ?? null;
+    this.prefs = { ...this.prefs, chrome: this.prefs.chrome === 'hidden' ? 'full' : 'hidden' };
+    saveGlobalPrefs(this.prefs);
+    this.refreshControlState();
+    this.relayoutAfterResize(anchor);
+  }
+
+  /** Chrome/sidebar toggles change the viewport width; paged columns must follow. */
+  private relayoutAfterResize(anchor: PositionAnchor | null): void {
+    if (!this.rendered || this.prefs.mode !== 'paged') return;
+    applyOptions(this.rendered.host, this.renderOptions());
+    if (anchor) this.rendered.scrollToAnchor(anchor);
+    this.updateChapterLabel();
   }
 
   private onViewportClick(event: MouseEvent): void {
@@ -358,15 +384,15 @@ export class ReaderUI {
           }
         }
       }
-      // No link under the tap: in paged mode the side thirds are page-turn
-      // zones (unless the tap was a text selection).
-      if (this.prefs.mode !== 'paged') return;
+      // No link under the tap: side thirds turn pages (paged mode); the
+      // center third toggles the chrome — immersive, Kindle-style.
       const selection = document.getSelection();
       if (selection && !selection.isCollapsed) return;
       const bounds = this.elements.viewport.getBoundingClientRect();
       const x = (event.clientX - bounds.left) / Math.max(bounds.width, 1);
-      if (x < 0.3) this.goPrev();
-      else if (x > 0.7) this.goNext();
+      if (this.prefs.mode === 'paged' && x < 0.3) this.goPrev();
+      else if (this.prefs.mode === 'paged' && x > 0.7) this.goNext();
+      else if (x >= 0.3 && x <= 0.7) this.toggleChrome();
       return;
     }
     const href = anchor.getAttribute('href');
@@ -465,6 +491,7 @@ export class ReaderUI {
     const info = this.rendered?.pageInfo();
     this.elements.chapterLabel.textContent =
       info && info.pages > 1 ? `${base} · p. ${info.page}/${info.pages}` : base;
+    this.elements.progressFill.style.width = `${this.progressFraction() * 100}%`;
     this.refreshBookmarkButton();
   }
 
@@ -844,6 +871,7 @@ export class ReaderUI {
     }
     this.elements.root.dataset.theme = this.prefs.theme;
     this.elements.viewport.dataset.mode = this.prefs.mode;
+    this.elements.root.classList.toggle('immersive', this.prefs.chrome === 'hidden');
   }
 
   private applyPrefs(): void {
