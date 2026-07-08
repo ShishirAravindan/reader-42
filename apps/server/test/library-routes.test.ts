@@ -26,6 +26,17 @@ describe('library routes', () => {
     importedId = item.id;
   });
 
+  test('re-importing the same bytes returns the existing item, no twin', async () => {
+    const res = await app.request('/library/import', { method: 'POST', body: epubForm() });
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { item: { id: string }; duplicate: boolean };
+    expect(data.duplicate).toBe(true);
+    expect(data.item.id).toBe(importedId);
+    const list = await app.request('/library');
+    const { items } = (await list.json()) as { items: { id: string }[] };
+    expect(items.filter((i) => i.id === importedId).length).toBe(1);
+  });
+
   test('POST /library/import rejects a non-EPUB with 422', async () => {
     const form = new FormData();
     form.append('file', new File([new TextEncoder().encode('junk')], 'junk.epub'));
