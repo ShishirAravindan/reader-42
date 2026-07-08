@@ -19,6 +19,7 @@ import {
 import {
   type Bookmark,
   DEFAULT_PREFS,
+  type ReaderPosition,
   type ReaderPrefs,
   loadBookState,
   loadBookmarks,
@@ -76,8 +77,10 @@ export interface HighlightStore {
 }
 
 export interface ReaderHooks {
-  /** Called (debounced with persistence) with overall progress 0..1. */
-  onProgress?: (fraction: number) => void;
+  /** Called (debounced with persistence) with overall progress 0..1 and the position. */
+  onProgress?: (fraction: number, position: ReaderPosition) => void;
+  /** Fired once per open when the reader steps past the last page of the last chapter. */
+  onBookEnd?: () => void;
   highlightStore?: HighlightStore;
 }
 
@@ -97,6 +100,7 @@ export class ReaderUI {
   private prefs: ReaderPrefs;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private bookmarks: Bookmark[] = [];
+  private bookEndFired = false;
   private readonly hooks: ReaderHooks;
   private chapterTextCache = new Map<number, string>();
   private highlights: HighlightRecord[] = [];
@@ -111,17 +115,20 @@ export class ReaderUI {
     this.refreshControlState();
   }
 
-  open(book: Book, target?: OpenTarget): void {
+  open(book: Book, target?: OpenTarget, serverPosition?: ReaderPosition | null): void {
     this.tearDown();
     this.book = book;
+    this.bookEndFired = false;
 
-    // Restore saved state for this book if any; default to ch 0 + scroll 0.
+    // Restore saved state for this book if any; a fresh device falls back to
+    // the server-synced position (the tablet opens where the desk left off).
     const saved = loadBookState(book.id);
     if (saved) {
       this.prefs = saved.prefs;
     }
-    const startChapter = saved?.position.chapter ?? 0;
-    const startScroll = saved?.position.scroll ?? 0;
+    const position = saved?.position ?? serverPosition ?? null;
+    const startChapter = position?.chapter ?? 0;
+    const startScroll = position?.scroll ?? 0;
 
     this.elements.title.textContent = book.metadata.title;
     this.elements.author.textContent = book.metadata.author;
@@ -138,7 +145,7 @@ export class ReaderUI {
       return;
     }
     const safeIndex = Math.min(Math.max(startChapter, 0), book.chapters.length - 1);
-    this.goToChapter(safeIndex, { scroll: startScroll, anchor: saved?.position.anchor ?? null });
+    this.goToChapter(safeIndex, { scroll: startScroll, anchor: position?.anchor ?? null });
   }
 
   /** Provide the stored highlights for the open book (repaints current chapter). */
@@ -162,6 +169,9 @@ export class ReaderUI {
   /** Overall progress through the book, 0..1. */
   progressFraction(): number {
     if (!this.book || !this.rendered || this.book.chapters.length === 0) return 0;
+    // Sitting at the end of the last chapter is 100%, not (n-1+fraction)/n —
+    // a finished book must never show as unfinished on the shelf.
+    if (this.chapterIndex === this.book.chapters.length - 1 && this.rendered.atEnd()) return 1;
     return Math.min(
       (this.chapterIndex + this.rendered.chapterFraction()) / this.book.chapters.length,
       1,
@@ -430,7 +440,16 @@ export class ReaderUI {
       this.afterPageTurn();
       return;
     }
-    if (this.chapterIndex >= this.book.chapters.length - 1) return;
+    if (this.chapterIndex >= this.book.chapters.length - 1) {
+      // Stepping past the last page: tell the host once, so it can suggest
+      // marking the book finished instead of silently doing nothing.
+      if (!this.bookEndFired) {
+        this.bookEndFired = true;
+        this.persist();
+        this.hooks.onBookEnd?.();
+      }
+      return;
+    }
     this.goToChapter(this.chapterIndex + 1);
   }
 
@@ -900,15 +919,13 @@ export class ReaderUI {
   private persist(): void {
     if (!this.book || !this.rendered) return;
     const anchor = this.rendered.getAnchor();
-    saveBookState(this.book.id, {
-      position: {
-        chapter: this.chapterIndex,
-        scroll: this.rendered.getScroll(),
-        ...(anchor ? { anchor } : {}),
-      },
-      prefs: this.prefs,
-    });
-    this.hooks.onProgress?.(this.progressFraction());
+    const position: ReaderPosition = {
+      chapter: this.chapterIndex,
+      scroll: this.rendered.getScroll(),
+      ...(anchor ? { anchor } : {}),
+    };
+    saveBookState(this.book.id, { position, prefs: this.prefs });
+    this.hooks.onProgress?.(this.progressFraction(), position);
   }
 
   private tearDown(): void {

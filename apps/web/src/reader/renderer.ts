@@ -79,6 +79,8 @@ export interface RenderedChapter {
   pageBy(direction: 1 | -1): boolean;
   /** Jump to the end of the chapter (last page / bottom). */
   scrollToEnd(): void;
+  /** True when the viewport sits at the chapter's last page / bottom. */
+  atEnd(): boolean;
 }
 
 const SHADOW_HOST_TAG = 'div';
@@ -212,6 +214,14 @@ export function renderChapter(
     } else {
       mount.scrollTop = mount.scrollHeight;
     }
+  };
+
+  const atEnd = (): boolean => {
+    if (isPaged()) {
+      const { page, pages } = pageInfo();
+      return page >= pages;
+    }
+    return mount.scrollTop >= mount.scrollHeight - mount.clientHeight - 1;
   };
 
   const chapterFraction = (): number => {
@@ -416,6 +426,7 @@ export function renderChapter(
     pageInfo,
     pageBy,
     scrollToEnd,
+    atEnd,
     chapterFraction,
     findAndMark,
     serializeSelection,
@@ -576,6 +587,7 @@ function makeStub(host: HTMLElement): RenderedChapter {
     pageInfo: (): { page: number; pages: number } => ({ page: 1, pages: 1 }),
     pageBy: (): boolean => false,
     scrollToEnd: (): void => {},
+    atEnd: (): boolean => false,
     chapterFraction: (): number => 0,
     findAndMark: (): boolean => false,
     serializeSelection: (): HighlightRange | null => null,

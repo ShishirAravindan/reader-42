@@ -12,6 +12,8 @@ export const items = sqliteTable('items', {
   epubPath: text('epub_path').notNull(),
   /** Overall reading progress, 0..1 (chapter index + in-chapter fraction). */
   progress: real('progress').notNull().default(0),
+  /** JSON reading position {chapter, scroll, anchor?} — syncs across devices. */
+  position: text('position'),
   importedAt: integer('imported_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 });

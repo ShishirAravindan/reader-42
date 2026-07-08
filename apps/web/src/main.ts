@@ -4,6 +4,7 @@
 // reader itself stays server-agnostic — it just receives EPUB bytes.
 
 import { loadEpub } from './epub/index.ts';
+import type { ReaderPosition } from './reader/state.ts';
 import {
   type HighlightRecord,
   type OpenTarget,
@@ -19,6 +20,7 @@ interface LibraryItem {
   author: string | null;
   state: ItemState;
   progress: number;
+  position?: ReaderPosition | null;
   totalSeconds: number;
   importedAt: string | number;
   updatedAt: string | number;
@@ -95,12 +97,25 @@ class LibraryApp {
   private currentItem: LibraryItem | null = null;
   private sessionStartedAt = 0;
   private latestProgress: number | null = null;
+  private latestPosition: ReaderPosition | null = null;
+  private lastFlushedChapter = -1;
   private progressTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.ui = new ReaderUI(readerElements(), {
-      onProgress: (fraction) => {
+      onProgress: (fraction, position) => {
         this.latestProgress = fraction;
+        this.latestPosition = position;
+        // Chapter changes and book completion flush immediately — the shelf
+        // and other devices should never lag a chapter behind.
+        if (position.chapter !== this.lastFlushedChapter || fraction >= 1) {
+          this.lastFlushedChapter = position.chapter;
+          void this.flushProgress();
+        }
+      },
+      onBookEnd: () => {
+        void this.flushProgress();
+        this.say('The end. Mark it Finished from the shelf whenever you like.');
       },
       highlightStore: {
         create: async (draft) => {
@@ -279,6 +294,8 @@ class LibraryApp {
     this.currentItem = item;
     this.sessionStartedAt = Date.now();
     this.latestProgress = null;
+    this.latestPosition = null;
+    this.lastFlushedChapter = item.position?.chapter ?? -1;
     if (this.progressTimer !== null) clearInterval(this.progressTimer);
     this.progressTimer = setInterval(() => void this.flushProgress(), 20000);
   }
@@ -286,11 +303,12 @@ class LibraryApp {
   private async flushProgress(): Promise<void> {
     if (!this.currentItem || this.latestProgress === null) return;
     const progress = this.latestProgress;
+    const position = this.latestPosition;
     this.latestProgress = null;
     await fetch(`/library/${this.currentItem.id}/progress`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ progress }),
+      body: JSON.stringify({ progress, ...(position ? { position } : {}) }),
       keepalive: true,
     }).catch(() => {});
   }
@@ -449,7 +467,7 @@ class LibraryApp {
       this.showReader();
       this.currentItem = item;
       try {
-        this.ui.open(book, target);
+        this.ui.open(book, target, item.position ?? null);
       } catch (err) {
         this.currentItem = null;
         this.showLibrary();

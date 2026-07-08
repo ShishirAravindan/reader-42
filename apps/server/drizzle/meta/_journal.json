@@ -29,6 +29,13 @@
       "when": 1783460857064,
       "tag": "0003_boring_rogue",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1783542568435,
+      "tag": "0004_thin_blade",
+      "breakpoints": true
     }
   ]
 }
