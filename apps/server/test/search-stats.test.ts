@@ -62,6 +62,22 @@ describe('progress and sessions', () => {
     expect(item.progress).toBeCloseTo(0.42);
   });
 
+  test('PATCH progress stores and returns the reading position', async () => {
+    const position = { chapter: 1, scroll: 480, anchor: { path: [4], ratio: 0.25 } };
+    const res = await app.request(`/library/${itemId}/progress`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ progress: 0.5, position }),
+    });
+    expect(res.status).toBe(200);
+    const single = await app.request(`/library/${itemId}`);
+    const { item } = (await single.json()) as { item: { position: typeof position | null } };
+    expect(item.position).toEqual(position);
+    const list = await app.request('/library');
+    const { items } = (await list.json()) as { items: { id: string; position: unknown }[] };
+    expect(items.find((i) => i.id === itemId)?.position).toEqual(position);
+  });
+
   test('PATCH progress rejects out-of-range values', async () => {
     const res = await app.request(`/library/${itemId}/progress`, {
       method: 'PATCH',
