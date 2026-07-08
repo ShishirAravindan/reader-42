@@ -36,12 +36,16 @@ Evidence doc: `docs/evidence/m2-reading/`.
 
 The first two "better than Kindle" enhancements (user-prioritized).
 
+> **Status 2026-07-07: shipped.** FTS5 library search with open-at-match, in-book find with flash, progress % + reading time on the shelf. Evidence: `docs/evidence/m3-search-stats/`.
+
 - Full-text search in-book and across the library (SQLite FTS5; index built at import).
 - Reading sessions, time-in-book, % complete, finished/DNF history surfaced in the library.
 
 Evidence doc: `docs/evidence/m3-search-stats/`.
 
 ## M4 — Highlights + Logseq off-ramp
+
+> **Status 2026-07-07: shipped.** Range highlights with notes on the structural locator, server-stored, deep links (`#/book/:id/hl/:hid`), `logseq.md` export. Evidence: `docs/evidence/m4-highlights/`.
 
 - Highlights via Range API on top of the position locator; optional notes.
 - Deep links back into the book at the highlight's position.
