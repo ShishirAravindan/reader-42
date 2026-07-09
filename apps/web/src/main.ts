@@ -4,6 +4,7 @@
 // reader itself stays server-agnostic — it just receives EPUB bytes.
 
 import { loadEpub } from './epub/index.ts';
+import type { ReaderPosition } from './reader/state.ts';
 import {
   type HighlightRecord,
   type OpenTarget,
@@ -19,6 +20,7 @@ interface LibraryItem {
   author: string | null;
   state: ItemState;
   progress: number;
+  position?: ReaderPosition | null;
   totalSeconds: number;
   importedAt: string | number;
   updatedAt: string | number;
@@ -66,6 +68,7 @@ function readerElements(): ReaderElements {
     chapterLabel: el('chapter-label'),
     progressFill: el('progress-fill'),
     bookmarkBtn: el<HTMLButtonElement>('btn-bookmark'),
+    immersiveBtn: el<HTMLButtonElement>('btn-immersive'),
     bookmarksTitle: el('bookmarks-title'),
     bookmarksList: el('bookmarks'),
     findInput: el<HTMLInputElement>('find-input'),
@@ -95,12 +98,25 @@ class LibraryApp {
   private currentItem: LibraryItem | null = null;
   private sessionStartedAt = 0;
   private latestProgress: number | null = null;
+  private latestPosition: ReaderPosition | null = null;
+  private lastFlushedChapter = -1;
   private progressTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.ui = new ReaderUI(readerElements(), {
-      onProgress: (fraction) => {
+      onProgress: (fraction, position) => {
         this.latestProgress = fraction;
+        this.latestPosition = position;
+        // Chapter changes and book completion flush immediately — the shelf
+        // and other devices should never lag a chapter behind.
+        if (position.chapter !== this.lastFlushedChapter || fraction >= 1) {
+          this.lastFlushedChapter = position.chapter;
+          void this.flushProgress();
+        }
+      },
+      onBookEnd: () => {
+        void this.flushProgress();
+        this.say('The end. Mark it Finished from the shelf whenever you like.');
       },
       highlightStore: {
         create: async (draft) => {
@@ -132,8 +148,9 @@ class LibraryApp {
         },
       },
     });
-    // Small screens start with the TOC tucked away; the ☰ button reveals it.
-    if (window.matchMedia('(max-width: 700px)').matches) {
+    // Small screens (phones and portrait tablets) start with the TOC tucked
+    // away; the ☰ button reveals it.
+    if (window.matchMedia('(max-width: 900px)').matches) {
       el('app').classList.add('toc-collapsed');
     }
     this.bind();
@@ -210,6 +227,13 @@ class LibraryApp {
 
     // Flush the reading session + progress when the tab goes away.
     window.addEventListener('pagehide', () => this.endReadingSession(true));
+
+    // Browser Back from the reader returns to the shelf.
+    window.addEventListener('hashchange', () => {
+      if (!location.hash.startsWith('#/book/') && !this.readerView.hidden) {
+        this.showLibrary(true);
+      }
+    });
   }
 
   private async runSearch(q: string): Promise<void> {
@@ -279,6 +303,8 @@ class LibraryApp {
     this.currentItem = item;
     this.sessionStartedAt = Date.now();
     this.latestProgress = null;
+    this.latestPosition = null;
+    this.lastFlushedChapter = item.position?.chapter ?? -1;
     if (this.progressTimer !== null) clearInterval(this.progressTimer);
     this.progressTimer = setInterval(() => void this.flushProgress(), 20000);
   }
@@ -286,11 +312,12 @@ class LibraryApp {
   private async flushProgress(): Promise<void> {
     if (!this.currentItem || this.latestProgress === null) return;
     const progress = this.latestProgress;
+    const position = this.latestPosition;
     this.latestProgress = null;
     await fetch(`/library/${this.currentItem.id}/progress`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ progress }),
+      body: JSON.stringify({ progress, ...(position ? { position } : {}) }),
       keepalive: true,
     }).catch(() => {});
   }
@@ -370,7 +397,7 @@ class LibraryApp {
       stats.className = 'lib-stats';
       const parts: string[] = [];
       if (item.progress > 0) parts.push(`${Math.round(item.progress * 100)}%`);
-      if (item.totalSeconds > 0) parts.push(formatDuration(item.totalSeconds));
+      if (item.totalSeconds > 0) parts.push(`${formatDuration(item.totalSeconds)} read`);
       stats.textContent = parts.join(' · ');
       meta.appendChild(stats);
     }
@@ -425,8 +452,20 @@ class LibraryApp {
       const body = new FormData();
       body.append('file', file);
       const res = await fetch('/library/import', { method: 'POST', body });
-      const data = (await res.json()) as { item?: LibraryItem; error?: string };
+      const data = (await res.json()) as {
+        item?: LibraryItem;
+        duplicate?: boolean;
+        error?: string;
+      };
+      if (res.status === 422) {
+        this.say(`Couldn't import ${file.name} — it doesn't look like a valid EPUB.`);
+        return;
+      }
       if (!res.ok || !data.item) throw new Error(data.error ?? `HTTP ${res.status}`);
+      if (data.duplicate) {
+        this.say(`“${data.item.title ?? file.name}” is already on your shelf.`);
+        return;
+      }
       this.say(`Imported “${data.item.title ?? file.name}”.`);
       await this.refresh();
     } catch (err) {
@@ -449,14 +488,17 @@ class LibraryApp {
       this.showReader();
       this.currentItem = item;
       try {
-        this.ui.open(book, target);
+        this.ui.open(book, target, item.position ?? null);
       } catch (err) {
         this.currentItem = null;
         this.showLibrary();
         throw err;
       }
       this.say('');
-      location.hash = `#/book/${item.id}`;
+      // Keep an existing deep link (e.g. …/hl/<id>) intact so it stays copyable.
+      if (!location.hash.startsWith(`#/book/${item.id}`)) {
+        location.hash = `#/book/${item.id}`;
+      }
       this.beginReadingSession(item);
       // Opening an unread book moves it to reading — the shelf is a record.
       if (item.state === 'unread') void this.setState(item.id, 'reading');
@@ -481,9 +523,9 @@ class LibraryApp {
     this.readerView.hidden = false;
   }
 
-  private showLibrary(): void {
+  private showLibrary(fromNav = false): void {
     this.endReadingSession();
-    if (location.hash.startsWith('#/book/')) {
+    if (!fromNav && location.hash.startsWith('#/book/')) {
       history.replaceState(null, '', location.pathname);
     }
     this.readerView.hidden = true;

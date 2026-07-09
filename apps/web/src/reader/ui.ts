@@ -19,6 +19,7 @@ import {
 import {
   type Bookmark,
   DEFAULT_PREFS,
+  type ReaderPosition,
   type ReaderPrefs,
   loadBookState,
   loadBookmarks,
@@ -47,6 +48,7 @@ export interface ReaderElements {
   chapterLabel: HTMLElement;
   progressFill: HTMLElement;
   bookmarkBtn: HTMLButtonElement;
+  immersiveBtn: HTMLButtonElement;
   bookmarksTitle: HTMLElement;
   bookmarksList: HTMLElement;
   findInput: HTMLInputElement;
@@ -76,8 +78,10 @@ export interface HighlightStore {
 }
 
 export interface ReaderHooks {
-  /** Called (debounced with persistence) with overall progress 0..1. */
-  onProgress?: (fraction: number) => void;
+  /** Called (debounced with persistence) with overall progress 0..1 and the position. */
+  onProgress?: (fraction: number, position: ReaderPosition) => void;
+  /** Fired once per open when the reader steps past the last page of the last chapter. */
+  onBookEnd?: () => void;
   highlightStore?: HighlightStore;
 }
 
@@ -97,6 +101,7 @@ export class ReaderUI {
   private prefs: ReaderPrefs;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private bookmarks: Bookmark[] = [];
+  private bookEndFired = false;
   private readonly hooks: ReaderHooks;
   private chapterTextCache = new Map<number, string>();
   private highlights: HighlightRecord[] = [];
@@ -111,17 +116,20 @@ export class ReaderUI {
     this.refreshControlState();
   }
 
-  open(book: Book, target?: OpenTarget): void {
+  open(book: Book, target?: OpenTarget, serverPosition?: ReaderPosition | null): void {
     this.tearDown();
     this.book = book;
+    this.bookEndFired = false;
 
-    // Restore saved state for this book if any; default to ch 0 + scroll 0.
+    // Restore saved state for this book if any; a fresh device falls back to
+    // the server-synced position (the tablet opens where the desk left off).
     const saved = loadBookState(book.id);
     if (saved) {
       this.prefs = saved.prefs;
     }
-    const startChapter = saved?.position.chapter ?? 0;
-    const startScroll = saved?.position.scroll ?? 0;
+    const position = saved?.position ?? serverPosition ?? null;
+    const startChapter = position?.chapter ?? 0;
+    const startScroll = position?.scroll ?? 0;
 
     this.elements.title.textContent = book.metadata.title;
     this.elements.author.textContent = book.metadata.author;
@@ -138,7 +146,7 @@ export class ReaderUI {
       return;
     }
     const safeIndex = Math.min(Math.max(startChapter, 0), book.chapters.length - 1);
-    this.goToChapter(safeIndex, { scroll: startScroll, anchor: saved?.position.anchor ?? null });
+    this.goToChapter(safeIndex, { scroll: startScroll, anchor: position?.anchor ?? null });
   }
 
   /** Provide the stored highlights for the open book (repaints current chapter). */
@@ -162,6 +170,9 @@ export class ReaderUI {
   /** Overall progress through the book, 0..1. */
   progressFraction(): number {
     if (!this.book || !this.rendered || this.book.chapters.length === 0) return 0;
+    // Sitting at the end of the last chapter is 100%, not (n-1+fraction)/n —
+    // a finished book must never show as unfinished on the shelf.
+    if (this.chapterIndex === this.book.chapters.length - 1 && this.rendered.atEnd()) return 1;
     return Math.min(
       (this.chapterIndex + this.rendered.chapterFraction()) / this.book.chapters.length,
       1,
@@ -242,6 +253,7 @@ export class ReaderUI {
     });
 
     this.elements.bookmarkBtn.addEventListener('click', () => this.toggleBookmark());
+    this.elements.immersiveBtn.addEventListener('click', () => this.toggleChrome());
 
     // Highlight creation: selection popover in the viewport.
     viewport.addEventListener('mouseup', (event) => {
@@ -329,19 +341,55 @@ export class ReaderUI {
       const target = event.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key === 'ArrowRight' || event.key === 'PageDown') {
+      if (!this.book) return;
+      const paged = this.prefs.mode === 'paged';
+      const key = event.key;
+      if (
+        key === 'ArrowRight' ||
+        (paged && (key === 'PageDown' || (key === ' ' && !event.shiftKey)))
+      ) {
         event.preventDefault();
         this.goNext();
-      } else if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
+      } else if (
+        key === 'ArrowLeft' ||
+        (paged && (key === 'PageUp' || (key === ' ' && event.shiftKey)))
+      ) {
         event.preventDefault();
         this.goPrev();
-      } else if (event.key === ' ' && this.prefs.mode === 'paged' && this.book) {
-        // Space pages in paged mode (scroll mode keeps native scrolling).
+      } else if (
+        !paged &&
+        (key === ' ' ||
+          key === 'PageDown' ||
+          key === 'PageUp' ||
+          key === 'ArrowDown' ||
+          key === 'ArrowUp')
+      ) {
+        // The viewport rarely holds focus, so scroll it explicitly — a reader
+        // whose PageDown resets to the top loses their place.
         event.preventDefault();
-        if (event.shiftKey) this.goPrev();
-        else this.goNext();
-      } else if (event.key === 'Escape' && this.book) {
-        this.toggleChrome();
+        const vp = this.elements.viewport;
+        const pageStep = vp.clientHeight * 0.85;
+        const delta =
+          key === 'ArrowDown'
+            ? 90
+            : key === 'ArrowUp'
+              ? -90
+              : key === 'PageUp' || (key === ' ' && event.shiftKey)
+                ? -pageStep
+                : pageStep;
+        vp.scrollBy({ top: delta, behavior: 'smooth' });
+      } else if (key === 'Escape') {
+        // Escape only ever brings things back: close panels, restore chrome.
+        if (!this.elements.notePanel.hidden) {
+          this.closeNotePanel();
+          return;
+        }
+        if (!this.elements.typoPanel.hidden) {
+          this.elements.typoPanel.hidden = true;
+          this.elements.typoToggle.setAttribute('aria-expanded', 'false');
+          return;
+        }
+        if (this.prefs.chrome === 'hidden') this.toggleChrome();
       }
     });
   }
@@ -392,7 +440,15 @@ export class ReaderUI {
       const x = (event.clientX - bounds.left) / Math.max(bounds.width, 1);
       if (this.prefs.mode === 'paged' && x < 0.3) this.goPrev();
       else if (this.prefs.mode === 'paged' && x > 0.7) this.goNext();
-      else if (x >= 0.3 && x <= 0.7) this.toggleChrome();
+      else if (x >= 0.3 && x <= 0.7) {
+        // Center tap toggles chrome — but desktop scroll-mode clicks are
+        // usually idle (focus, selection starts), so there a click only
+        // *restores* chrome; hiding is the ⛶ button or paged/touch taps.
+        const coarse = window.matchMedia('(pointer: coarse)').matches;
+        if (this.prefs.mode === 'paged' || coarse || this.prefs.chrome === 'hidden') {
+          this.toggleChrome();
+        }
+      }
       return;
     }
     const href = anchor.getAttribute('href');
@@ -430,7 +486,16 @@ export class ReaderUI {
       this.afterPageTurn();
       return;
     }
-    if (this.chapterIndex >= this.book.chapters.length - 1) return;
+    if (this.chapterIndex >= this.book.chapters.length - 1) {
+      // Stepping past the last page: tell the host once, so it can suggest
+      // marking the book finished instead of silently doing nothing.
+      if (!this.bookEndFired) {
+        this.bookEndFired = true;
+        this.persist();
+        this.hooks.onBookEnd?.();
+      }
+      return;
+    }
     this.goToChapter(this.chapterIndex + 1);
   }
 
@@ -900,15 +965,13 @@ export class ReaderUI {
   private persist(): void {
     if (!this.book || !this.rendered) return;
     const anchor = this.rendered.getAnchor();
-    saveBookState(this.book.id, {
-      position: {
-        chapter: this.chapterIndex,
-        scroll: this.rendered.getScroll(),
-        ...(anchor ? { anchor } : {}),
-      },
-      prefs: this.prefs,
-    });
-    this.hooks.onProgress?.(this.progressFraction());
+    const position: ReaderPosition = {
+      chapter: this.chapterIndex,
+      scroll: this.rendered.getScroll(),
+      ...(anchor ? { anchor } : {}),
+    };
+    saveBookState(this.book.id, { position, prefs: this.prefs });
+    this.hooks.onProgress?.(this.progressFraction(), position);
   }
 
   private tearDown(): void {

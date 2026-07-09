@@ -15,6 +15,15 @@ const MAX_EPUB_BYTES = 200 * 1024 * 1024;
 
 const library = new Hono();
 
+function parsePosition(raw: string | null): unknown {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 library.get('/', async (c) => {
   const all = await db
     .select({
@@ -23,6 +32,7 @@ library.get('/', async (c) => {
       author: items.author,
       state: items.state,
       progress: items.progress,
+      position: items.position,
       importedAt: items.importedAt,
       updatedAt: items.updatedAt,
       totalSeconds: sql<number>`coalesce(sum(${readingSessions.seconds}), 0)`,
@@ -31,7 +41,9 @@ library.get('/', async (c) => {
     .leftJoin(readingSessions, eq(readingSessions.itemId, items.id))
     .groupBy(items.id)
     .orderBy(desc(items.importedAt));
-  return c.json({ items: all });
+  return c.json({
+    items: all.map((item) => ({ ...item, position: parsePosition(item.position) })),
+  });
 });
 
 library.get('/search', async (c) => {
@@ -71,7 +83,7 @@ library.get('/:id', async (c) => {
   const id = c.req.param('id');
   const [item] = await db.select().from(items).where(eq(items.id, id)).limit(1);
   if (!item) return c.json({ error: 'not found' }, 404);
-  return c.json({ item });
+  return c.json({ item: { ...item, position: parsePosition(item.position) } });
 });
 
 library.post('/import', async (c) => {
@@ -94,6 +106,21 @@ library.post('/import', async (c) => {
     throw err;
   }
 
+  // Same bytes already on the shelf: hand back the existing book instead of
+  // silently growing a twin.
+  const contentHash = new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
+  const [existing] = await db
+    .select()
+    .from(items)
+    .where(eq(items.contentHash, contentHash))
+    .limit(1);
+  if (existing) {
+    return c.json({
+      item: { ...existing, position: parsePosition(existing.position) },
+      duplicate: true,
+    });
+  }
+
   ensureDataDirs();
   const id = crypto.randomUUID();
   const epubPath = path.join(EPUBS_DIR, `${id}.epub`);
@@ -109,6 +136,7 @@ library.post('/import', async (c) => {
       author: meta.author,
       state: 'unread',
       epubPath,
+      contentHash,
       importedAt: now,
       updatedAt: now,
     })
@@ -132,14 +160,32 @@ library.post('/import', async (c) => {
   return c.json({ item }, 201);
 });
 
-const progressSchema = z.object({ progress: z.number().min(0).max(1) });
+const progressSchema = z.object({
+  progress: z.number().min(0).max(1),
+  position: z
+    .object({
+      chapter: z.number().int().min(0),
+      scroll: z.number().min(0),
+      anchor: z
+        .object({
+          path: z.array(z.number().int().min(0)).max(32),
+          ratio: z.number(),
+        })
+        .optional(),
+    })
+    .optional(),
+});
 
 library.patch('/:id/progress', zValidator('json', progressSchema), async (c) => {
   const id = c.req.param('id');
-  const { progress } = c.req.valid('json');
-  const [item] = await db.update(items).set({ progress }).where(eq(items.id, id)).returning();
+  const { progress, position } = c.req.valid('json');
+  const [item] = await db
+    .update(items)
+    .set({ progress, ...(position ? { position: JSON.stringify(position) } : {}) })
+    .where(eq(items.id, id))
+    .returning();
   if (!item) return c.json({ error: 'not found' }, 404);
-  return c.json({ item });
+  return c.json({ item: { ...item, position: parsePosition(item.position) } });
 });
 
 // The Logseq off-ramp: one markdown outline per book, thin by design —
@@ -153,6 +199,12 @@ library.get('/:id/logseq.md', async (c) => {
     .from(highlightsTable)
     .where(eq(highlightsTable.itemId, id))
     .orderBy(highlightsTable.chapter, highlightsTable.startOffset);
+  // Chapter titles come from the FTS index (extracted at import) so the
+  // export speaks the same language as the reader, not spine indices.
+  const titleRows = (await db.all(
+    sql`SELECT chapter, title FROM items_fts WHERE item_id = ${id}`,
+  )) as { chapter: number; title: string | null }[];
+  const chapterTitles = new Map(titleRows.map((row) => [row.chapter, row.title]));
   const origin = new URL(c.req.url).origin;
   const today = new Date().toISOString().slice(0, 10);
   const lines: string[] = [
@@ -161,7 +213,7 @@ library.get('/:id/logseq.md', async (c) => {
   ];
   for (const hl of rows) {
     lines.push(`\t- "${hl.text.replace(/\s+/g, ' ').trim()}"`);
-    lines.push(`\t  chapter:: ${hl.chapter + 1}`);
+    lines.push(`\t  chapter:: ${chapterTitles.get(hl.chapter) ?? hl.chapter + 1}`);
     lines.push(`\t  link:: ${origin}/#/book/${id}/hl/${hl.id}`);
     if (hl.note) lines.push(`\t  note:: ${hl.note.replace(/\s+/g, ' ').trim()}`);
   }

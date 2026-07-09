@@ -79,6 +79,8 @@ export interface RenderedChapter {
   pageBy(direction: 1 | -1): boolean;
   /** Jump to the end of the chapter (last page / bottom). */
   scrollToEnd(): void;
+  /** True when the viewport sits at the chapter's last page / bottom. */
+  atEnd(): boolean;
 }
 
 const SHADOW_HOST_TAG = 'div';
@@ -179,13 +181,8 @@ export function renderChapter(
   };
 
   const textAt = (anchor: PositionAnchor): string | null => {
-    let el: Element = wrapper;
-    for (const index of anchor.path) {
-      const kid = el.children.item(index);
-      if (!kid) break;
-      el = kid;
-    }
-    if (el === wrapper) return null;
+    const el = elementAtPath(anchor.path);
+    if (!el || el === wrapper) return null;
     const text = (el.textContent ?? '').trim();
     return text.length > 0 ? text : null;
   };
@@ -219,6 +216,14 @@ export function renderChapter(
     }
   };
 
+  const atEnd = (): boolean => {
+    if (isPaged()) {
+      const { page, pages } = pageInfo();
+      return page >= pages;
+    }
+    return mount.scrollTop >= mount.scrollHeight - mount.clientHeight - 1;
+  };
+
   const chapterFraction = (): number => {
     if (isPaged()) {
       const { page, pages } = pageInfo();
@@ -236,7 +241,9 @@ export function renderChapter(
     while (current && current !== wrapper) {
       const parent: Element | null = current.parentElement;
       if (!parent) return null;
-      path.unshift(Array.prototype.indexOf.call(parent.children, current));
+      const index = structuralChildren(parent).indexOf(current);
+      if (index < 0) return null;
+      path.unshift(index);
       current = parent;
     }
     return current === wrapper ? path : null;
@@ -245,7 +252,7 @@ export function renderChapter(
   const elementAtPath = (path: number[]): Element | null => {
     let el: Element = wrapper;
     for (const index of path) {
-      const kid = el.children.item(index);
+      const kid = structuralChildren(el)[index];
       if (!kid) return null;
       el = kid;
     }
@@ -276,8 +283,12 @@ export function renderChapter(
     return null;
   };
 
-  const nearestElement = (node: Node): Element | null =>
-    node instanceof Element ? node : node.parentElement;
+  const nearestElement = (node: Node): Element | null => {
+    let el = node instanceof Element ? node : node.parentElement;
+    // Climb out of overlay marks so boundaries anchor to real structure.
+    while (el && el !== wrapper && isOverlayMark(el)) el = el.parentElement;
+    return el;
+  };
 
   const serializeSelection = (): HighlightRange | null => {
     // Chromium exposes in-shadow selections via the shadow root; fall back
@@ -364,10 +375,16 @@ export function renderChapter(
   };
 
   const scrollToHighlight = (id: string): boolean => {
-    const mark = wrapper.querySelector(`mark.hl[data-hl-id="${id}"]`);
+    const marks = Array.from(wrapper.querySelectorAll(`mark.hl[data-hl-id="${id}"]`));
+    const mark = marks[0];
     if (!mark) return false;
     if (isPaged()) snapToPage(absoluteStart(mark, mount, 'h'));
     else mount.scrollTop = Math.max(absoluteStart(mark, mount, 'v') - 80, 0);
+    // A brief pulse so a jump/deep link lands with visible emphasis.
+    for (const m of marks) {
+      m.classList.add('hl-focus');
+      setTimeout(() => m.classList.remove('hl-focus'), 1800);
+    }
     return true;
   };
 
@@ -415,6 +432,7 @@ export function renderChapter(
     pageInfo,
     pageBy,
     scrollToEnd,
+    atEnd,
     chapterFraction,
     findAndMark,
     serializeSelection,
@@ -426,6 +444,25 @@ export function renderChapter(
 }
 
 type Axis = 'v' | 'h';
+
+// Highlight/find <mark> wrappers are presentation, not structure: locator
+// paths (positions, bookmarks, highlights alike) must be computed as if they
+// don't exist, or a locator captured in an already-marked paragraph
+// serializes against the mutated DOM and never resolves again after reload.
+function isOverlayMark(el: Element): boolean {
+  return (
+    el.tagName === 'MARK' && (el.classList.contains('hl') || el.classList.contains('find-hit'))
+  );
+}
+
+function structuralChildren(el: Element): Element[] {
+  const kids: Element[] = [];
+  for (const kid of Array.from(el.children)) {
+    if (isOverlayMark(kid)) continue; // overlay marks contain only text, never elements
+    kids.push(kid);
+  }
+  return kids;
+}
 
 /** Element start offset (top or left) in the mount's scroll coordinates. */
 function absoluteStart(el: Element, mount: HTMLElement, axis: Axis): number {
@@ -448,7 +485,7 @@ function anchorFor(wrapper: HTMLElement, mount: HTMLElement, axis: Axis): Positi
   const path: number[] = [];
   let current: Element = wrapper;
   for (;;) {
-    const kids = Array.from(current.children);
+    const kids = structuralChildren(current);
     // Prefer the kid whose box spans the viewport start; when it sits in a
     // margin/padding gap between blocks, anchor to the nearest following kid
     // (negative ratio) or, past the last block, to the last kid (ratio > 1).
@@ -506,7 +543,7 @@ function anchorTarget(
 ): number | null {
   let el: Element = wrapper;
   for (const index of anchor.path) {
-    const kid = el.children.item(index);
+    const kid = structuralChildren(el)[index];
     if (!kid) break;
     el = kid;
   }
@@ -556,6 +593,7 @@ function makeStub(host: HTMLElement): RenderedChapter {
     pageInfo: (): { page: number; pages: number } => ({ page: 1, pages: 1 }),
     pageBy: (): boolean => false,
     scrollToEnd: (): void => {},
+    atEnd: (): boolean => false,
     chapterFraction: (): number => 0,
     findAndMark: (): boolean => false,
     serializeSelection: (): HighlightRange | null => null,
@@ -771,7 +809,15 @@ const SHADOW_BASE_CSS = `
   ::selection { background: var(--reader-mark); }
   mark.find-hit { background: var(--reader-mark); color: inherit; padding: 0 0.1em; border-radius: 2px; }
   mark.hl { background: var(--reader-mark); color: inherit; padding: 0 0.05em; border-radius: 2px; cursor: pointer; }
-  mark.hl.has-note { border-bottom: 1.5px dashed var(--reader-link); }
+  mark.hl.has-note { border-bottom: 2px dotted var(--reader-link); }
+  mark.hl.hl-focus { animation: hl-pulse 1.8s ease; }
+  @keyframes hl-pulse {
+    0%, 45% { box-shadow: 0 0 0 4px var(--reader-mark); }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    mark.hl.hl-focus { animation: none; }
+  }
   .reader-chapter {
     max-width: var(--reader-measure);
     margin: 0 auto;
