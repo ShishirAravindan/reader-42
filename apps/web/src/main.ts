@@ -68,6 +68,7 @@ function readerElements(): ReaderElements {
     chapterLabel: el('chapter-label'),
     progressFill: el('progress-fill'),
     bookmarkBtn: el<HTMLButtonElement>('btn-bookmark'),
+    immersiveBtn: el<HTMLButtonElement>('btn-immersive'),
     bookmarksTitle: el('bookmarks-title'),
     bookmarksList: el('bookmarks'),
     findInput: el<HTMLInputElement>('find-input'),
@@ -225,6 +226,13 @@ class LibraryApp {
 
     // Flush the reading session + progress when the tab goes away.
     window.addEventListener('pagehide', () => this.endReadingSession(true));
+
+    // Browser Back from the reader returns to the shelf.
+    window.addEventListener('hashchange', () => {
+      if (!location.hash.startsWith('#/book/') && !this.readerView.hidden) {
+        this.showLibrary(true);
+      }
+    });
   }
 
   private async runSearch(q: string): Promise<void> {
@@ -486,7 +494,10 @@ class LibraryApp {
         throw err;
       }
       this.say('');
-      location.hash = `#/book/${item.id}`;
+      // Keep an existing deep link (e.g. …/hl/<id>) intact so it stays copyable.
+      if (!location.hash.startsWith(`#/book/${item.id}`)) {
+        location.hash = `#/book/${item.id}`;
+      }
       this.beginReadingSession(item);
       // Opening an unread book moves it to reading — the shelf is a record.
       if (item.state === 'unread') void this.setState(item.id, 'reading');
@@ -511,9 +522,9 @@ class LibraryApp {
     this.readerView.hidden = false;
   }
 
-  private showLibrary(): void {
+  private showLibrary(fromNav = false): void {
     this.endReadingSession();
-    if (location.hash.startsWith('#/book/')) {
+    if (!fromNav && location.hash.startsWith('#/book/')) {
       history.replaceState(null, '', location.pathname);
     }
     this.readerView.hidden = true;
