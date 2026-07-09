@@ -43,6 +43,13 @@ function readerElements(): ReaderElements {
     themeButtons: Array.from(
       document.querySelectorAll<HTMLButtonElement>('.control-btn[data-theme]'),
     ),
+    modeButtons: Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.control-btn[data-mode]'),
+    ),
+    measureButtons: Array.from(document.querySelectorAll<HTMLButtonElement>('[data-measure]')),
+    leadingButtons: Array.from(document.querySelectorAll<HTMLButtonElement>('[data-leading]')),
+    typoToggle: el<HTMLButtonElement>('btn-typo'),
+    typoPanel: el('typo-panel'),
     tocToggle: el<HTMLButtonElement>('btn-toc'),
     chapterLabel: el('chapter-label'),
   };
