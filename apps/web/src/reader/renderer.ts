@@ -375,10 +375,16 @@ export function renderChapter(
   };
 
   const scrollToHighlight = (id: string): boolean => {
-    const mark = wrapper.querySelector(`mark.hl[data-hl-id="${id}"]`);
+    const marks = Array.from(wrapper.querySelectorAll(`mark.hl[data-hl-id="${id}"]`));
+    const mark = marks[0];
     if (!mark) return false;
     if (isPaged()) snapToPage(absoluteStart(mark, mount, 'h'));
     else mount.scrollTop = Math.max(absoluteStart(mark, mount, 'v') - 80, 0);
+    // A brief pulse so a jump/deep link lands with visible emphasis.
+    for (const m of marks) {
+      m.classList.add('hl-focus');
+      setTimeout(() => m.classList.remove('hl-focus'), 1800);
+    }
     return true;
   };
 
@@ -803,7 +809,15 @@ const SHADOW_BASE_CSS = `
   ::selection { background: var(--reader-mark); }
   mark.find-hit { background: var(--reader-mark); color: inherit; padding: 0 0.1em; border-radius: 2px; }
   mark.hl { background: var(--reader-mark); color: inherit; padding: 0 0.05em; border-radius: 2px; cursor: pointer; }
-  mark.hl.has-note { border-bottom: 1.5px dashed var(--reader-link); }
+  mark.hl.has-note { border-bottom: 2px dotted var(--reader-link); }
+  mark.hl.hl-focus { animation: hl-pulse 1.8s ease; }
+  @keyframes hl-pulse {
+    0%, 45% { box-shadow: 0 0 0 4px var(--reader-mark); }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    mark.hl.hl-focus { animation: none; }
+  }
   .reader-chapter {
     max-width: var(--reader-measure);
     margin: 0 auto;

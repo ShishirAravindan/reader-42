@@ -148,8 +148,9 @@ class LibraryApp {
         },
       },
     });
-    // Small screens start with the TOC tucked away; the ☰ button reveals it.
-    if (window.matchMedia('(max-width: 700px)').matches) {
+    // Small screens (phones and portrait tablets) start with the TOC tucked
+    // away; the ☰ button reveals it.
+    if (window.matchMedia('(max-width: 900px)').matches) {
       el('app').classList.add('toc-collapsed');
     }
     this.bind();
@@ -396,7 +397,7 @@ class LibraryApp {
       stats.className = 'lib-stats';
       const parts: string[] = [];
       if (item.progress > 0) parts.push(`${Math.round(item.progress * 100)}%`);
-      if (item.totalSeconds > 0) parts.push(formatDuration(item.totalSeconds));
+      if (item.totalSeconds > 0) parts.push(`${formatDuration(item.totalSeconds)} read`);
       stats.textContent = parts.join(' · ');
       meta.appendChild(stats);
     }
