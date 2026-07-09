@@ -10,6 +10,7 @@
 
 import type { Book, Chapter, TocEntry } from '../epub/index.ts';
 import {
+  type HighlightRange,
   type PositionAnchor,
   type RenderedChapter,
   applyOptions,
@@ -49,11 +50,34 @@ export interface ReaderElements {
   bookmarksList: HTMLElement;
   findInput: HTMLInputElement;
   findResults: HTMLElement;
+  hlPop: HTMLElement;
+  hlAddBtn: HTMLButtonElement;
+  hlNoteBtn: HTMLButtonElement;
+  notePanel: HTMLElement;
+  noteText: HTMLTextAreaElement;
+  noteSave: HTMLButtonElement;
+  noteDelete: HTMLButtonElement;
+  highlightsTitle: HTMLElement;
+  highlightsList: HTMLElement;
+}
+
+export interface HighlightRecord extends HighlightRange {
+  id: string;
+  chapter: number;
+  note: string | null;
+}
+
+/** Persistence for highlights — the reader stays storage-agnostic. */
+export interface HighlightStore {
+  create(draft: Omit<HighlightRecord, 'id' | 'note'>): Promise<HighlightRecord | null>;
+  updateNote(id: string, note: string | null): Promise<boolean>;
+  remove(id: string): Promise<boolean>;
 }
 
 export interface ReaderHooks {
   /** Called (debounced with persistence) with overall progress 0..1. */
   onProgress?: (fraction: number) => void;
+  highlightStore?: HighlightStore;
 }
 
 /** Where to land when opening a book, overriding the saved position. */
@@ -74,6 +98,9 @@ export class ReaderUI {
   private bookmarks: Bookmark[] = [];
   private readonly hooks: ReaderHooks;
   private chapterTextCache = new Map<number, string>();
+  private highlights: HighlightRecord[] = [];
+  private pendingRange: HighlightRange | null = null;
+  private editingHighlightId: string | null = null;
 
   constructor(elements: ReaderElements, hooks: ReaderHooks = {}) {
     this.elements = elements;
@@ -111,6 +138,24 @@ export class ReaderUI {
     }
     const safeIndex = Math.min(Math.max(startChapter, 0), book.chapters.length - 1);
     this.goToChapter(safeIndex, { scroll: startScroll, anchor: saved?.position.anchor ?? null });
+  }
+
+  /** Provide the stored highlights for the open book (repaints current chapter). */
+  setHighlights(records: HighlightRecord[]): void {
+    this.highlights = [...records].sort(
+      (a, b) => a.chapter - b.chapter || a.startOffset - b.startOffset,
+    );
+    this.renderHighlightList();
+    this.paintChapterHighlights();
+  }
+
+  /** Jump to a stored highlight (deep links). */
+  jumpToHighlight(id: string): boolean {
+    const record = this.highlights.find((hl) => hl.id === id);
+    if (!record) return false;
+    if (record.chapter !== this.chapterIndex) this.goToChapter(record.chapter);
+    queueMicrotask(() => this.rendered?.scrollToHighlight(id));
+    return true;
   }
 
   /** Overall progress through the book, 0..1. */
@@ -194,6 +239,23 @@ export class ReaderUI {
     });
 
     this.elements.bookmarkBtn.addEventListener('click', () => this.toggleBookmark());
+
+    // Highlight creation: selection popover in the viewport.
+    viewport.addEventListener('mouseup', (event) => {
+      // Let the browser finalize the selection first.
+      setTimeout(() => this.maybeShowHighlightPop(event), 0);
+    });
+    this.elements.hlAddBtn.addEventListener('click', () => void this.createHighlight(false));
+    this.elements.hlNoteBtn.addEventListener('click', () => void this.createHighlight(true));
+    document.addEventListener('mousedown', (event) => {
+      const path = event.composedPath();
+      if (!path.includes(this.elements.hlPop)) this.elements.hlPop.hidden = true;
+      if (!path.includes(this.elements.notePanel) && !this.elements.notePanel.hidden) {
+        this.closeNotePanel();
+      }
+    });
+    this.elements.noteSave.addEventListener('click', () => void this.saveNote());
+    this.elements.noteDelete.addEventListener('click', () => void this.deleteEditingHighlight());
 
     // In-book find: search parsed chapter text, list hits, jump + flash.
     let findTimer: ReturnType<typeof setTimeout> | null = null;
@@ -285,6 +347,17 @@ export class ReaderUI {
       }
     }
     if (!anchor) {
+      // Tapping an existing highlight opens its note editor.
+      for (const node of path) {
+        if (node instanceof HTMLElement && node.matches?.('mark.hl')) {
+          const record = this.highlights.find((hl) => hl.id === node.dataset.hlId);
+          if (record) {
+            event.preventDefault();
+            this.openNotePanel(record);
+            return;
+          }
+        }
+      }
       // No link under the tap: in paged mode the side thirds are page-turn
       // zones (unless the tap was a text selection).
       if (this.prefs.mode !== 'paged') return;
@@ -378,6 +451,7 @@ export class ReaderUI {
     this.updateChapterLabel();
     this.refreshControlState();
     this.highlightTocFor(chapter);
+    this.paintChapterHighlights();
     this.persist();
   }
 
@@ -392,6 +466,115 @@ export class ReaderUI {
     this.elements.chapterLabel.textContent =
       info && info.pages > 1 ? `${base} · p. ${info.page}/${info.pages}` : base;
     this.refreshBookmarkButton();
+  }
+
+  // --- highlights ---
+
+  private maybeShowHighlightPop(event: MouseEvent): void {
+    const { hlPop } = this.elements;
+    const range = this.rendered?.serializeSelection() ?? null;
+    if (!range) {
+      hlPop.hidden = true;
+      return;
+    }
+    this.pendingRange = range;
+    hlPop.hidden = false;
+    const width = hlPop.offsetWidth || 180;
+    hlPop.style.left = `${Math.min(Math.max(event.clientX - width / 2, 8), window.innerWidth - width - 8)}px`;
+    hlPop.style.top = `${Math.max(event.clientY - 52, 8)}px`;
+  }
+
+  private async createHighlight(withNote: boolean): Promise<void> {
+    const store = this.hooks.highlightStore;
+    const range = this.pendingRange;
+    this.elements.hlPop.hidden = true;
+    this.pendingRange = null;
+    if (!store || !range || !this.rendered) return;
+    const record = await store.create({ ...range, chapter: this.chapterIndex });
+    if (!record) return;
+    this.highlights.push(record);
+    this.highlights.sort((a, b) => a.chapter - b.chapter || a.startOffset - b.startOffset);
+    this.rendered.applyHighlight(record.id, record, false);
+    document.getSelection()?.removeAllRanges();
+    this.renderHighlightList();
+    if (withNote) this.openNotePanel(record);
+  }
+
+  private openNotePanel(record: HighlightRecord): void {
+    this.editingHighlightId = record.id;
+    this.elements.noteText.value = record.note ?? '';
+    this.elements.notePanel.hidden = false;
+    this.elements.noteText.focus();
+  }
+
+  private closeNotePanel(): void {
+    this.elements.notePanel.hidden = true;
+    this.editingHighlightId = null;
+  }
+
+  private async saveNote(): Promise<void> {
+    const id = this.editingHighlightId;
+    const store = this.hooks.highlightStore;
+    if (!id || !store) return;
+    const note = this.elements.noteText.value.trim() || null;
+    if (await store.updateNote(id, note)) {
+      const record = this.highlights.find((hl) => hl.id === id);
+      if (record) record.note = note;
+      this.rendered?.setNoteFlag(id, note !== null);
+      this.renderHighlightList();
+    }
+    this.closeNotePanel();
+  }
+
+  private async deleteEditingHighlight(): Promise<void> {
+    const id = this.editingHighlightId;
+    const store = this.hooks.highlightStore;
+    if (!id || !store) return;
+    if (await store.remove(id)) {
+      this.highlights = this.highlights.filter((hl) => hl.id !== id);
+      this.rendered?.removeHighlight(id);
+      this.renderHighlightList();
+    }
+    this.closeNotePanel();
+  }
+
+  private paintChapterHighlights(): void {
+    if (!this.rendered) return;
+    for (const record of this.highlights) {
+      if (record.chapter !== this.chapterIndex) continue;
+      this.rendered.applyHighlight(record.id, record, record.note !== null);
+    }
+  }
+
+  private renderHighlightList(): void {
+    const { highlightsList, highlightsTitle } = this.elements;
+    highlightsTitle.hidden = this.highlights.length === 0;
+    highlightsList.replaceChildren(
+      ...this.highlights.map((record) => {
+        const li = document.createElement('li');
+        li.className = 'bm-item';
+        const go = document.createElement('button');
+        go.type = 'button';
+        go.className = 'bm-link hl-entry';
+        const where = document.createElement('span');
+        where.className = 'bm-where';
+        where.textContent =
+          this.book?.chapters[record.chapter]?.title ?? `Chapter ${record.chapter + 1}`;
+        const snippet = document.createElement('span');
+        snippet.className = 'bm-snippet';
+        snippet.textContent = record.text.slice(0, 90);
+        go.append(where, snippet);
+        if (record.note) {
+          const note = document.createElement('span');
+          note.className = 'hl-note-preview';
+          note.textContent = record.note;
+          go.appendChild(note);
+        }
+        go.addEventListener('click', () => this.jumpToHighlight(record.id));
+        li.appendChild(go);
+        return li;
+      }),
+    );
   }
 
   // --- in-book find ---
@@ -706,6 +889,12 @@ export class ReaderUI {
     this.book = null;
     this.chapterIndex = 0;
     this.bookmarks = [];
+    this.highlights = [];
+    this.pendingRange = null;
+    this.closeNotePanel();
+    this.elements.hlPop.hidden = true;
+    this.elements.highlightsList.replaceChildren();
+    this.elements.highlightsTitle.hidden = true;
     this.chapterTextCache.clear();
     this.elements.findInput.value = '';
     this.elements.findResults.replaceChildren();

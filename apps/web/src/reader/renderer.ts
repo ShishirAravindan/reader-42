@@ -33,6 +33,20 @@ export interface PositionAnchor {
   ratio: number;
 }
 
+/**
+ * A highlighted span: element-index paths from the chapter wrapper to the
+ * elements containing each boundary, plus character offsets within those
+ * elements' flattened text. Same locator family as PositionAnchor — stable
+ * across display modes and typography changes.
+ */
+export interface HighlightRange {
+  startPath: number[];
+  startOffset: number;
+  endPath: number[];
+  endOffset: number;
+  text: string;
+}
+
 export interface RenderedChapter {
   /** Element host for the shadow root. */
   host: HTMLElement;
@@ -52,6 +66,13 @@ export interface RenderedChapter {
   chapterFraction(): number;
   /** Find the first occurrence of term, mark it, scroll to it. */
   findAndMark(term: string): boolean;
+  /** Serialize the current text selection (if inside this chapter). */
+  serializeSelection(): HighlightRange | null;
+  /** Paint a stored highlight; false if its locator no longer resolves. */
+  applyHighlight(id: string, range: HighlightRange, hasNote: boolean): boolean;
+  removeHighlight(id: string): void;
+  setNoteFlag(id: string, hasNote: boolean): void;
+  scrollToHighlight(id: string): boolean;
   /** Paged mode: 1-based current page and page count (1/1 in scroll mode). */
   pageInfo(): { page: number; pages: number };
   /** Paged mode: step one page; returns false at the chapter edge. */
@@ -207,6 +228,149 @@ export function renderChapter(
     return max > 0 ? Math.min(mount.scrollTop / max, 1) : 0;
   };
 
+  // --- highlights ---
+
+  const elementPathOf = (el: Element): number[] | null => {
+    const path: number[] = [];
+    let current: Element | null = el;
+    while (current && current !== wrapper) {
+      const parent: Element | null = current.parentElement;
+      if (!parent) return null;
+      path.unshift(Array.prototype.indexOf.call(parent.children, current));
+      current = parent;
+    }
+    return current === wrapper ? path : null;
+  };
+
+  const elementAtPath = (path: number[]): Element | null => {
+    let el: Element = wrapper;
+    for (const index of path) {
+      const kid = el.children.item(index);
+      if (!kid) return null;
+      el = kid;
+    }
+    return el;
+  };
+
+  const charOffsetWithin = (root: Element, node: Node, offsetInNode: number): number => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let total = 0;
+    for (let current = walker.nextNode(); current; current = walker.nextNode()) {
+      if (current === node) return total + offsetInNode;
+      total += current.textContent?.length ?? 0;
+    }
+    return total;
+  };
+
+  const resolveCharOffset = (
+    root: Element,
+    charOffset: number,
+  ): { node: Text; offset: number } | null => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let remaining = charOffset;
+    for (let current = walker.nextNode(); current; current = walker.nextNode()) {
+      const length = current.textContent?.length ?? 0;
+      if (remaining <= length) return { node: current as Text, offset: remaining };
+      remaining -= length;
+    }
+    return null;
+  };
+
+  const nearestElement = (node: Node): Element | null =>
+    node instanceof Element ? node : node.parentElement;
+
+  const serializeSelection = (): HighlightRange | null => {
+    // Chromium exposes in-shadow selections via the shadow root; fall back
+    // to the document selection elsewhere.
+    const shadowSelection = (
+      shadow as unknown as { getSelection?: () => Selection | null }
+    ).getSelection?.();
+    const selection = shadowSelection ?? document.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+    const range = selection.getRangeAt(0);
+    if (!wrapper.contains(range.startContainer) || !wrapper.contains(range.endContainer)) {
+      return null;
+    }
+    const startEl = nearestElement(range.startContainer);
+    const endEl = nearestElement(range.endContainer);
+    if (!startEl || !endEl) return null;
+    const startPath = elementPathOf(startEl);
+    const endPath = elementPathOf(endEl);
+    if (!startPath || !endPath) return null;
+    const text = range.toString().replace(/\s+/g, ' ').trim();
+    if (text.length === 0) return null;
+    return {
+      startPath,
+      startOffset: charOffsetWithin(startEl, range.startContainer, range.startOffset),
+      endPath,
+      endOffset: charOffsetWithin(endEl, range.endContainer, range.endOffset),
+      text: text.slice(0, 5000),
+    };
+  };
+
+  const applyHighlight = (id: string, hl: HighlightRange, hasNote: boolean): boolean => {
+    const startEl = elementAtPath(hl.startPath);
+    const endEl = elementAtPath(hl.endPath);
+    if (!startEl || !endEl) return false;
+    const start = resolveCharOffset(startEl, hl.startOffset);
+    const end = resolveCharOffset(endEl, hl.endOffset);
+    if (!start || !end) return false;
+    const range = document.createRange();
+    range.setStart(start.node, start.offset);
+    range.setEnd(end.node, end.offset);
+    if (range.collapsed) return false;
+
+    // Wrap every text-node intersection separately; a single surroundContents
+    // fails as soon as the range crosses element boundaries.
+    const nodes: Text[] = [];
+    const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (range.intersectsNode(node)) nodes.push(node as Text);
+    }
+    let wrapped = false;
+    for (const node of nodes) {
+      const from = node === start.node ? start.offset : 0;
+      const to = node === end.node ? end.offset : (node.textContent?.length ?? 0);
+      if (from >= to) continue;
+      const segment = document.createRange();
+      segment.setStart(node, from);
+      segment.setEnd(node, to);
+      const mark = document.createElement('mark');
+      mark.className = hasNote ? 'hl has-note' : 'hl';
+      mark.dataset.hlId = id;
+      try {
+        segment.surroundContents(mark);
+        wrapped = true;
+      } catch {
+        // skip un-wrappable segments rather than failing the whole highlight
+      }
+    }
+    return wrapped;
+  };
+
+  const removeHighlight = (id: string): void => {
+    for (const mark of Array.from(wrapper.querySelectorAll(`mark.hl[data-hl-id="${id}"]`))) {
+      const parent = mark.parentNode;
+      while (mark.firstChild) parent?.insertBefore(mark.firstChild, mark);
+      mark.remove();
+      parent?.normalize();
+    }
+  };
+
+  const setNoteFlag = (id: string, hasNote: boolean): void => {
+    for (const mark of Array.from(wrapper.querySelectorAll(`mark.hl[data-hl-id="${id}"]`))) {
+      mark.classList.toggle('has-note', hasNote);
+    }
+  };
+
+  const scrollToHighlight = (id: string): boolean => {
+    const mark = wrapper.querySelector(`mark.hl[data-hl-id="${id}"]`);
+    if (!mark) return false;
+    if (isPaged()) snapToPage(absoluteStart(mark, mount, 'h'));
+    else mount.scrollTop = Math.max(absoluteStart(mark, mount, 'v') - 80, 0);
+    return true;
+  };
+
   const findAndMark = (term: string): boolean => {
     // Clear any previous hit so repeated finds don't accumulate marks.
     for (const previous of Array.from(wrapper.querySelectorAll('mark.find-hit'))) {
@@ -253,6 +417,11 @@ export function renderChapter(
     scrollToEnd,
     chapterFraction,
     findAndMark,
+    serializeSelection,
+    applyHighlight,
+    removeHighlight,
+    setNoteFlag,
+    scrollToHighlight,
   };
 }
 
@@ -382,6 +551,11 @@ function makeStub(host: HTMLElement): RenderedChapter {
     scrollToEnd: (): void => {},
     chapterFraction: (): number => 0,
     findAndMark: (): boolean => false,
+    serializeSelection: (): HighlightRange | null => null,
+    applyHighlight: (): boolean => false,
+    removeHighlight: (): void => {},
+    setNoteFlag: (): void => {},
+    scrollToHighlight: (): boolean => false,
   };
 }
 
@@ -589,6 +763,8 @@ const SHADOW_BASE_CSS = `
   }
   ::selection { background: var(--reader-mark); }
   mark.find-hit { background: var(--reader-mark); color: inherit; padding: 0 0.1em; border-radius: 2px; }
+  mark.hl { background: var(--reader-mark); color: inherit; padding: 0 0.05em; border-radius: 2px; cursor: pointer; }
+  mark.hl.has-note { border-bottom: 1.5px dashed var(--reader-link); }
   .reader-chapter {
     max-width: var(--reader-measure);
     margin: 0 auto;

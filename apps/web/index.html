@@ -97,6 +97,8 @@
             <nav id="toc" class="toc"></nav>
             <h2 class="sidebar-title bm-title" id="bookmarks-title" hidden>Bookmarks</h2>
             <ul id="bookmarks" class="bm-list"></ul>
+            <h2 class="sidebar-title bm-title" id="highlights-title" hidden>Highlights</h2>
+            <ul id="highlights-list" class="bm-list"></ul>
           </aside>
 
           <section class="reader">
@@ -109,6 +111,19 @@
           </section>
         </div>
       </section>
+
+      <div id="hl-pop" class="hl-pop" hidden>
+        <button id="hl-add" type="button">Highlight</button>
+        <button id="hl-note" type="button">+ Note</button>
+      </div>
+
+      <div id="note-panel" class="note-panel" hidden>
+        <textarea id="note-text" rows="4" placeholder="Add a note…"></textarea>
+        <div class="note-actions">
+          <button id="note-delete" type="button" class="control-btn note-danger">Delete highlight</button>
+          <button id="note-save" type="button" class="control-btn">Save</button>
+        </div>
+      </div>
 
       <div id="status" class="status" aria-live="polite"></div>
     </main>
