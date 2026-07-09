@@ -1,7 +1,7 @@
 # 0002 — Convert is a headless Claude Code agent, not a deterministic pipeline
 
 Date: 2026-05-09
-Status: Accepted
+Status: Superseded by [0005](0005-rescope-library-reader-highlights.md) — conversion moved out of reader-42 into [reflow-to-epub](https://github.com/ShishirAravindan/reflow-to-epub), which re-derived its own design rather than adopting this one.
 
 ## Context
 

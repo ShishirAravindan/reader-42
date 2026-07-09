@@ -49,3 +49,7 @@ A subagent working in `.claude/worktrees/<id>/` may have `bun install`, `bun run
 ## 2026-05-09 — Resuming a rate-limited subagent's WIP starts with a careful read-pass
 
 When picking up `wip:` snapshots from another subagent: read each file before changing anything; cross-check the WIP commit's parent against the current branch and against `main` (the WIP may pre-date later merges, leaving the branch missing context like a server skeleton); then run `bunx tsc -p` to triage real-bug errors from absent-`node_modules` errors. The temptation to rewrite from scratch is wrong — the prior agent's structure is usually fine; what's broken is mostly tsconfig, import-organization, formatting, and a couple of namespace-aware DOM lookups.
+
+## 2026-07-03 — Re-scope means purge, in one change
+
+When a concern is extracted to a sibling repo (convert → reflow-to-epub), the donor repo's identity docs rot silently: vision, ADRs, CLAUDE.md one-liners, DB states, and dead code all kept describing a product that no longer existed here. Pattern: re-scope is a single atomic change — docs *and* code *and* schema together, with an ADR (0005) superseding the outgoing ones — not a docs pass that leaves the code "for later." Also: batch every blocking product decision (ingest contract, reading model, devices, priorities, aesthetics, review cadence) into structured up-front questions before touching anything; eight answers up front bought the whole restructure without another interruption.

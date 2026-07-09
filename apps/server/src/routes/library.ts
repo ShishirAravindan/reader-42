@@ -6,7 +6,7 @@ import { items } from '../db/schema.ts';
 const library = new Hono();
 
 library.get('/', async (c) => {
-  const all = await db.select().from(items).orderBy(desc(items.capturedAt));
+  const all = await db.select().from(items).orderBy(desc(items.importedAt));
   return c.json({ items: all });
 });
 

@@ -1,38 +1,41 @@
 # CLAUDE.md — reader-42
 
-You are working on **reader-42**, a local-first personal reading environment for long-form web and PDF content. This file is read at the start of every session in this repo. Read `docs/vision.md` and `docs/non-goals.md` before any substantive work, and `docs/diary.md` for patterns prior agents discovered.
+You are working on **reader-42**, a local-first personal Kindle clone: library, from-scratch EPUB reader, and highlights off-ramp to Logseq. This file is read at the start of every session in this repo. Read `docs/vision.md` and `docs/non-goals.md` before any substantive work, `docs/roadmap.md` for where we are, and `docs/diary.md` for patterns prior agents discovered.
 
 ## Project shape (one-line)
 
-URL/PDF → headless-CC convert agent (per-item workspace + toolbox + verify-tool accountability) → EPUB → no-deps PWA reader → thin highlight export to PKM.
+Finished EPUB (from [reflow-to-epub](https://github.com/ShishirAravindan/reflow-to-epub) or anywhere) → manual import → library → no-deps PWA reader (scroll + paginated, LAN-readable from tablets) → thin highlight export to Logseq.
+
+Capture and conversion are **out of scope** — reflow-to-epub owns URL/PDF → EPUB entirely. There is no convert code here anymore (ADR 0005).
 
 ## Stack
 
 - **Runtime:** Bun (1.3+)
 - **Language:** TypeScript, strict mode (`noUncheckedIndexedAccess`, `noImplicitOverride`)
-- **Server:** Hono, listens on `:4242`
-- **DB:** SQLite via better-sqlite3 + Drizzle ORM (schema is type source of truth)
-- **Validation:** Zod at every boundary (HTTP, file ingest, convert-agent outputs)
+- **Server:** Hono, listens on `:4242`, serves the API and the web reader (LAN-reachable)
+- **DB:** SQLite via better-sqlite3 + Drizzle ORM (schema is type source of truth); FTS5 for search
+- **Validation:** Zod at every boundary (HTTP, EPUB import)
 - **Frontend:** vanilla TS/HTML/CSS — no framework, no EPUB-rendering library
 - **Lint+format:** Biome
 - **Pre-commit:** Lefthook (typecheck + lint, parallel)
 
-ADRs live in `docs/decisions/`. Read them before changing anything load-bearing.
+ADRs live in `docs/decisions/`. Read them before changing anything load-bearing. Load-bearing constraints: local-first, no cloud backend ever (non-goals), no deps in the core app (ADR 0003), position locators are mode-independent (ADR 0005).
 
 ## Repo layout
 
 ```
 apps/
-  server/           # Hono API + convert orchestration (per-item CC subprocess)
+  server/           # Hono API + static serving of the reader
   web/              # PWA reader + library UI (vanilla TS, no deps)
-packages/           # shared types, db schema, contracts (created when first needed)
-convert-workspace-template/   # template copied per-item for convert workspaces
-data/               # NEVER COMMITTED — library.db, EPUBs, workspaces (gitignored)
+packages/           # shared types, contracts (created when first needed)
+data/               # NEVER COMMITTED — library.db, EPUBs (gitignored)
 docs/
   vision.md
   non-goals.md
+  roadmap.md        # milestones + evidence-doc checkpoints
   decisions/        # ADRs, dated and numbered NNNN-topic.md
   diary.md          # orchestration patterns — append-only, dated
+  evidence/         # per-milestone screenshots/recordings for user review
 .claude/
   CLAUDE.md         # this file
   agents/           # specialized subagent definitions
@@ -50,8 +53,12 @@ docs/
 - One PR per feature, opened against `main`, squash-merged.
 - PR title = the squash-commit message (conventional commit).
 - PR body sections: **Summary** (bullets), **Test plan** (checklist).
-- **Evidence pack:** PRs touching UI / reader / capture flow / conversion output / any user-visible behavior must attach a screenshot or short screen recording showing the change working. Build/refactor/docs/dependency PRs don't need this.
+- **Evidence pack:** PRs touching UI / reader / import flow / any user-visible behavior must attach a screenshot or short screen recording showing the change working (shot-scraper works well: `uvx shot-scraper <url>`). Build/refactor/docs/dependency PRs don't need this.
 - Use the `pr-reviewer` subagent for self-review on substantive PRs.
+
+## Milestone review model
+
+The user reviews at **milestone granularity** (see `docs/roadmap.md`): each milestone ends with an evidence doc under `docs/evidence/<milestone>/` — shot-scraper captures of the real flows, open questions, next steps. Batch blocking decisions into structured questions up front (per milestone), then run autonomously; don't trickle questions mid-milestone unless genuinely blocked. Aesthetic decisions are made mockups-first: render real styled variants, capture them, let the user pick.
 
 ## Definition of done
 
@@ -66,21 +73,11 @@ A feature is *done* when all of:
 
 **Don't mark a TaskList task `completed` until all six are true.**
 
-## The two kinds of agents in this repo
-
-There are two distinct agent contexts here. *Do not confuse them.*
-
-1. **Repo-level dev agent (you, when invoked at this path)** — builds reader-42's server, reader, packages, docs. Reads this file. Writes TypeScript, opens PRs, etc.
-
-2. **Convert agent (a separate `claude -p` invocation per library item)** — operates inside a per-item workspace under `data/workspaces/<item-id>/`. Reads its *own* `CLAUDE.md` from the workspace template, **not this file**. Job: convert one source (URL or PDF) into an EPUB + `report.json`. Restricted toolset, different conventions, deterministic verify gates.
-
-When working on the convert system from this repo, you are editing the workspace *template* + the seed `tools/`, *not* writing code that runs as the agent. The convert agent's behavior is a function of the template's `CLAUDE.md`, skills, and toolbox — treat those as product code, not config.
-
 ## Operating model
 
 - Plan with `TaskCreate`; mark `in_progress` when starting, `completed` when *all six* DoD criteria are true.
-- Delegate self-contained chunks (build the reader, write the verify-tool stack, scaffold a server module) to subagents via the `Agent` tool with crisp, self-contained prompts.
-- Reserve own context for: cross-cutting contracts, integration points, ADR entries, the pattern diary.
+- Delegate self-contained chunks to subagents via the `Agent` tool with crisp, self-contained prompts (see `docs/diary.md` for worktree/sandbox gotchas).
+- Reserve own context for: cross-cutting contracts, integration points, ADR entries, the pattern diary, evidence docs.
 - Append to `docs/diary.md` when you discover a pattern worth remembering. Tight entries — patterns, not narratives. Dated.
 
 ## Quick references
@@ -88,6 +85,7 @@ When working on the convert system from this repo, you are editing the workspace
 | Want to | See |
 |---|---|
 | Understand the product | `docs/vision.md`, `docs/non-goals.md` |
+| See milestones / current focus | `docs/roadmap.md` |
 | Understand a past decision | `docs/decisions/<NNNN>-<topic>.md` |
 | See orchestration patterns | `docs/diary.md` |
 | Self-review a PR | `.claude/agents/pr-reviewer.md` |
