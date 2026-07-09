@@ -122,7 +122,9 @@ function makeStub(host: HTMLElement): RenderedChapter {
 
 function adoptNode(target: Document, node: Node): Node {
   if (node.ownerDocument === target) return node;
-  return target.importNode(node, true);
+  // adoptNode (unlike importNode) detaches the node from its source document,
+  // so callers draining `body.firstChild` actually make progress.
+  return target.adoptNode(node);
 }
 
 const NS_XHTML = 'http://www.w3.org/1999/xhtml';
