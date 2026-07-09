@@ -3,54 +3,76 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#fafaf9" />
+    <meta name="theme-color" content="#f5f4ef" />
     <title>reader-42</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main id="app" data-theme="light">
-      <header class="topbar">
-        <div class="topbar-left">
-          <button id="btn-toc" type="button" class="icon-btn" aria-label="Toggle table of contents">
-            <span aria-hidden="true">&#9776;</span>
-          </button>
-          <div class="book-info">
-            <h1 id="book-title">No book loaded</h1>
-            <p id="book-author"></p>
+      <section id="library-view" class="library">
+        <header class="lib-header">
+          <div class="lib-heading">
+            <h1 class="lib-title">Library</h1>
+            <p id="lib-count" class="lib-count"></p>
           </div>
+          <div class="lib-actions">
+            <label class="file-input-label" for="file-input">Import EPUB</label>
+            <input id="file-input" type="file" accept=".epub,application/epub+zip" multiple hidden />
+          </div>
+        </header>
+        <ul id="lib-list" class="lib-list"></ul>
+        <div id="lib-empty" class="lib-empty" hidden>
+          <p class="lib-empty-title">Nothing on the shelf yet.</p>
+          <p>Import an EPUB — drag one anywhere on this page, or use the button above.<br />
+          <span class="lib-empty-hint">reflow-to-epub turns articles into EPUBs; anything valid works.</span></p>
         </div>
-        <div class="topbar-right">
-          <label class="file-input-label" for="file-input">Load EPUB</label>
-          <input id="file-input" type="file" accept=".epub,application/epub+zip" hidden />
-          <button id="btn-fixture" type="button" class="ghost-btn">Open test fixture</button>
-          <div class="control-group" role="group" aria-label="Font size">
-            <button class="control-btn" type="button" data-size="s">A-</button>
-            <button class="control-btn" type="button" data-size="m">A</button>
-            <button class="control-btn" type="button" data-size="l">A+</button>
+        <div id="drop-veil" class="drop-veil" hidden>Drop to import</div>
+      </section>
+
+      <section id="reader-view" class="reader-app" hidden>
+        <header class="topbar">
+          <div class="topbar-left">
+            <button id="btn-library" type="button" class="icon-btn" aria-label="Back to library">
+              <span aria-hidden="true">&larr;</span>
+            </button>
+            <button id="btn-toc" type="button" class="icon-btn" aria-label="Toggle table of contents">
+              <span aria-hidden="true">&#9776;</span>
+            </button>
+            <div class="book-info">
+              <h1 id="book-title">No book loaded</h1>
+              <p id="book-author"></p>
+            </div>
           </div>
-          <div class="control-group" role="group" aria-label="Theme">
-            <button class="control-btn" type="button" data-theme="light">Light</button>
-            <button class="control-btn" type="button" data-theme="sepia">Sepia</button>
-            <button class="control-btn" type="button" data-theme="dark">Dark</button>
+          <div class="topbar-right">
+            <div class="control-group" role="group" aria-label="Font size">
+              <button class="control-btn" type="button" data-size="s">A-</button>
+              <button class="control-btn" type="button" data-size="m">A</button>
+              <button class="control-btn" type="button" data-size="l">A+</button>
+            </div>
+            <div class="control-group" role="group" aria-label="Theme">
+              <button class="control-btn" type="button" data-theme="light">Light</button>
+              <button class="control-btn" type="button" data-theme="sepia">Sepia</button>
+              <button class="control-btn" type="button" data-theme="dark">Dark</button>
+            </div>
           </div>
+        </header>
+
+        <div class="layout">
+          <aside class="sidebar" aria-label="Table of contents">
+            <h2 class="sidebar-title">Contents</h2>
+            <nav id="toc" class="toc"></nav>
+          </aside>
+
+          <section class="reader">
+            <div id="viewport" class="viewport" tabindex="0"></div>
+            <footer class="reader-footer">
+              <button id="btn-prev" type="button" class="nav-btn" disabled>&larr; Prev</button>
+              <span id="chapter-label" class="chapter-label"></span>
+              <button id="btn-next" type="button" class="nav-btn" disabled>Next &rarr;</button>
+            </footer>
+          </section>
         </div>
-      </header>
-
-      <div class="layout">
-        <aside class="sidebar" aria-label="Table of contents">
-          <h2 class="sidebar-title">Contents</h2>
-          <nav id="toc" class="toc"></nav>
-        </aside>
-
-        <section class="reader">
-          <div id="viewport" class="viewport" tabindex="0"></div>
-          <footer class="reader-footer">
-            <button id="btn-prev" type="button" class="nav-btn" disabled>&larr; Prev</button>
-            <span id="chapter-label" class="chapter-label"></span>
-            <button id="btn-next" type="button" class="nav-btn" disabled>Next &rarr;</button>
-          </footer>
-        </section>
-      </div>
+      </section>
 
       <div id="status" class="status" aria-live="polite"></div>
     </main>

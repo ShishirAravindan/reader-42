@@ -9,7 +9,12 @@
 //   - Position + prefs persistence
 
 import type { Book, Chapter, TocEntry } from '../epub/index.ts';
-import { type RenderedChapter, applyOptions, renderChapter } from './renderer.ts';
+import {
+  type PositionAnchor,
+  type RenderedChapter,
+  applyOptions,
+  renderChapter,
+} from './renderer.ts';
 import {
   DEFAULT_PREFS,
   type ReaderPrefs,
@@ -68,7 +73,7 @@ export class ReaderUI {
     this.refreshControlState();
 
     const safeIndex = Math.min(Math.max(startChapter, 0), book.chapters.length - 1);
-    this.goToChapter(safeIndex, { scroll: startScroll });
+    this.goToChapter(safeIndex, { scroll: startScroll, anchor: saved?.position.anchor ?? null });
   }
 
   private bindControls(): void {
@@ -159,7 +164,7 @@ export class ReaderUI {
 
   private goToChapter(
     index: number,
-    opts: { scroll?: number; fragment?: string | null } = {},
+    opts: { scroll?: number; anchor?: PositionAnchor | null; fragment?: string | null } = {},
   ): void {
     if (!this.book) return;
     const chapter = this.book.chapters[index];
@@ -170,7 +175,9 @@ export class ReaderUI {
       fontScale: this.prefs.fontScale,
       theme: this.prefs.theme,
     });
-    this.elements.viewport.scrollTop = opts.scroll ?? 0;
+    // Structural anchor wins over the raw pixel offset when it resolves.
+    if (opts.anchor && opts.anchor.path.length > 0) this.rendered.scrollToAnchor(opts.anchor);
+    else this.elements.viewport.scrollTop = opts.scroll ?? 0;
     if (opts.fragment) {
       // Fragment scrolling needs to happen after the browser positions the
       // shadow DOM content; a microtask is sufficient.
@@ -275,10 +282,14 @@ export class ReaderUI {
 
   private applyPrefs(): void {
     if (this.rendered) {
+      // Re-anchor across the reflow so a font-size change keeps your place —
+      // the structural locator earning its keep within scroll mode.
+      const anchor = this.rendered.getAnchor();
       applyOptions(this.rendered.host, {
         fontScale: this.prefs.fontScale,
         theme: this.prefs.theme,
       });
+      if (anchor) this.rendered.scrollToAnchor(anchor);
     }
     saveGlobalPrefs(this.prefs);
     this.refreshControlState();
@@ -294,10 +305,12 @@ export class ReaderUI {
 
   private persist(): void {
     if (!this.book || !this.rendered) return;
+    const anchor = this.rendered.getAnchor();
     saveBookState(this.book.id, {
       position: {
         chapter: this.chapterIndex,
         scroll: this.rendered.getScroll(),
+        ...(anchor ? { anchor } : {}),
       },
       prefs: this.prefs,
     });
