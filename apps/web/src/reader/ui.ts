@@ -48,6 +48,7 @@ export interface ReaderElements {
   chapterLabel: HTMLElement;
   progressFill: HTMLElement;
   bookmarkBtn: HTMLButtonElement;
+  immersiveBtn: HTMLButtonElement;
   bookmarksTitle: HTMLElement;
   bookmarksList: HTMLElement;
   findInput: HTMLInputElement;
@@ -252,6 +253,7 @@ export class ReaderUI {
     });
 
     this.elements.bookmarkBtn.addEventListener('click', () => this.toggleBookmark());
+    this.elements.immersiveBtn.addEventListener('click', () => this.toggleChrome());
 
     // Highlight creation: selection popover in the viewport.
     viewport.addEventListener('mouseup', (event) => {
@@ -339,19 +341,55 @@ export class ReaderUI {
       const target = event.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (event.key === 'ArrowRight' || event.key === 'PageDown') {
+      if (!this.book) return;
+      const paged = this.prefs.mode === 'paged';
+      const key = event.key;
+      if (
+        key === 'ArrowRight' ||
+        (paged && (key === 'PageDown' || (key === ' ' && !event.shiftKey)))
+      ) {
         event.preventDefault();
         this.goNext();
-      } else if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
+      } else if (
+        key === 'ArrowLeft' ||
+        (paged && (key === 'PageUp' || (key === ' ' && event.shiftKey)))
+      ) {
         event.preventDefault();
         this.goPrev();
-      } else if (event.key === ' ' && this.prefs.mode === 'paged' && this.book) {
-        // Space pages in paged mode (scroll mode keeps native scrolling).
+      } else if (
+        !paged &&
+        (key === ' ' ||
+          key === 'PageDown' ||
+          key === 'PageUp' ||
+          key === 'ArrowDown' ||
+          key === 'ArrowUp')
+      ) {
+        // The viewport rarely holds focus, so scroll it explicitly — a reader
+        // whose PageDown resets to the top loses their place.
         event.preventDefault();
-        if (event.shiftKey) this.goPrev();
-        else this.goNext();
-      } else if (event.key === 'Escape' && this.book) {
-        this.toggleChrome();
+        const vp = this.elements.viewport;
+        const pageStep = vp.clientHeight * 0.85;
+        const delta =
+          key === 'ArrowDown'
+            ? 90
+            : key === 'ArrowUp'
+              ? -90
+              : key === 'PageUp' || (key === ' ' && event.shiftKey)
+                ? -pageStep
+                : pageStep;
+        vp.scrollBy({ top: delta, behavior: 'smooth' });
+      } else if (key === 'Escape') {
+        // Escape only ever brings things back: close panels, restore chrome.
+        if (!this.elements.notePanel.hidden) {
+          this.closeNotePanel();
+          return;
+        }
+        if (!this.elements.typoPanel.hidden) {
+          this.elements.typoPanel.hidden = true;
+          this.elements.typoToggle.setAttribute('aria-expanded', 'false');
+          return;
+        }
+        if (this.prefs.chrome === 'hidden') this.toggleChrome();
       }
     });
   }
@@ -402,7 +440,15 @@ export class ReaderUI {
       const x = (event.clientX - bounds.left) / Math.max(bounds.width, 1);
       if (this.prefs.mode === 'paged' && x < 0.3) this.goPrev();
       else if (this.prefs.mode === 'paged' && x > 0.7) this.goNext();
-      else if (x >= 0.3 && x <= 0.7) this.toggleChrome();
+      else if (x >= 0.3 && x <= 0.7) {
+        // Center tap toggles chrome — but desktop scroll-mode clicks are
+        // usually idle (focus, selection starts), so there a click only
+        // *restores* chrome; hiding is the ⛶ button or paged/touch taps.
+        const coarse = window.matchMedia('(pointer: coarse)').matches;
+        if (this.prefs.mode === 'paged' || coarse || this.prefs.chrome === 'hidden') {
+          this.toggleChrome();
+        }
+      }
       return;
     }
     const href = anchor.getAttribute('href');
