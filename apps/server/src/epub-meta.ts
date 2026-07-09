@@ -52,7 +52,7 @@ function firstTagText(xml: string, tag: string): string | null {
   return text.length > 0 ? text : null;
 }
 
-function decodeEntities(text: string): string {
+export function decodeEntities(text: string): string {
   return text
     .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) =>
       String.fromCodePoint(Number.parseInt(hex, 16)),

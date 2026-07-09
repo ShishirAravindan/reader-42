@@ -1,21 +1,69 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { zValidator } from '@hono/zod-validator';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, inArray, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { EPUBS_DIR, ensureDataDirs } from '../data-paths.ts';
 import { db } from '../db/client.ts';
-import { items } from '../db/schema.ts';
+import { items, readingSessions } from '../db/schema.ts';
 import { type EpubMeta, InvalidEpubError, readEpubMeta } from '../epub-meta.ts';
+import { readEpubText } from '../epub-text.ts';
 
 const MAX_EPUB_BYTES = 200 * 1024 * 1024;
 
 const library = new Hono();
 
 library.get('/', async (c) => {
-  const all = await db.select().from(items).orderBy(desc(items.importedAt));
+  const all = await db
+    .select({
+      id: items.id,
+      title: items.title,
+      author: items.author,
+      state: items.state,
+      progress: items.progress,
+      importedAt: items.importedAt,
+      updatedAt: items.updatedAt,
+      totalSeconds: sql<number>`coalesce(sum(${readingSessions.seconds}), 0)`,
+    })
+    .from(items)
+    .leftJoin(readingSessions, eq(readingSessions.itemId, items.id))
+    .groupBy(items.id)
+    .orderBy(desc(items.importedAt));
   return c.json({ items: all });
+});
+
+library.get('/search', async (c) => {
+  const q = c.req.query('q')?.trim() ?? '';
+  if (q.length === 0) return c.json({ results: [] });
+  // Quote each term so FTS query syntax characters can't break the MATCH.
+  const match = q
+    .split(/\s+/)
+    .map((term) => `"${term.replaceAll('"', '""')}"`)
+    .join(' ');
+  const rows = (await db.all(sql`
+    SELECT item_id AS itemId,
+           chapter,
+           title AS chapterTitle,
+           snippet(items_fts, 3, '«', '»', '…', 12) AS snippet
+    FROM items_fts
+    WHERE items_fts MATCH ${match}
+    ORDER BY rank
+    LIMIT 60
+  `)) as { itemId: string; chapter: number; chapterTitle: string | null; snippet: string }[];
+
+  const ids = [...new Set(rows.map((row) => row.itemId))];
+  const books = ids.length > 0 ? await db.select().from(items).where(inArray(items.id, ids)) : [];
+  const byId = new Map(books.map((book) => [book.id, book]));
+  const results = ids
+    .map((id) => ({
+      item: byId.get(id),
+      matches: rows
+        .filter((row) => row.itemId === id)
+        .map(({ chapter, chapterTitle, snippet }) => ({ chapter, chapterTitle, snippet })),
+    }))
+    .filter((entry) => entry.item);
+  return c.json({ results });
 });
 
 library.get('/:id', async (c) => {
@@ -64,7 +112,49 @@ library.post('/import', async (c) => {
       updatedAt: now,
     })
     .returning();
+
+  // Index spine text for search. Extraction failures shouldn't fail the
+  // import — a book you can't search is better than a book you can't add.
+  try {
+    const chapters = await readEpubText(bytes);
+    for (const chapter of chapters) {
+      if (chapter.text.length === 0) continue;
+      await db.run(
+        sql`INSERT INTO items_fts (item_id, chapter, title, text)
+            VALUES (${id}, ${chapter.index}, ${chapter.title}, ${chapter.text})`,
+      );
+    }
+  } catch (err) {
+    console.error(`[import] FTS indexing failed for ${id}:`, err);
+  }
+
   return c.json({ item }, 201);
+});
+
+const progressSchema = z.object({ progress: z.number().min(0).max(1) });
+
+library.patch('/:id/progress', zValidator('json', progressSchema), async (c) => {
+  const id = c.req.param('id');
+  const { progress } = c.req.valid('json');
+  const [item] = await db.update(items).set({ progress }).where(eq(items.id, id)).returning();
+  if (!item) return c.json({ error: 'not found' }, 404);
+  return c.json({ item });
+});
+
+const sessionSchema = z.object({ seconds: z.number().int().min(1).max(86400) });
+
+library.post('/:id/session', zValidator('json', sessionSchema), async (c) => {
+  const id = c.req.param('id');
+  const [item] = await db.select().from(items).where(eq(items.id, id)).limit(1);
+  if (!item) return c.json({ error: 'not found' }, 404);
+  const { seconds } = c.req.valid('json');
+  await db.insert(readingSessions).values({
+    id: crypto.randomUUID(),
+    itemId: id,
+    seconds,
+    endedAt: new Date(),
+  });
+  return c.json({ ok: true }, 201);
 });
 
 const statePatchSchema = z.object({

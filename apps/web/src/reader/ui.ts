@@ -47,6 +47,19 @@ export interface ReaderElements {
   bookmarkBtn: HTMLButtonElement;
   bookmarksTitle: HTMLElement;
   bookmarksList: HTMLElement;
+  findInput: HTMLInputElement;
+  findResults: HTMLElement;
+}
+
+export interface ReaderHooks {
+  /** Called (debounced with persistence) with overall progress 0..1. */
+  onProgress?: (fraction: number) => void;
+}
+
+/** Where to land when opening a book, overriding the saved position. */
+export interface OpenTarget {
+  chapter: number;
+  find?: string;
 }
 
 const FONT_SCALES: Record<'s' | 'm' | 'l', number> = { s: 0.9, m: 1, l: 1.15 };
@@ -59,15 +72,18 @@ export class ReaderUI {
   private prefs: ReaderPrefs;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private bookmarks: Bookmark[] = [];
+  private readonly hooks: ReaderHooks;
+  private chapterTextCache = new Map<number, string>();
 
-  constructor(elements: ReaderElements) {
+  constructor(elements: ReaderElements, hooks: ReaderHooks = {}) {
     this.elements = elements;
+    this.hooks = hooks;
     this.prefs = loadGlobalPrefs();
     this.bindControls();
     this.refreshControlState();
   }
 
-  open(book: Book): void {
+  open(book: Book, target?: OpenTarget): void {
     this.tearDown();
     this.book = book;
 
@@ -86,8 +102,24 @@ export class ReaderUI {
     this.renderBookmarks();
     this.refreshControlState();
 
+    if (target) {
+      const index = Math.min(Math.max(target.chapter, 0), book.chapters.length - 1);
+      this.goToChapter(index);
+      const term = target.find;
+      if (term) queueMicrotask(() => this.rendered?.findAndMark(term));
+      return;
+    }
     const safeIndex = Math.min(Math.max(startChapter, 0), book.chapters.length - 1);
     this.goToChapter(safeIndex, { scroll: startScroll, anchor: saved?.position.anchor ?? null });
+  }
+
+  /** Overall progress through the book, 0..1. */
+  progressFraction(): number {
+    if (!this.book || !this.rendered || this.book.chapters.length === 0) return 0;
+    return Math.min(
+      (this.chapterIndex + this.rendered.chapterFraction()) / this.book.chapters.length,
+      1,
+    );
   }
 
   private bindControls(): void {
@@ -162,6 +194,19 @@ export class ReaderUI {
     });
 
     this.elements.bookmarkBtn.addEventListener('click', () => this.toggleBookmark());
+
+    // In-book find: search parsed chapter text, list hits, jump + flash.
+    let findTimer: ReturnType<typeof setTimeout> | null = null;
+    this.elements.findInput.addEventListener('input', () => {
+      if (findTimer !== null) clearTimeout(findTimer);
+      findTimer = setTimeout(() => {
+        findTimer = null;
+        this.runFind(this.elements.findInput.value.trim());
+      }, 300);
+    });
+    this.elements.findInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') this.runFind(this.elements.findInput.value.trim());
+    });
 
     viewport.addEventListener(
       'scroll',
@@ -347,6 +392,89 @@ export class ReaderUI {
     this.elements.chapterLabel.textContent =
       info && info.pages > 1 ? `${base} · p. ${info.page}/${info.pages}` : base;
     this.refreshBookmarkButton();
+  }
+
+  // --- in-book find ---
+
+  private chapterText(index: number): string {
+    const cached = this.chapterTextCache.get(index);
+    if (cached !== undefined) return cached;
+    const chapter = this.book?.chapters[index];
+    const resource = chapter ? this.book?.resolveResource(chapter.path) : null;
+    let text = '';
+    if (resource) {
+      const html = new TextDecoder('utf-8').decode(resource.bytes);
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      text = (doc.body?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    }
+    this.chapterTextCache.set(index, text);
+    return text;
+  }
+
+  private runFind(term: string): void {
+    const { findResults } = this.elements;
+    findResults.replaceChildren();
+    if (!this.book || term.length < 2) {
+      findResults.hidden = true;
+      return;
+    }
+    const needle = term.toLowerCase();
+    const hits: { chapter: number; title: string; snippet: string; at: number }[] = [];
+    for (let i = 0; i < this.book.chapters.length && hits.length < 20; i++) {
+      const text = this.chapterText(i);
+      const lower = text.toLowerCase();
+      let from = 0;
+      while (hits.length < 20) {
+        const at = lower.indexOf(needle, from);
+        if (at < 0) break;
+        hits.push({
+          chapter: i,
+          title: this.book.chapters[i]?.title ?? `Chapter ${i + 1}`,
+          snippet: text.slice(Math.max(at - 40, 0), at + term.length + 40),
+          at,
+        });
+        from = at + term.length;
+      }
+    }
+    findResults.hidden = false;
+    if (hits.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'find-empty';
+      li.textContent = 'No matches.';
+      findResults.appendChild(li);
+      return;
+    }
+    for (const hit of hits) {
+      const li = document.createElement('li');
+      li.className = 'find-item';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'find-link';
+      const where = document.createElement('span');
+      where.className = 'find-where';
+      where.textContent = hit.title;
+      const snippet = document.createElement('span');
+      snippet.className = 'find-snippet';
+      const at = hit.snippet.toLowerCase().indexOf(needle);
+      if (at >= 0) {
+        snippet.append(
+          `…${hit.snippet.slice(0, at)}`,
+          Object.assign(document.createElement('mark'), {
+            textContent: hit.snippet.slice(at, at + term.length),
+          }),
+          `${hit.snippet.slice(at + term.length)}…`,
+        );
+      } else {
+        snippet.textContent = `…${hit.snippet}…`;
+      }
+      btn.append(where, snippet);
+      btn.addEventListener('click', () => {
+        this.goToChapter(hit.chapter);
+        queueMicrotask(() => this.rendered?.findAndMark(term));
+      });
+      li.appendChild(btn);
+      findResults.appendChild(li);
+    }
   }
 
   // --- bookmarks ---
@@ -569,6 +697,7 @@ export class ReaderUI {
       },
       prefs: this.prefs,
     });
+    this.hooks.onProgress?.(this.progressFraction());
   }
 
   private tearDown(): void {
@@ -577,6 +706,10 @@ export class ReaderUI {
     this.book = null;
     this.chapterIndex = 0;
     this.bookmarks = [];
+    this.chapterTextCache.clear();
+    this.elements.findInput.value = '';
+    this.elements.findResults.replaceChildren();
+    this.elements.findResults.hidden = true;
     this.elements.bookmarksList.replaceChildren();
     this.elements.bookmarksTitle.hidden = true;
     this.elements.toc.replaceChildren();
