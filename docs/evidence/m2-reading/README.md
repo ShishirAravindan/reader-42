@@ -10,17 +10,18 @@ Date: 2026-07-03. Captured live against the served app; the capture run asserts 
 | `m2-2-midpages.png` | Kindle-style page 2 of 7 in Chapter One — folio `p. 2/7` in the footer, right-third tap zone just used to turn the page. |
 | `m2-3-typo.png` | The Aa panel: size / measure / leading, set to Wide + Airy in sepia — reflow kept the reading position. |
 | `m2-4-tablet-paged-dark.png` | Tablet width, dark theme, paged (`p. 1/10`) — swipe and tap-zone page turns active. |
+| `m2-5-bookmarks.png` | Two bookmarks in the sidebar (chapter + snippet), flag button active at a marked position. |
 
 ## Verified behaviors (capture-run assertions)
 
 - **Mode-switch invariance:** at paged `p. 2/7`, the top-of-viewport element was `Passage 2…`; after switching to Scroll the same passage sat at the viewport top — the structural anchor resolving across axes (`OK` in the transcript).
 - **Typography reflow keeps position:** applying Wide measure + Airy leading re-laid the chapter; the anchor re-resolved to the same passage.
 - **Page navigation:** arrow keys / footer buttons / tap zones (side thirds) / swipe all page within a chapter and cross chapter edges (backward lands on the previous chapter's *last* page).
+- **Bookmarks:** marked at paged `p. 3/7`; jumping from the sidebar restored exactly `p. 3/7`; bookmarks survive a full reload (localStorage, keyed by the book's content hash).
 
 ## Remaining M2 scope
 
-- Bookmarks (list in the sidebar under the TOC, backed by the same anchor locator).
-- Per-book font choice was deliberately not added — the serif stack is the aesthetic; revisit only if dogfooding demands.
+- None — bookmarks landed (sidebar list under the TOC, backed by the same anchor locator). Per-book font choice was deliberately not added; the serif stack is the aesthetic.
 
 ## Notes
 

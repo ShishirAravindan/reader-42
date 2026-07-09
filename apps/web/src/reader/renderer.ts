@@ -46,6 +46,8 @@ export interface RenderedChapter {
   /** Structural locator for the current viewport top. */
   getAnchor(): PositionAnchor | null;
   scrollToAnchor(anchor: PositionAnchor): void;
+  /** Text content of the element an anchor points at (for bookmark labels). */
+  textAt(anchor: PositionAnchor): string | null;
   /** Paged mode: 1-based current page and page count (1/1 in scroll mode). */
   pageInfo(): { page: number; pages: number };
   /** Paged mode: step one page; returns false at the chapter edge. */
@@ -151,6 +153,18 @@ export function renderChapter(
     }
   };
 
+  const textAt = (anchor: PositionAnchor): string | null => {
+    let el: Element = wrapper;
+    for (const index of anchor.path) {
+      const kid = el.children.item(index);
+      if (!kid) break;
+      el = kid;
+    }
+    if (el === wrapper) return null;
+    const text = (el.textContent ?? '').trim();
+    return text.length > 0 ? text : null;
+  };
+
   const pageInfo = (): { page: number; pages: number } => {
     if (!isPaged()) return { page: 1, pages: 1 };
     const width = pageWidth();
@@ -188,6 +202,7 @@ export function renderChapter(
     setScroll,
     getAnchor,
     scrollToAnchor,
+    textAt,
     pageInfo,
     pageBy,
     scrollToEnd,
@@ -314,6 +329,7 @@ function makeStub(host: HTMLElement): RenderedChapter {
     setScroll: (): void => {},
     getAnchor: (): PositionAnchor | null => null,
     scrollToAnchor: (): void => {},
+    textAt: (): string | null => null,
     pageInfo: (): { page: number; pages: number } => ({ page: 1, pages: 1 }),
     pageBy: (): boolean => false,
     scrollToEnd: (): void => {},
