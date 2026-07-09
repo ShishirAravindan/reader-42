@@ -199,6 +199,12 @@ library.get('/:id/logseq.md', async (c) => {
     .from(highlightsTable)
     .where(eq(highlightsTable.itemId, id))
     .orderBy(highlightsTable.chapter, highlightsTable.startOffset);
+  // Chapter titles come from the FTS index (extracted at import) so the
+  // export speaks the same language as the reader, not spine indices.
+  const titleRows = (await db.all(
+    sql`SELECT chapter, title FROM items_fts WHERE item_id = ${id}`,
+  )) as { chapter: number; title: string | null }[];
+  const chapterTitles = new Map(titleRows.map((row) => [row.chapter, row.title]));
   const origin = new URL(c.req.url).origin;
   const today = new Date().toISOString().slice(0, 10);
   const lines: string[] = [
@@ -207,7 +213,7 @@ library.get('/:id/logseq.md', async (c) => {
   ];
   for (const hl of rows) {
     lines.push(`\t- "${hl.text.replace(/\s+/g, ' ').trim()}"`);
-    lines.push(`\t  chapter:: ${hl.chapter + 1}`);
+    lines.push(`\t  chapter:: ${chapterTitles.get(hl.chapter) ?? hl.chapter + 1}`);
     lines.push(`\t  link:: ${origin}/#/book/${id}/hl/${hl.id}`);
     if (hl.note) lines.push(`\t  note:: ${hl.note.replace(/\s+/g, ' ').trim()}`);
   }

@@ -66,6 +66,7 @@ describe('highlights CRUD', () => {
     expect(md).toContain('[[The Test Volume]]');
     expect(md).toContain('"Ink, in its proper element, is patient."');
     expect(md).toContain('note:: ink is patient — use in essay');
+    expect(md).toContain('chapter:: Chapter One: Of Inks and Initials');
     expect(md).toContain('link:: ');
     expect(md).toContain(`/#/book/${itemId}/hl/${highlightId}`);
   });
