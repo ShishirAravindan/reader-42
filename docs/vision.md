@@ -1,37 +1,46 @@
-# Vision
+# Vision (v2)
 
-reader-42 (working name) is a local-first personal reading environment: a custom-built Kindle clone — **library, EPUB reader, and highlights off-ramp** — for deliberate, considered, often book-length reading. It complements an RSS reader (NetNewsWire) for a different kind of reading.
+reader-42 is an instrument of **environment design**: its job is to make deliberate reading the path of least resistance in its owner's life, displacing algorithmic slop (reels, feeds, generic internet). It is one piece of a decomposed information-diet system — capture/conversion belongs to [reflow-to-epub](https://github.com/ShishirAravindan/reflow-to-epub), ambient/RSS reading to NetNewsWire, graph thinking to Logseq. reader-42's piece is the **book-length reading experience**: an exceptional e-reader, a beautiful library, and thin plumbing into the rest of the ecosystem.
 
-reader-42 begins where a finished EPUB exists. Getting from a URL or PDF *to* that EPUB is the whole job of [reflow-to-epub](https://github.com/ShishirAravindan/reflow-to-epub), a sibling project. The interface between them is deliberately the thinnest possible: an EPUB file, imported by hand. See [`decisions/0005-rescope-library-reader-highlights.md`](decisions/0005-rescope-library-reader-highlights.md).
+This is v2 of the vision, superseding the v1 telos (see [ADR 0006](decisions/0006-v2-refounding.md)). The ambition is higher: not just a personal tool, but something built to a standard where productizing it — "Plex for books": self-hosted, beautiful, experience-first — remains a live option. Architecture must not foreclose that door; scope, for now, does not walk through it.
 
-## Ingest
+## Product laws
 
-Manual import only: drag-drop or file picker in the library UI. No watchers, no endpoints, no share sheets. Every book in the library got there by a deliberate act — *friction is the gate that keeps the library from becoming an inbox*. EPUBs typically arrive from reflow-to-epub, but anything valid works (Standard Ebooks, purchased DRM-free books, Calibre exports).
+Every feature is judged against these. They outrank any feature list.
 
-## Library
+1. **Lower the cost of starting to read; raise the reward of having read.** The two levers of habit. A feature that does neither is decoration.
+2. **Win the boredom moment.** The competitor is not Kindle; it is the first swipe of a feed. Opening reader-42 on any device resumes the current book, at the current position, in under a second — no home screen, no shelf, no decisions. The library is navigated *back* to, never through.
+3. **Friction asymmetry.** Deliberate friction to get *into* the library (import is an act of intent; the on-deck queue is capped). Near-zero friction to *resume*. Never invert this.
+4. **Guided by beauty.** The library and the reading surface are aesthetic objects. When in doubt between adequate and beautiful, choose beautiful; when a feature can't be made beautiful, question the feature.
+5. **The phone is a first-class reading surface.** The habit-displacement moment happens standing in line with a phone. Excellence on a phone screen is a requirement, not a port.
 
-A flat, simple record of what you've engaged with. Items move: *unread → reading → finished | DNF*. Metadata (title, author) is read from the EPUB itself at import. No knowledge graph, no smart resurfacing — that's the PKM's job.
+## The core: an exceptional e-reader
 
-## Reading
+The bare minimum first step, and the hardest: a from-scratch EPUB reading experience that beats Kindle where Kindle is weak.
 
-The heart of the product. A from-scratch EPUB reader in vanilla TS/HTML/CSS — no EPUB-rendering dependencies — so the core app stays a small, fast PWA (see [`decisions/0003-reader-no-deps.md`](decisions/0003-reader-no-deps.md)). Two display modes, user-toggleable: continuous scroll (built first) and Kindle-style pagination. Positions are stable and mode-independent — anchored to document structure, not pixels — because bookmarks, progress, and highlight deep links all hang off them.
+- Scroll and paginated modes; positions are structural and mode-independent (v1's proven locator design carries forward).
+- Typography that rewards attention: real font control, measure, leading, margins, themes (light / sepia / dark), hyphenation and justification done properly.
+- Instant resume as an engineering budget, not an aspiration: current book cached and renderable in <1s on every device that has opened it.
+- Re-orientation at zero cost: a subtle marker on the last-read paragraph so resuming never means re-finding your line.
+- A wind-down posture: evening warmth, a reading ritual at the owner's habitual hour — gentle, never gamified.
 
-## Enhancements — the "better than Kindle" layer
+## The library: a beautiful place
 
-Prioritized, in order:
+A record of engagement, not a queue and not a mall.
 
-1. **Search** — full-text, in-book and across the library (SQLite FTS5).
-2. **Reading stats & progress** — sessions, time-in-book, % complete, finished/DNF history. The record of engagement made visible.
-3. **Typography & theme depth** — real control over font, size, measure, leading, margins; light/sepia/dark themes; the polish level Kindle never reaches.
+- A shelf that is genuinely beautiful: covers everywhere, with generated typographic covers for books that arrive without art.
+- **On deck**: a deliberately capped next-up queue (3–5). The cap is the friction; it keeps the library a record rather than an inbox.
+- States: *unread → reading → finished | DNF*. Honest, flat, minimal.
+- Search across everything — full text, highlights, notes: "where did I read about X?"
 
-## Highlights
+## Multi-device
 
-Exit ramp to **Logseq**. Thin export: highlighted text, optional note, chapter/location, deep link back into the EPUB at that position. reader-42 is the durable archive those links return to; the graph work happens in Logseq. (Export ships after the core is dogfoodable; the data model accommodates it from day one.)
+The promise: *your place is always right, on any device, instantly.* Served from the owner's machine, readable from phone/tablet/laptop; offline-first for the current book and on-deck queue is the ambition (an explicit architecture decision, not an accident). Remote access is a network-layer concern (e.g. Tailscale) until productization says otherwise.
 
-## Devices & locality
+## Modularity: API-first
 
-The server runs on the user's Mac; the reader is a PWA served over the LAN, so an iPad, Android tablet, or phone on the same network is a first-class reading surface. **No cloud backend** — no Convex/Supabase/hosted-sync layer. The library is a SQLite file on the user's machine; that locality is the telos, not a v1 shortcut. If away-from-home reading ever becomes real, it will be solved at the network layer (e.g. Tailscale), not by re-architecting.
+The server is a documented API; the web reader is merely its first client. Highlights, library, positions, and stats are all fetchable by anything the owner runs — including coding agents, via **plain endpoints plus a written skill describing how to query them**. Deliberately not an MCP server: endpoints + a skill deliver the same capability without spending novelty budget on protocol plumbing. Highlights flow out to Logseq as thin pointers; the graph work happens there.
 
-## v1 scope
+## Sequencing posture
 
-Single user, no auth, local network only. See [`roadmap.md`](roadmap.md) for milestones.
+Boredom-moment features and the reader core come first. Sense-of-place depth (book map, footnote popovers, dictionary), the reward loop (finishing ritual, stats, reading wrapped), and ecosystem plumbing beyond highlight export live in [`pipeline.md`](pipeline.md) — ideas with a pulse, not refusals. The short list of durable refusals is [`non-goals.md`](non-goals.md).

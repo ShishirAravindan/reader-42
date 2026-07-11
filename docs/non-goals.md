@@ -1,13 +1,10 @@
 # Non-goals
 
-What reader-42 is deliberately *not*. The refusals shape the product more than the features do.
+The durable refusals — much shorter than v1's list, because most of what lived here was really *"not yet"* and moved to [`pipeline.md`](pipeline.md). What remains would betray the thesis, not merely defer it.
 
-- **Not a capture or conversion tool.** URL/PDF → EPUB is [reflow-to-epub](https://github.com/ShishirAravindan/reflow-to-epub)'s entire job. reader-42 consumes finished EPUBs via manual import; no fetching, extraction, or conversion pipeline lives here.
-- **Not an RSS reader.** NetNewsWire owns that.
-- **Not a knowledge graph or notes app.** Logseq owns that. Highlights flow *out* to the PKM as thin pointers; the smart graph work happens there.
-- **Not a cloud-synced service.** No hosted backend (Convex, Supabase, etc.), no accounts, no sync layer. The library is a SQLite file on the user's machine; other devices read over the LAN. Remote access, if ever needed, is a network-layer problem (Tailscale), not an architecture change.
-- **Not a social or shared-reading product.** Single user, private library, no sharing.
-- **Not a Pocket-style firehose / read-later inbox.** Import is a deliberate, manual act — that friction is calibrated to keep the library a record, not a queue.
-- **Not a Calibre-style power-user library manager.** Library view is intentionally minimal.
-- **Not a research-paper / academic-PDF viewer.** Out of scope unless explicitly added later.
-- **Not a multi-format bookshelf.** EPUB is the substrate. Other formats (mobi, AZW3, etc.) are not goals.
+- **Not a capture or conversion tool.** URL/PDF → EPUB is [reflow-to-epub](https://github.com/ShishirAravindan/reflow-to-epub)'s entire job. reader-42 consumes finished EPUBs.
+- **Not an RSS reader.** NetNewsWire owns ambient reading.
+- **Not a knowledge graph or notes app.** Logseq owns that; highlights flow out as thin pointers.
+- **Not social, and never algorithmic.** No sharing, no recommendations, no resurfacing feeds — anything that re-imports the attention economy this exists to escape is refused permanently.
+- **Not a read-later firehose.** The capped on-deck queue is the ceiling; there is no infinite inbox.
+- **Not a multi-format power-library.** EPUB is the substrate; Calibre-style management is out.
