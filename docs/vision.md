@@ -41,6 +41,16 @@ The promise: *your place is always right, on any device, instantly.* Served from
 
 The server is a documented API; the web reader is merely its first client. Highlights, library, positions, and stats are all fetchable by anything the owner runs — including coding agents, via **plain endpoints plus a written skill describing how to query them**. Deliberately not an MCP server: endpoints + a skill deliver the same capability without spending novelty budget on protocol plumbing. Highlights flow out to Logseq as thin pointers; the graph work happens there.
 
-## Sequencing posture
+## Now, next, later
 
-Boredom-moment features and the reader core come first. Sense-of-place depth (book map, footnote popovers, dictionary), the reward loop (finishing ritual, stats, reading wrapped), and ecosystem plumbing beyond highlight export live in [`pipeline.md`](pipeline.md) — ideas with a pulse, not refusals. The short list of durable refusals is [`non-goals.md`](non-goals.md).
+One ordered view — this section is the roadmap and the pipeline. Promotion between tiers is a deliberate act (a [`decisions.md`](decisions.md) entry when load-bearing), never drift. The durable refusals live in [`non-goals.md`](non-goals.md).
+
+**Now** — the bare minimum first step: the exceptional reader core, the boredom-moment features (instant resume, phone-first, zero-cost re-orientation), and the beautiful library basics (covers, on-deck, states).
+
+**Next** — ideas with a pulse, believed in but deliberately not yet:
+
+- *Sense of place*: the book map (zoomed-out minimap — chapters as blocks, highlights as tick marks, position as cursor; candidate signature UI), time-left-in-chapter from measured pace, footnote/endnote popovers, offline dictionary / Wikipedia long-press lookup.
+- *Reward loop*: the finishing ritual (closing page — highlights in sequence, time in book, a 3-sentence verdict), the per-book afterpage kept forever, reading-log stats (heatmap, hours/week, pace, finish forecasts), weekly digest, annual reading wrapped.
+- *Ecosystem plumbing*: programmatic import endpoint (reflow-to-epub deposits directly; the on-deck cap preserves the anti-inbox spirit), webhooks on events (book finished, highlight created), the agent query skill companion to the API.
+
+**Later** — TTS read-aloud with position sync (expands the habit into commutes), productization proper (packaging, install story, docs for strangers; multi-user/hosted only via a deliberate decision entry), cover-art enrichment / series grouping / OPDS if dogfooding demands them.

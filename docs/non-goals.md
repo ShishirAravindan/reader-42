@@ -1,6 +1,6 @@
 # Non-goals
 
-The durable refusals — much shorter than v1's list, because most of what lived here was really *"not yet"* and moved to [`pipeline.md`](pipeline.md). What remains would betray the thesis, not merely defer it.
+The durable refusals — much shorter than v1's list, because most of what lived here was really *"not yet"* and moved to the pipeline tiers in [`vision.md`](vision.md). What remains would betray the thesis, not merely defer it.
 
 - **Not a capture or conversion tool.** URL/PDF → EPUB is [reflow-to-epub](https://github.com/ShishirAravindan/reflow-to-epub)'s entire job. reader-42 consumes finished EPUBs.
 - **Not an RSS reader.** NetNewsWire owns ambient reading.

@@ -29,3 +29,7 @@ Numbered ADRs with Status/Supersedes ceremony felt professionalized past the pro
 ## 2026-07-11 — No MCP server
 
 Agent access to the library is plain documented API endpoints plus a written query skill. Same capability as an MCP server, zero novelty budget on protocol plumbing. Revisit only if endpoints prove insufficient.
+
+## 2026-07-12 — Docs diet, and `dev` as the integration branch
+
+Three docs total: `vision.md` (thesis, product laws, and a now/next/later section that absorbed the separate pipeline and roadmap files), `non-goals.md`, and this log. `diary.md` and `HANDOFF.md` deleted — v1 orchestration lore lives in git history; the one pattern worth carrying (the demo/capture script *is* the acceptance test) moved into `.claude/CLAUDE.md`. Development now targets a `dev` branch; `main` stays the stable v1 reference until v2 earns the merge.
