@@ -1,6 +1,6 @@
 # Roadmap
 
-Execution milestones for the re-scoped reader-42 (library + reader + highlights; see [ADR 0005](decisions/0005-rescope-library-reader-highlights.md)). Each milestone is several conventional-prefix PRs plus a **milestone evidence doc** — shot-scraper screenshots/recordings of the real flows, open questions, and what's next — placed under `docs/evidence/<milestone>/` for asynchronous user review. Blocking decisions are batched and asked up front per milestone; everything else runs autonomously.
+Execution milestones for the re-scoped reader-42 (library + reader + highlights; see the 2026-07-03 entry in [`decisions.md`](decisions.md)). **Historical — this is v1's roadmap; it gets rewritten after the v2 architecture decisions (see the 2026-07-11 entries).** Each milestone is several conventional-prefix PRs plus a **milestone evidence doc** — shot-scraper screenshots/recordings of the real flows, open questions, and what's next — placed under `docs/evidence/<milestone>/` for asynchronous user review. Blocking decisions are batched and asked up front per milestone; everything else runs autonomously.
 
 ## M0 — Restructure *(this change)*
 

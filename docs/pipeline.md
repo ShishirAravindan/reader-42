@@ -25,5 +25,5 @@ Ideas with a pulse: believed in, deliberately not now. This file replaces most o
 ## Further out
 
 - **TTS read-aloud with position sync** — switch between reading and listening mid-book; expands the habit into commutes.
-- **Productization proper** — packaging, install story, docs for strangers; multi-user/hosted only if the door is walked through deliberately (ADR required).
+- **Productization proper** — packaging, install story, docs for strangers; multi-user/hosted only if the door is walked through deliberately (a `decisions.md` entry, not drift).
 - **Cover art enrichment**, series grouping, OPDS — if dogfooding demands them.

@@ -43,7 +43,7 @@ bun run typecheck && bun run lint
 bun run dev        # server on :4242
 ```
 
-Read in order: `.claude/CLAUDE.md` → `docs/vision.md` + `docs/non-goals.md` → `docs/roadmap.md` → `docs/decisions/0005-*.md` → `docs/diary.md`.
+Read in order: `.claude/CLAUDE.md` → `docs/vision.md` + `docs/non-goals.md` + `docs/pipeline.md` → `docs/roadmap.md` → `docs/decisions.md` → `docs/diary.md`.
 
 ## Known gotchas
 

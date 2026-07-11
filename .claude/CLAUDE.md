@@ -6,7 +6,7 @@ You are working on **reader-42**, a local-first personal Kindle clone: library, 
 
 Finished EPUB (from [reflow-to-epub](https://github.com/ShishirAravindan/reflow-to-epub) or anywhere) → manual import → library → no-deps PWA reader (scroll + paginated, LAN-readable from tablets) → thin highlight export to Logseq.
 
-Capture and conversion are **out of scope** — reflow-to-epub owns URL/PDF → EPUB entirely. There is no convert code here anymore (ADR 0005).
+Capture and conversion are **out of scope** — reflow-to-epub owns URL/PDF → EPUB entirely. There is no convert code here anymore (see `docs/decisions.md`, 2026-07-03).
 
 ## Stack
 
@@ -19,7 +19,7 @@ Capture and conversion are **out of scope** — reflow-to-epub owns URL/PDF → 
 - **Lint+format:** Biome
 - **Pre-commit:** Lefthook (typecheck + lint, parallel)
 
-ADRs live in `docs/decisions/`. Read them before changing anything load-bearing. Load-bearing constraints: local-first, no cloud backend ever (non-goals), no deps in the core app (ADR 0003), position locators are mode-independent (ADR 0005).
+Decisions live in `docs/decisions.md` — a dated, append-only log in the owner's voice. Read it before changing anything load-bearing; new load-bearing choices get a new entry (made by the owner, not by agents). Load-bearing constraints: local-first, no deps in the core app, position locators are mode-independent.
 
 ## Repo layout
 
@@ -32,8 +32,9 @@ data/               # NEVER COMMITTED — library.db, EPUBs (gitignored)
 docs/
   vision.md
   non-goals.md
+  pipeline.md       # ideas with a pulse — believed in, not now
   roadmap.md        # milestones + evidence-doc checkpoints
-  decisions/        # ADRs, dated and numbered NNNN-topic.md
+  decisions.md      # decision log — dated entries, append-only, owner's voice
   diary.md          # orchestration patterns — append-only, dated
   evidence/         # per-milestone screenshots/recordings for user review
 .claude/
@@ -77,7 +78,7 @@ A feature is *done* when all of:
 
 - Plan with `TaskCreate`; mark `in_progress` when starting, `completed` when *all six* DoD criteria are true.
 - Delegate self-contained chunks to subagents via the `Agent` tool with crisp, self-contained prompts (see `docs/diary.md` for worktree/sandbox gotchas).
-- Reserve own context for: cross-cutting contracts, integration points, ADR entries, the pattern diary, evidence docs.
+- Reserve own context for: cross-cutting contracts, integration points, decision-log upkeep, the pattern diary, evidence docs.
 - Append to `docs/diary.md` when you discover a pattern worth remembering. Tight entries — patterns, not narratives. Dated.
 
 ## Quick references
@@ -86,7 +87,7 @@ A feature is *done* when all of:
 |---|---|
 | Understand the product | `docs/vision.md`, `docs/non-goals.md` |
 | See milestones / current focus | `docs/roadmap.md` |
-| Understand a past decision | `docs/decisions/<NNNN>-<topic>.md` |
+| Understand a past decision | `docs/decisions.md` |
 | See orchestration patterns | `docs/diary.md` |
 | Self-review a PR | `.claude/agents/pr-reviewer.md` |
 | Run the server | `bun run dev` (port 4242) |

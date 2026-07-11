@@ -2,7 +2,7 @@
 
 reader-42 is an instrument of **environment design**: its job is to make deliberate reading the path of least resistance in its owner's life, displacing algorithmic slop (reels, feeds, generic internet). It is one piece of a decomposed information-diet system — capture/conversion belongs to [reflow-to-epub](https://github.com/ShishirAravindan/reflow-to-epub), ambient/RSS reading to NetNewsWire, graph thinking to Logseq. reader-42's piece is the **book-length reading experience**: an exceptional e-reader, a beautiful library, and thin plumbing into the rest of the ecosystem.
 
-This is v2 of the vision, superseding the v1 telos (see [ADR 0006](decisions/0006-v2-refounding.md)). The ambition is higher: not just a personal tool, but something built to a standard where productizing it — "Plex for books": self-hosted, beautiful, experience-first — remains a live option. Architecture must not foreclose that door; scope, for now, does not walk through it.
+This is v2 of the vision, superseding the v1 telos (see [`decisions.md`](decisions.md), 2026-07-11 entries). The ambition is higher: not just a personal tool, but something built to a standard where productizing it — "Plex for books": self-hosted, beautiful, experience-first — remains a live option. Architecture must not foreclose that door; scope, for now, does not walk through it.
 
 ## Product laws
 
