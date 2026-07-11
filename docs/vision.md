@@ -35,11 +35,11 @@ A record of engagement, not a queue and not a mall.
 
 ## Multi-device
 
-The promise: your place is always right, on any device, instantly. Served from the owner's machine, readable from phone, tablet, and laptop. Offline-first for the current book and the on-deck queue is the ambition, as an explicit architecture decision rather than an accident. Remote access is a network-layer concern (e.g. Tailscale) unless a deliberate decision changes that.
+The promise: your place is always right, on any device, instantly. The library is a folder of files synced through the owner's cloud drive; each device is self-sufficient. The current book and the on-deck queue live fully on the device, reading never needs the network, and writes queue locally and flush when a connection is next available. Nothing depends on any machine being awake.
 
-## Modularity: API-first
+## Modularity: files-first
 
-The server is a documented API; the web reader is its first client. Highlights, library, positions, and stats are fetchable by anything the owner runs, including coding agents, via plain endpoints plus a written skill describing how to query them. Deliberately not an MCP server: endpoints and a skill deliver the same capability without reinventing plumbing. Highlights flow out to Logseq as thin pointers; the graph work happens there.
+The library's file layout is the public contract. On the desktop the library is a plain folder, so anything the owner runs, including coding agents, reads and writes it directly; a written skill documents the layout. No server, no endpoints, no MCP: the file format is the whole integration surface. Highlights flow out to Logseq as thin pointers; the graph work happens there.
 
 ## Now, next, later
 
@@ -51,6 +51,6 @@ One ordered view; this section is the roadmap and the pipeline. Promotion betwee
 
 - *Sense of place*: the book map (a zoomed-out minimap of the whole book: chapters as blocks, highlights as tick marks, position as a cursor; candidate signature UI), time left in chapter computed from measured pace, footnote popovers, offline dictionary and Wikipedia lookup on long-press.
 - *Reward loop*: the finishing ritual (a closing page with highlights in sequence, time in the book, and a three-sentence verdict), the per-book afterpage kept forever, reading-log stats (heatmap, hours per week, pace, finish forecasts), a weekly digest, an annual reading wrapped.
-- *Ecosystem plumbing*: a programmatic import endpoint (reflow-to-epub deposits directly; the on-deck cap preserves the anti-inbox spirit), webhooks on events (book finished, highlight created), the agent query skill companion to the API.
+- *Ecosystem plumbing*: the agent query skill documenting the file layout, and an append-only events file (book finished, highlight created) for anything watching the library. reflow-to-epub deposits into the folder from day one; the on-deck cap preserves the anti-inbox spirit.
 
 **Later**: TTS read-aloud with position sync (expands the habit into commutes), productization proper (packaging, install story, docs for strangers; multi-user or hosted only via a deliberate decision entry), cover-art enrichment, series grouping, and OPDS if dogfooding demands them.
