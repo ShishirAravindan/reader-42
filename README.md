@@ -1,6 +1,6 @@
 # reader-42
 
-Local-first personal Kindle clone: library, from-scratch EPUB reader, and highlights off-ramp to Logseq.
+Local-first personal e-reader: library, from-scratch EPUB reader, and highlights off-ramp to Logseq.
 
 > Working name. Real name TBD.
 
@@ -11,4 +11,4 @@ Conversion (URL/PDF → EPUB) lives in the sibling project [reflow-to-epub](http
 - Decision log: [`docs/decisions.md`](docs/decisions.md)
 - Repo-level agent context: [`.claude/CLAUDE.md`](.claude/CLAUDE.md)
 
-Branches: `main` is stable v1 (the reference implementation); development happens on `dev` and merges to `main` once sufficiently stable.
+Branches: `main` is stable; development happens on `dev` and merges to `main` once sufficiently stable.
