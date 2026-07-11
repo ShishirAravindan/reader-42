@@ -29,7 +29,6 @@ docs/
   vision.md         # telos, product laws, now/next/later
   non-goals.md      # durable refusals
   decisions.md      # append-only decision log, owner's voice
-  evidence/         # v1 milestone captures (historical)
 .claude/            # this file, agents/, skills/
 ```
 
