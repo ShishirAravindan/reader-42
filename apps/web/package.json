@@ -1,8 +1,0 @@
-{
-  "name": "@reader-42/web",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "build:fixture": "bun run scripts/build-fixture.ts"
-  }
-}

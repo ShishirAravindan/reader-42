@@ -46,6 +46,10 @@ The library folder lives in the owner's cloud drive. The desktop mirrors it to d
 
 Vanilla TS, HTML, CSS. No framework until it cannot be avoided; the reference implementation's UI debt was missing module boundaries, not a missing framework, and boundaries are the fix. Zero runtime dependencies in the shipped app; the drive client is confined to its transport module. Build tooling (bundler, tests) stays Bun and ships nothing.
 
+## 2026-07-12 — Clean slate
+
+With the architecture decided and the salvage audit written, the previous implementation and its tooling are deleted from `dev` (the tree at `d124d02` in git history is the last commit with the code). The rewrite starts from an empty codebase and bootstraps its own tooling; no backward compatibility with the old data layout.
+
 ## 2026-07-12 — Docs diet, and `dev` as the integration branch
 
 Three docs total: `vision.md` (thesis, product laws, and a now/next/later section that absorbed the separate pipeline and roadmap files), `non-goals.md`, and this log. The orchestration diary, the handoff doc, and the milestone evidence captures were deleted; history lives in git, and the one pattern worth carrying (the demo/capture script *is* the acceptance test) moved into `.claude/CLAUDE.md`. Docs are written timeless: no version framing, no competitor naming; commit history is the historical record. Development targets `dev`; `main` stays the stable reference until the rewrite earns the merge. **The existing code stays until after the architecture decisions.** It is the reference implementation and the salvage audit's source; deleting it is a deliberate follow-up, not part of this reset.

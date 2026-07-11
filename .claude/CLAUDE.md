@@ -8,29 +8,31 @@ Capture and conversion are out of scope. [reflow-to-epub](https://github.com/Shi
 
 `main` is the stable branch; don't destabilize it. Development targets **`dev`**: branch from dev, PR against dev, squash-merge to dev. `dev` merges to `main` when the owner judges it sufficiently stable.
 
-## Stack
+## Architecture
 
-- **Runtime:** Bun · **Language:** TypeScript, strict (`noUncheckedIndexedAccess`, `noImplicitOverride`)
-- **Server:** Hono on `:4242`, serves the API and the web reader (LAN-reachable)
-- **DB:** SQLite via better-sqlite3 + Drizzle (schema is the type source of truth); FTS5 for search
-- **Validation:** Zod at every boundary · **Frontend:** vanilla TS/HTML/CSS, no framework, no EPUB-rendering library
-- **Lint+format:** Biome · **Pre-commit:** Lefthook (typecheck + lint)
+See `docs/decisions.md` (2026-07-12 entries) for the reasoning. The shape:
 
-Stack revisions are owner decisions (see `docs/decisions.md`). Load-bearing constraints: local-first; no deps in the core app; position locators are structural and mode-independent.
+- **App:** vanilla TS/HTML/CSS home-screen PWA. No framework, no EPUB-rendering library, zero runtime dependencies in the shipped app.
+- **Storage:** no server, no database. The library is a folder of files (`book.epub` + `book.json` sidecar per book, `library.json` master index) synced through the owner's cloud drive, accessed via a small storage interface; the drive client is one swappable transport. Search is a derived, disposable index.
+- **Offline:** the current book and on-deck queue live fully on the device; reading never needs the network; writes queue and flush when online, latest timestamp wins.
+- **Tooling:** TypeScript strict, Bun for build/tests (ships nothing), Biome for lint/format; bootstrapped fresh by the rewrite, deliberately.
+
+Load-bearing constraints: files are the contract; zero runtime deps in the shipped app; position locators are structural and mode-independent.
+
+The previous implementation lives in git history (tree at `d124d02`); its lessons are in `docs/salvage.md`. Read the salvage audit before writing reader, locator, or EPUB code.
 
 ## Repo layout
 
 ```
-apps/
-  server/           # Hono API + static serving of the reader
-  web/              # PWA reader + library UI (vanilla TS, no deps)
-data/               # NEVER COMMITTED — library.db, EPUBs (gitignored)
 docs/
   vision.md         # telos, product laws, now/next/later
   non-goals.md      # durable refusals
   decisions.md      # append-only decision log, owner's voice
+  salvage.md        # lessons from the previous implementation (scaffolding)
 .claude/            # this file, agents/, skills/
 ```
+
+Code layout gets established by the rewrite's first PRs against the decisions.
 
 ## Conventions
 
@@ -40,7 +42,7 @@ docs/
 
 ## Definition of done
 
-1. `bun run typecheck` clean 2. `bun run lint` clean 3. behavioral tests cover the change 4. the flow was exercised end-to-end against a running server, with an evidence capture when user-visible 5. PR names what changed, why, how verified 6. branch/PR conventions followed.
+1. typecheck clean 2. lint clean 3. behavioral tests cover the change 4. the flow was exercised end-to-end in the running app, with an evidence capture when user-visible 5. PR names what changed, why, how verified 6. branch/PR conventions followed.
 
 For UI work, the demo/capture script **is** the acceptance test. Write it first-class and keep its assertions; screenshots are the byproduct. The worst rendering bugs are only catchable this way.
 
@@ -50,6 +52,4 @@ For UI work, the demo/capture script **is** the acceptance test. Write it first-
 |---|---|
 | Understand the product | `docs/vision.md`, `docs/non-goals.md` |
 | Understand a past decision | `docs/decisions.md` |
-| Run the server | `bun run dev` (port 4242) |
-| Typecheck / lint | `bun run typecheck` / `bun run lint` |
-| Health check | `curl http://localhost:4242/health` |
+| Write reader/locator/EPUB code | `docs/salvage.md` first |
