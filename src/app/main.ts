@@ -53,6 +53,9 @@ async function boot(): Promise<void> {
     // Remote transports get the on-device cache: the current book and the
     // on-deck queue stay fully local, so reading never needs the network.
     deviceCache = new DeviceCacheTransport(new DevHttpTransport(), new BrowserDeviceStore());
+    // Queued offline writes flush when the connection returns (and at boot,
+    // inside syncCachePolicy).
+    window.addEventListener('online', () => void deviceCache?.flush());
     await openLibrary(deviceCache);
     void deviceCache.syncCachePolicy();
     return;
