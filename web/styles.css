@@ -1,0 +1,182 @@
+/* App chrome. Deliberately plain: the aesthetic pass is its own milestone,
+   decided mockups-first. Paper-and-ink tokens shared with the shadow CSS. */
+
+:root {
+  --bg: #f5f4ef;
+  --fg: #24211b;
+  --muted: #6e6759;
+  --link: #33518a;
+  --line: #ddd8cc;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Charter", "Iowan Old Style", Georgia, serif;
+}
+
+#app {
+  height: 100%;
+}
+.muted {
+  color: var(--muted);
+}
+button {
+  font: inherit;
+  color: var(--fg);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+}
+button:hover {
+  border-color: var(--muted);
+}
+
+/* welcome */
+#welcome {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+/* shelf */
+#shelf {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+.shelf-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.75rem;
+}
+.shelf-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+.import-label {
+  color: var(--link);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+#book-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+#book-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+#book-list .book-title {
+  font-size: 1.05rem;
+}
+#book-list .book-meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+/* reader */
+#reader {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.reader-header,
+.reader-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.reader-footer {
+  border-bottom: none;
+  border-top: 1px solid var(--line);
+}
+.reader-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+.reader-title span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60vw;
+}
+#reader-chapter-label {
+  font-size: 0.8rem;
+}
+.reader-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+#toc {
+  width: 16rem;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  padding: 1rem;
+}
+#toc ol {
+  list-style: none;
+  margin: 0;
+  padding-left: 0.75rem;
+}
+#toc > ol {
+  padding-left: 0;
+}
+#toc a {
+  display: block;
+  color: var(--fg);
+  text-decoration: none;
+  padding: 0.3rem 0.25rem;
+  border-radius: 4px;
+}
+#toc a:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+#viewport {
+  flex: 1;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+@media (max-width: 40rem) {
+  #toc {
+    position: absolute;
+    inset: 3rem 0 3rem 0;
+    background: var(--bg);
+    width: 100%;
+    z-index: 2;
+  }
+}
