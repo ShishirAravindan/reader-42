@@ -1,0 +1,14 @@
+# Visual captures for the PWA shell, via shot-scraper (https://github.com/simonw/shot-scraper).
+# Assertions live in pwa-shell.ts; these are the human-eyeball frames.
+#
+#   bun scripts/dev.ts &        # serves on :4242
+#   shot-scraper multi scripts/demo/pwa-shell.shots.yml
+
+- output: scripts/demo/out/welcome-desktop.png
+  url: http://localhost:4242/
+  width: 1024
+  height: 720
+- output: scripts/demo/out/welcome-phone.png
+  url: http://localhost:4242/
+  width: 390
+  height: 844

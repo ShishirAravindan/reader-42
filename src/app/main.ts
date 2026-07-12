@@ -38,6 +38,13 @@ let openSidecar: BookSidecar | null = null;
 // --- boot: pick a transport ---
 
 async function boot(): Promise<void> {
+  // The shell lives in the service worker cache after first visit, so the
+  // app cold-opens with no network (see web/sw.js).
+  if ('serviceWorker' in navigator) {
+    void navigator.serviceWorker.register('/sw.js').catch(() => {
+      // No worker (http, old browser): the app still runs, just not offline.
+    });
+  }
   const params = new URLSearchParams(location.search);
   if (params.get('lib') === 'dev') {
     await openLibrary(new DevHttpTransport());
