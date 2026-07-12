@@ -2,11 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>reader-42</title>
   <meta name="theme-color" content="#f5f4ef" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="reader-42" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -20,10 +24,13 @@
     <section id="shelf" hidden>
       <header class="shelf-header">
         <h1>Library</h1>
-        <label class="import-label">
-          Import EPUB
-          <input id="import-input" type="file" accept=".epub" hidden />
-        </label>
+        <div class="shelf-actions">
+          <button id="install-app" type="button" hidden>Install</button>
+          <label class="import-label">
+            Import EPUB
+            <input id="import-input" type="file" accept=".epub" hidden />
+          </label>
+        </div>
       </header>
       <ul id="book-list"></ul>
       <p id="shelf-empty" hidden>Nothing here yet. Import an EPUB to start reading.</p>
