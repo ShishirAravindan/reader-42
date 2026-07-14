@@ -31,6 +31,8 @@ export class ReaderController {
   private chapterIndex = 0;
   private rendered: RenderedChapter | null = null;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Structural signature of the last position we saved or restored. */
+  private lastPositionKey: string | null = null;
 
   constructor(
     book: Book,
@@ -56,6 +58,12 @@ export class ReaderController {
       if (position.anchor) this.rendered.scrollToAnchor(position.anchor);
       else if (position.scroll !== undefined) this.rendered.setScroll(position.scroll);
     }
+    // Baseline the restored place so the scroll event the restore just fired
+    // doesn't re-save it. Re-saving would bump `updatedAt` on a position the
+    // reader never actually moved, and under latest-wins sync that stale-but-
+    // fresh timestamp could clobber a newer position from another device.
+    const restored = this.capturePosition();
+    this.lastPositionKey = restored ? positionKey(restored) : null;
   }
 
   currentChapter(): number {
@@ -111,15 +119,25 @@ export class ReaderController {
     this.saveTimer = setTimeout(() => this.emitPosition(), SAVE_DEBOUNCE_MS);
   };
 
-  private emitPosition(): void {
-    if (!this.rendered) return;
+  private capturePosition(): ReadingPosition | null {
+    if (!this.rendered) return null;
     const anchor: PositionAnchor | null = this.rendered.getAnchor();
-    const position: ReadingPosition = {
+    return {
       chapter: this.chapterIndex,
       ...(anchor ? { anchor } : {}),
       scroll: this.rendered.getScroll(),
       updatedAt: this.now(),
     };
+  }
+
+  private emitPosition(): void {
+    const position = this.capturePosition();
+    if (!position) return;
+    // Skip saves that don't move the structural position; only the reader
+    // actually reading should refresh the position clock.
+    const key = positionKey(position);
+    if (key === this.lastPositionKey) return;
+    this.lastPositionKey = key;
     this.hooks.onPosition?.({ position, progress: this.progress() });
   }
 
@@ -140,4 +158,16 @@ export class ReaderController {
 
 function clampIndex(index: number, count: number): number {
   return Math.min(Math.max(index, 0), Math.max(count - 1, 0));
+}
+
+/**
+ * Structural identity of a position: chapter plus anchor, ignoring the raw
+ * pixel scroll and the timestamp. Two positions with the same key describe the
+ * same place, so only a real move is worth saving.
+ */
+export function positionKey(position: ReadingPosition): string {
+  const anchor = position.anchor
+    ? `${position.anchor.path.join(',')}@${position.anchor.ratio.toFixed(3)}`
+    : 'top';
+  return `${position.chapter}|${anchor}`;
 }
