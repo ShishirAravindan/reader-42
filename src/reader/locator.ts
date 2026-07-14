@@ -116,24 +116,48 @@ export function anchorTarget(
   anchor: PositionAnchor,
   axis: Axis,
 ): number | null {
+  const path = sanitizePath(anchor.path);
+  if (!path) return null;
   let el: Element = wrapper;
-  for (const index of anchor.path) {
+  for (const index of path) {
     const kid = structuralChildren(el)[index];
     if (!kid) break;
     el = kid;
   }
   if (el === wrapper) return null;
-  const ratio = Math.min(Math.max(anchor.ratio, 0), 1);
+  const ratio = clampRatio(anchor.ratio);
   return absoluteStart(el, mount, axis) + ratio * boxSize(el, axis);
 }
 
 /** Element at a structural path, or null when the path no longer resolves. */
 export function elementAtPath(wrapper: HTMLElement, path: number[]): Element | null {
+  const clean = sanitizePath(path);
+  if (!clean) return null;
   let el: Element = wrapper;
-  for (const index of path) {
+  for (const index of clean) {
     const kid = structuralChildren(el)[index];
     if (!kid) return null;
     el = kid;
   }
   return el;
+}
+
+/**
+ * Positions are persisted JSON that may be old, hand-edited, or written by
+ * another device's future version. A path must be non-negative integer steps;
+ * anything else degrades to "top of chapter" rather than resolving to garbage.
+ */
+function sanitizePath(path: unknown): number[] | null {
+  if (!Array.isArray(path)) return null;
+  const out: number[] = [];
+  for (const step of path) {
+    if (!Number.isInteger(step) || step < 0) return null;
+    out.push(step);
+  }
+  return out;
+}
+
+/** Clamp a persisted ratio into the element; a non-finite ratio degrades to 0. */
+export function clampRatio(ratio: number): number {
+  return Number.isFinite(ratio) ? Math.min(Math.max(ratio, 0), 1) : 0;
 }
