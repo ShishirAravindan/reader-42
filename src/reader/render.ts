@@ -187,16 +187,51 @@ function rewriteUrls(root: Element, chapterPath: string, book: Book, blobUrls: s
   }
   for (const source of Array.from(root.querySelectorAll('source'))) rewriteAttr(source, 'src');
   for (const media of Array.from(root.querySelectorAll('audio, video'))) rewriteAttr(media, 'src');
-  // The reader treats chapter content as text + media only.
-  for (const script of Array.from(root.querySelectorAll('script'))) script.remove();
-  // External links leave the app in a new tab; internal links are intercepted
-  // by the shell at the document level.
+  sanitizeContent(root);
+  // External links leave the app in a new tab; a dangerous scheme is stripped
+  // outright. Internal links are intercepted by the shell at the document level.
   for (const a of Array.from(root.querySelectorAll('a[href]'))) {
-    if (isExternal(a.getAttribute('href') ?? '')) {
+    const href = a.getAttribute('href') ?? '';
+    const scheme = urlScheme(href);
+    if (scheme && !SAFE_LINK_SCHEMES.has(scheme)) {
+      a.removeAttribute('href'); // javascript:, data:, vbscript:, ...
+    } else if (isExternal(href)) {
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener noreferrer');
     }
   }
+}
+
+// Book HTML is untrusted (it can originate from arbitrary web pages via the
+// conversion pipeline). Shadow DOM sandboxes the book's CSS and DOM, but NOT
+// script execution: an inline `onerror`/`onload` handler or a framed document
+// would run in the app's own realm, with access to the library and its
+// credentials. So the reader renders text + media only, never active content.
+const ACTIVE_TAGS = new Set(['script', 'iframe', 'frame', 'object', 'embed']);
+const SAFE_LINK_SCHEMES = new Set(['http', 'https', 'mailto']);
+
+export function sanitizeContent(root: Element): void {
+  const walk = (el: Element): void => {
+    for (const child of Array.from(el.children)) {
+      if (ACTIVE_TAGS.has(child.localName.toLowerCase())) child.remove();
+      else walk(child);
+    }
+    for (const attr of Array.from(el.attributes)) {
+      // on* event handlers (onerror, onload, onclick, SVG onbegin, ...).
+      if (/^on/i.test(attr.name)) el.removeAttribute(attr.name);
+    }
+  };
+  walk(root);
+}
+
+/** The URL scheme, lowercased, after removing the whitespace browsers ignore. */
+export function urlScheme(href: string): string | null {
+  const cleaned = href
+    .replace(/[\t\n\r]/g, '')
+    .trimStart()
+    .toLowerCase();
+  const match = cleaned.match(/^([a-z][a-z0-9+.-]*):/);
+  return match?.[1] ?? null;
 }
 
 function rewriteCssUrls(css: string, ownerPath: string, book: Book, blobUrls: string[]): string {
