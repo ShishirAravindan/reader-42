@@ -152,9 +152,160 @@ describe('DeviceCacheTransport', () => {
     await cache.write('books/alpha-aaa/book.json', enc('{"sidecar":"moved"}'));
     expect(dec(await remote.inner.read('books/alpha-aaa/book.json'))).toBe('{"sidecar":"moved"}');
     expect(dec(await store.get('books/alpha-aaa/book.json'))).toBe('{"sidecar":"moved"}');
-    // A write to an unreachable transport still fails; queueing is the next layer.
+    // A write to an unreachable transport succeeds locally and queues.
     remote.offline = true;
-    expect(cache.write('books/alpha-aaa/book.json', enc('{}'))).rejects.toThrow();
+    await cache.write('books/alpha-aaa/book.json', enc('{"sidecar":"offline"}'));
+    expect(await cache.pendingWrites()).toEqual(['books/alpha-aaa/book.json']);
+  });
+
+  const T0 = '2026-07-10T08:00:00.000Z';
+  const T1 = '2026-07-11T09:00:00.000Z';
+  const T2 = '2026-07-12T10:00:00.000Z';
+  const T3 = '2026-07-12T11:00:00.000Z';
+
+  function sidecarJson(over: Record<string, unknown> = {}): string {
+    return JSON.stringify({
+      schema: 1,
+      id: 'aaa',
+      title: 'Alpha',
+      author: null,
+      addedAt: T0,
+      state: 'reading',
+      stateChangedAt: T0,
+      progress: 0.1,
+      position: { chapter: 1, updatedAt: T1 },
+      highlights: [],
+      sessions: [],
+      ...over,
+    });
+  }
+
+  test('an offline write succeeds, is readable locally, and queues', async () => {
+    const { remote, cache } = await seeded();
+    await cache.syncCachePolicy();
+    remote.offline = true;
+    await cache.write('books/alpha-aaa/book.json', enc(sidecarJson({ progress: 0.5 })));
+    expect(dec(await cache.read('books/alpha-aaa/book.json'))).toContain('0.5');
+    expect(await cache.pendingWrites()).toEqual(['books/alpha-aaa/book.json']);
+    // The remote never saw it.
+    expect(dec(await remote.inner.read('books/alpha-aaa/book.json'))).not.toContain('0.5');
+  });
+
+  test('flush merges the queued sidecar with remote changes, field-wise', async () => {
+    const { remote, cache } = await seeded();
+    await remote.inner.write('books/alpha-aaa/book.json', enc(sidecarJson()));
+    await cache.syncCachePolicy();
+
+    // This device reads ahead while offline...
+    remote.offline = true;
+    await cache.write(
+      'books/alpha-aaa/book.json',
+      enc(
+        sidecarJson({
+          progress: 0.8,
+          position: { chapter: 7, updatedAt: T3 },
+          highlights: [
+            {
+              id: 'h-local',
+              chapter: 7,
+              start: { path: [1], offset: 0 },
+              end: { path: [1], offset: 5 },
+              text: 'local',
+              createdAt: T3,
+            },
+          ],
+        }),
+      ),
+    );
+    // ...while another device finishes the book and highlights elsewhere.
+    await remote.inner.write(
+      'books/alpha-aaa/book.json',
+      enc(
+        sidecarJson({
+          state: 'finished',
+          stateChangedAt: T2,
+          highlights: [
+            {
+              id: 'h-remote',
+              chapter: 2,
+              start: { path: [4], offset: 2 },
+              end: { path: [4], offset: 9 },
+              text: 'remote',
+              createdAt: T2,
+            },
+          ],
+        }),
+      ),
+    );
+
+    remote.offline = false;
+    await cache.flush();
+    expect(await cache.pendingWrites()).toEqual([]);
+    const merged = JSON.parse(dec(await remote.inner.read('books/alpha-aaa/book.json')) ?? '{}');
+    expect(merged.position.chapter).toBe(7); // this device's later position won
+    expect(merged.progress).toBe(0.8);
+    expect(merged.state).toBe('finished'); // the other device's later state won
+    expect(merged.highlights.map((h: { id: string }) => h.id).sort()).toEqual([
+      'h-local',
+      'h-remote',
+    ]);
+  });
+
+  test('the queue survives a reload: a fresh instance flushes it', async () => {
+    const { remote, store, cache } = await seeded();
+    await cache.syncCachePolicy();
+    remote.offline = true;
+    await cache.write('books/alpha-aaa/book.json', enc(sidecarJson({ progress: 0.9 })));
+
+    remote.offline = false;
+    const reloaded = new DeviceCacheTransport(remote, store);
+    await reloaded.syncCachePolicy();
+    expect(await reloaded.pendingWrites()).toEqual([]);
+    expect(dec(await remote.inner.read('books/alpha-aaa/book.json'))).toContain('0.9');
+  });
+
+  test('reading a pending path reconciles first; offline it serves local truth', async () => {
+    const { remote, cache } = await seeded();
+    await remote.inner.write('books/alpha-aaa/book.json', enc(sidecarJson()));
+    await cache.syncCachePolicy();
+    remote.offline = true;
+    await cache.write(
+      'books/alpha-aaa/book.json',
+      enc(sidecarJson({ progress: 0.6, position: { chapter: 3, updatedAt: T3 } })),
+    );
+    // Offline read: the queued write is the truth, not the stale cache copy.
+    expect(dec(await cache.read('books/alpha-aaa/book.json'))).toContain('"chapter":3');
+
+    // Back online, a read flushes before trusting the remote.
+    remote.offline = false;
+    const bytes = dec(await cache.read('books/alpha-aaa/book.json'));
+    expect(bytes).toContain('"chapter": 3');
+    expect(await cache.pendingWrites()).toEqual([]);
+    expect(dec(await remote.inner.read('books/alpha-aaa/book.json'))).toContain('"chapter": 3');
+  });
+
+  test('queued epub bytes replay verbatim, and a later online write drains the queue', async () => {
+    const { remote, cache } = await seeded();
+    await cache.syncCachePolicy();
+    remote.offline = true;
+    await cache.pin('books/delta-ddd');
+    await cache.write('books/delta-ddd/book.epub', enc('imported offline'));
+    expect(await cache.pendingWrites()).toEqual(['books/delta-ddd/book.epub']);
+
+    remote.offline = false;
+    // Any successful write drains the queue opportunistically.
+    await cache.write('books/alpha-aaa/book.json', enc(sidecarJson()));
+    expect(await cache.pendingWrites()).toEqual([]);
+    expect(dec(await remote.inner.read('books/delta-ddd/book.epub'))).toBe('imported offline');
+  });
+
+  test('a flush against a still-dead transport keeps the queue intact', async () => {
+    const { remote, cache } = await seeded();
+    await cache.syncCachePolicy();
+    remote.offline = true;
+    await cache.write('books/alpha-aaa/book.json', enc(sidecarJson({ progress: 0.4 })));
+    await cache.flush();
+    expect(await cache.pendingWrites()).toEqual(['books/alpha-aaa/book.json']);
   });
 
   test('offline boot: cached index still teaches the deck, reads stay local', async () => {
