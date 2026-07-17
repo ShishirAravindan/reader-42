@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>reader-42</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main id="app">
+    <section id="welcome" hidden>
+      <h1>reader-42</h1>
+      <p>Point the reader at your library folder to begin.</p>
+      <button id="open-library" type="button">Open library folder</button>
+    </section>
+
+    <section id="shelf" hidden>
+      <header class="shelf-header">
+        <h1>Library</h1>
+        <label class="import-label">
+          Import EPUB
+          <input id="import-input" type="file" accept=".epub" hidden />
+        </label>
+      </header>
+      <ul id="book-list"></ul>
+      <p id="shelf-empty" hidden>Nothing here yet. Import an EPUB to start reading.</p>
+    </section>
+
+    <section id="reader" hidden>
+      <header class="reader-header">
+        <button id="back-to-shelf" type="button" aria-label="Back to library">‹ Library</button>
+        <div class="reader-title">
+          <span id="reader-book-title"></span>
+          <span id="reader-chapter-label" class="muted"></span>
+        </div>
+        <button id="toc-toggle" type="button" aria-label="Table of contents">Contents</button>
+      </header>
+      <div class="reader-body">
+        <nav id="toc" hidden></nav>
+        <div id="viewport"></div>
+      </div>
+      <footer class="reader-footer">
+        <button id="prev-chapter" type="button">‹ Previous</button>
+        <span id="progress-label" class="muted"></span>
+        <button id="next-chapter" type="button">Next ›</button>
+      </footer>
+    </section>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
