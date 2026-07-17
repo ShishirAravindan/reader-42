@@ -11,6 +11,8 @@ import { DeviceCacheTransport } from '../library/device-cache.ts';
 import { Library } from '../library/store.ts';
 import type { LibraryTransport } from '../library/transport.ts';
 import { DevHttpTransport } from '../library/transports/dev-http.ts';
+import { OAuthTokenProvider, captureDriveToken } from '../library/transports/drive-auth.ts';
+import { DriveTransport } from '../library/transports/drive.ts';
 import { LocalFolderTransport } from '../library/transports/local-folder.ts';
 import type { BookSidecar } from '../library/types.ts';
 import { ReaderController } from '../reader/controller.ts';
@@ -73,17 +75,28 @@ async function boot(): Promise<void> {
       // No worker (http, old browser): the app still runs, just not offline.
     });
   }
+  // If this load is the return leg of a Drive OAuth redirect, the token is
+  // in the fragment; capture it before the router can misread it.
+  captureDriveToken();
   wireInstallFlow();
   const params = new URLSearchParams(location.search);
   if (params.get('lib') === 'dev') {
-    // Remote transports get the on-device cache: the current book and the
-    // on-deck queue stay fully local, so reading never needs the network.
-    deviceCache = new DeviceCacheTransport(new DevHttpTransport(), new BrowserDeviceStore());
-    // Queued offline writes flush when the connection returns (and at boot,
-    // inside syncCachePolicy).
-    window.addEventListener('online', () => void deviceCache?.flush());
-    await openLibrary(deviceCache);
-    void deviceCache.syncCachePolicy();
+    await openRemoteLibrary(new DevHttpTransport());
+    return;
+  }
+  if (params.get('lib') === 'drive') {
+    let clientId = localStorage.getItem('drive-client-id');
+    if (!clientId) {
+      clientId = prompt('Google OAuth client id (see docs/drive-setup.md):')?.trim() ?? '';
+      if (!clientId) {
+        show('welcome');
+        return;
+      }
+      localStorage.setItem('drive-client-id', clientId);
+    }
+    await openRemoteLibrary(
+      new DriveTransport({ tokenProvider: new OAuthTokenProvider(clientId) }),
+    );
     return;
   }
   show('welcome');
@@ -110,6 +123,19 @@ async function openLibrary(transport: LibraryTransport): Promise<void> {
   library = await Library.open(transport);
   window.addEventListener('hashchange', route);
   route();
+}
+
+/**
+ * Remote transports get the on-device cache: the current book and the
+ * on-deck queue stay fully local, so reading never needs the network, and
+ * queued offline writes flush when the connection returns (and at boot,
+ * inside syncCachePolicy).
+ */
+async function openRemoteLibrary(remote: LibraryTransport): Promise<void> {
+  deviceCache = new DeviceCacheTransport(remote, new BrowserDeviceStore());
+  window.addEventListener('online', () => void deviceCache?.flush());
+  await openLibrary(deviceCache);
+  void deviceCache.syncCachePolicy();
 }
 
 // --- routing ---
