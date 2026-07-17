@@ -24,6 +24,10 @@ body {
   background: var(--bg);
   color: var(--fg);
   font-family: "Charter", "Iowan Old Style", Georgia, serif;
+  /* Phones: no auto-inflated text, no gray tap flash. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #app {
@@ -40,6 +44,8 @@ button {
   border-radius: 6px;
   padding: 0.35rem 0.8rem;
   cursor: pointer;
+  /* A tap is a tap: no double-tap-zoom wait on controls. */
+  touch-action: manipulation;
 }
 button:hover {
   border-color: var(--muted);
@@ -67,6 +73,11 @@ button:hover {
   justify-content: space-between;
   border-bottom: 1px solid var(--line);
   padding-bottom: 0.75rem;
+}
+.shelf-actions {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
 }
 .shelf-header h1 {
   margin: 0;
@@ -179,4 +190,42 @@ button:hover {
     width: 100%;
     z-index: 2;
   }
+}
+
+/* Touch: every control is a real fingertip target (44px minimum). */
+@media (pointer: coarse) {
+  button {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0.45rem 1rem;
+  }
+  .import-label {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  #book-list li {
+    padding: 1.1rem 0;
+  }
+  #toc a {
+    padding: 0.65rem 0.5rem;
+  }
+}
+
+/* Phones with notches and home bars: chrome respects the safe area, and the
+   reading column never hides under it. */
+.reader-header {
+  padding-top: calc(0.5rem + env(safe-area-inset-top));
+  padding-left: calc(1rem + env(safe-area-inset-left));
+  padding-right: calc(1rem + env(safe-area-inset-right));
+}
+.reader-footer {
+  padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+  padding-left: calc(1rem + env(safe-area-inset-left));
+  padding-right: calc(1rem + env(safe-area-inset-right));
+}
+#shelf {
+  padding-left: calc(1.5rem + env(safe-area-inset-left));
+  padding-right: calc(1.5rem + env(safe-area-inset-right));
+  padding-bottom: calc(2rem + env(safe-area-inset-bottom));
 }

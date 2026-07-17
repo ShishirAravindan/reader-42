@@ -13,7 +13,7 @@
 //
 // Plain JS on purpose: the worker ships as-is, outside the bundle.
 
-const VERSION = 'shell-v1';
+const VERSION = 'shell-v2';
 const SHELL = [
   '/',
   '/app.js',
@@ -22,6 +22,7 @@ const SHELL = [
   '/icon.svg',
   '/icon-192.png',
   '/icon-512.png',
+  '/apple-touch-icon.png',
 ];
 
 self.addEventListener('install', (event) => {

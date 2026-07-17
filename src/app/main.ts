@@ -38,6 +38,31 @@ let deviceCache: DeviceCacheTransport | null = null;
 let controller: ReaderController | null = null;
 let openSidecar: BookSidecar | null = null;
 
+// --- install flow ---
+
+// Chromium surfaces installability via beforeinstallprompt; stash it and
+// show a quiet Install button on the shelf. Safari has no such event — its
+// path is Share → Add to Home Screen — so there the button never appears.
+let installPrompt: { prompt: () => Promise<unknown> } | null = null;
+
+function wireInstallFlow(): void {
+  const button = el<HTMLButtonElement>('install-app');
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    installPrompt = event as unknown as { prompt: () => Promise<unknown> };
+    button.hidden = false;
+  });
+  window.addEventListener('appinstalled', () => {
+    installPrompt = null;
+    button.hidden = true;
+  });
+  button.onclick = async () => {
+    await installPrompt?.prompt();
+    installPrompt = null;
+    button.hidden = true;
+  };
+}
+
 // --- boot: pick a transport ---
 
 async function boot(): Promise<void> {
@@ -48,6 +73,7 @@ async function boot(): Promise<void> {
       // No worker (http, old browser): the app still runs, just not offline.
     });
   }
+  wireInstallFlow();
   const params = new URLSearchParams(location.search);
   if (params.get('lib') === 'dev') {
     // Remote transports get the on-device cache: the current book and the
