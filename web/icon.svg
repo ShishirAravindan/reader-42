@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Paper-and-ink tokens from styles.css; the icon is a tiny title page. -->
+  <rect width="512" height="512" fill="#f5f4ef"/>
+  <line x1="136" y1="132" x2="376" y2="132" stroke="#ddd8cc" stroke-width="6"/>
+  <text x="256" y="286" font-family="Charter, 'Iowan Old Style', Georgia, serif"
+        font-size="248" fill="#24211b" text-anchor="middle"
+        dominant-baseline="middle">42</text>
+  <line x1="136" y1="392" x2="376" y2="392" stroke="#ddd8cc" stroke-width="6"/>
+</svg>
