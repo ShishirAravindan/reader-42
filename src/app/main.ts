@@ -6,6 +6,8 @@
 
 import { Book, readMetadata } from '../epub/book.ts';
 import type { TocEntry } from '../epub/types.ts';
+import { BrowserDeviceStore } from '../library/browser-store.ts';
+import { DeviceCacheTransport } from '../library/device-cache.ts';
 import { Library } from '../library/store.ts';
 import type { LibraryTransport } from '../library/transport.ts';
 import { DevHttpTransport } from '../library/transports/dev-http.ts';
@@ -32,6 +34,7 @@ function show(name: keyof typeof sections): void {
 }
 
 let library: Library | null = null;
+let deviceCache: DeviceCacheTransport | null = null;
 let controller: ReaderController | null = null;
 let openSidecar: BookSidecar | null = null;
 
@@ -47,7 +50,11 @@ async function boot(): Promise<void> {
   }
   const params = new URLSearchParams(location.search);
   if (params.get('lib') === 'dev') {
-    await openLibrary(new DevHttpTransport());
+    // Remote transports get the on-device cache: the current book and the
+    // on-deck queue stay fully local, so reading never needs the network.
+    deviceCache = new DeviceCacheTransport(new DevHttpTransport(), new BrowserDeviceStore());
+    await openLibrary(deviceCache);
+    void deviceCache.syncCachePolicy();
     return;
   }
   show('welcome');
@@ -149,6 +156,11 @@ function shelfMeta(sidecar: BookSidecar | null): string {
 async function openBook(id: string): Promise<void> {
   if (!library) return;
   closeReader();
+
+  // Pin before reading: the pinned dir joins the cache's desired set
+  // synchronously, so these very reads make the book fully local.
+  const entry = library.index().books.find((b) => b.id === id);
+  if (entry && deviceCache) void deviceCache.pin(entry.dir);
 
   const [bytes, sidecar] = await Promise.all([library.readEpub(id), library.readSidecar(id)]);
   if (!bytes || !sidecar) {
