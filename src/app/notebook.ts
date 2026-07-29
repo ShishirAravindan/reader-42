@@ -7,21 +7,11 @@
 // at the top and are unit-tested; the panel below mirrors the TOC pattern.
 
 import { HIGHLIGHT_COLORS, type Highlight, type HighlightColor } from '../library/types.ts';
+import { comparePaths } from '../reader/locator.ts';
 
 // --- pure: book ordering ---
 
-/** Lexicographic compare of structural element paths. */
-export function comparePaths(a: number[], b: number[]): number {
-  const len = Math.max(a.length, b.length);
-  for (let i = 0; i < len; i++) {
-    const av = a[i];
-    const bv = b[i];
-    if (av === undefined) return -1; // a is the ancestor: it starts first
-    if (bv === undefined) return 1;
-    if (av !== bv) return av - bv;
-  }
-  return 0;
-}
+export { comparePaths };
 
 /** Book order: chapter, then start path, then start offset (id tiebreak). */
 export function sortHighlights(highlights: Highlight[]): Highlight[] {

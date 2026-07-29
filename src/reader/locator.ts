@@ -31,6 +31,23 @@ export function structuralChildren(el: Element): Element[] {
   return kids;
 }
 
+/**
+ * Document order of two structural paths. An ancestor sorts before its
+ * descendants, so anything addressed by a path (highlights, bookmarks, search
+ * hits) can be listed in reading order without touching layout.
+ */
+export function comparePaths(a: number[], b: number[]): number {
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    const av = a[i];
+    const bv = b[i];
+    if (av === undefined) return -1;
+    if (bv === undefined) return 1;
+    if (av !== bv) return av - bv;
+  }
+  return 0;
+}
+
 /** Element start offset (top or left) in the mount's scroll coordinates. */
 export function absoluteStart(el: Element, mount: HTMLElement, axis: Axis): number {
   const rect = el.getBoundingClientRect();

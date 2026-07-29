@@ -88,6 +88,44 @@ export class ReaderController {
     return this.rendered?.chapterFraction() ?? 0;
   }
 
+  /** Structural locator for the current page start; what a bookmark records. */
+  currentAnchor(): PositionAnchor | null {
+    return this.rendered?.getAnchor() ?? null;
+  }
+
+  /** True when an anchor in the CURRENT chapter is on the visible page. */
+  anchorInView(chapter: number, anchor: PositionAnchor): boolean {
+    if (chapter !== this.chapterIndex || !this.rendered) return false;
+    return this.rendered.anchorInView(anchor);
+  }
+
+  /** The place the reader is at right now, for stacks that want to return to it. */
+  currentPosition(): ReadingPosition | null {
+    return this.capturePosition();
+  }
+
+  /** Restore a captured place (jump-back, peek return): chapter, then anchor. */
+  goToPosition(position: ReadingPosition): boolean {
+    if (!this.goToChapter(position.chapter)) return false;
+    if (position.anchor) this.rendered?.scrollToAnchor(position.anchor);
+    else if (position.scroll !== undefined) this.rendered?.setScroll(position.scroll);
+    this.emitPosition();
+    return true;
+  }
+
+  /**
+   * Jump to a fraction of a chapter (location entry, the peek slider). The
+   * offset lands through the same clamped page-snap an anchor restore uses,
+   * so the reader never stops between pages.
+   */
+  goToFraction(chapter: number, fraction: number): boolean {
+    if (chapter < 0 || chapter >= this.book.chapters.length) return false;
+    if (chapter !== this.chapterIndex) this.renderChapterAt(chapter);
+    this.rendered?.scrollToFraction(fraction);
+    this.emitPosition();
+    return true;
+  }
+
   chapterCount(): number {
     return this.book.chapters.length;
   }

@@ -333,6 +333,28 @@ button:hover {
   visibility: hidden;
 }
 
+/* The dog-ear ribbon (G1): a folded corner over the top-right of the page,
+   shown whenever the visible page carries a bookmark. Purely an indicator —
+   the corner GESTURE lives on the viewport, so the ribbon never eats a tap.
+   Two triangles: the accent fold, and a lighter notch that reads as the page
+   turning back on itself in every theme. */
+#bookmark-ribbon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  width: 1.6rem;
+  height: 2.1rem;
+  pointer-events: none;
+  background: var(--link);
+  opacity: 0.75;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+}
+#reader:not(.chrome-hidden) #bookmark-ribbon {
+  /* Under the top bar while chrome is open; the bar owns that band. */
+  opacity: 0;
+}
+
 /* End-of-book nudge (B6): a quiet centered card in the app's paper tones.
    It is a panel: Escape closes it before touching anything else. */
 #finish-nudge {
