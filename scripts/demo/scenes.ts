@@ -847,3 +847,106 @@ scene('highlight-persistence', async ({ page, capture }) => {
   await page.waitForTimeout(400); // let the delete write flush before reuse
   await capture('highlight-deleted');
 });
+
+/** Viewport point at the middle of a word's first rendered rect. */
+function wordPoint(page: Page, pid: string, word: string): Promise<{ x: number; y: number }> {
+  return page.evaluate(
+    ([pid, word]) => {
+      const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
+      const p = shadow?.getElementById(pid);
+      if (!p) throw new Error(`no paragraph #${pid}`);
+      const flat = p.textContent ?? '';
+      const from = flat.indexOf(word);
+      if (from < 0) throw new Error(`"${word}" not in #${pid}`);
+      let acc = 0;
+      let node: Text | null = null;
+      let off = 0;
+      const walk = (n: Node): boolean => {
+        if (n.nodeType === 3) {
+          const len = (n as Text).data.length;
+          if (from < acc + len) {
+            node = n as Text;
+            off = from - acc;
+            return true;
+          }
+          acc += len;
+          return false;
+        }
+        for (const child of Array.from(n.childNodes)) {
+          if (walk(child)) return true;
+        }
+        return false;
+      };
+      walk(p);
+      if (!node) throw new Error('word offset unresolved');
+      const probe = document.createRange();
+      probe.setStart(node, off);
+      probe.setEnd(node, Math.min(off + word.length, (node as Text).data.length));
+      const rect = probe.getClientRects()[0];
+      if (!rect) throw new Error('word has no rect');
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    },
+    [pid, word] as const,
+  );
+}
+
+const dictFetches = (page: Page): Promise<number> =>
+  page.evaluate(() => (window as unknown as { __dictFetches: number }).__dictFetches);
+
+scene('dictionary', async ({ page, capture }) => {
+  // Harness hook: count artifact fetches issued by the page.
+  await page.evaluate(() => {
+    const w = window as unknown as { __dictFetches: number; fetch: typeof fetch };
+    w.__dictFetches = 0;
+    const orig = w.fetch.bind(window);
+    w.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/dict/')) w.__dictFetches += 1;
+      return orig(input, init);
+    }) as typeof fetch;
+  });
+
+  // Double-click a word (desktop trigger): the card pops with a definition.
+  const point = await wordPoint(page, 'p1', 'quick');
+  await page.mouse.dblclick(point.x, point.y);
+  await page.locator('#dict-card[data-state="hit"]').waitFor();
+  expectEq(await page.locator('#dict-headword').textContent(), 'quick', 'headword is the word');
+  const body = (await page.locator('#dict-body').textContent()) ?? '';
+  expect(body.includes('Alive'), `a real Webster definition renders (got "${body.slice(0, 40)}…")`);
+  expectEq(
+    await page.locator('#dict-wiki').getAttribute('href'),
+    'https://en.wikipedia.org/wiki/Special:Search?search=quick',
+    'the Wikipedia off-ramp targets the word',
+  );
+  expectEq(await dictFetches(page), 1, 'the first lookup fetched the artifact');
+  await capture('dictionary-card');
+
+  // Escape closes the card FIRST in the chain (before menu/panels/chrome).
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(80);
+  expect(await page.locator('#dict-card').isHidden(), 'Escape closes the dictionary card');
+  if (!(await page.locator('#selection-menu').isHidden())) {
+    await page.keyboard.press('Escape'); // the word-selection menu is next
+    await page.waitForTimeout(80);
+  }
+  expect(await page.locator('#selection-menu').isHidden(), 'the selection menu is closed too');
+
+  // Folded lookup through the menu's Look up: "jumps" resolves to "jump".
+  await selectTextIn(page, 'p1', 'jumps');
+  await page.locator('#sel-lookup').click();
+  await page.locator('#dict-card[data-state="hit"]').waitFor();
+  expectEq(
+    await page.locator('#dict-headword').textContent(),
+    'jumps → jump',
+    'a folded match shows its provenance',
+  );
+  const jumpBody = (await page.locator('#dict-body').textContent()) ?? '';
+  expect(jumpBody.includes('spring'), 'the folded headword brings its definition');
+  // LOAD-BEARING for offline: the resident map answers, no second fetch.
+  expectEq(await dictFetches(page), 1, 'a second lookup does not re-fetch the artifact');
+  await capture('dictionary-folded');
+
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(80);
+  expect(await page.locator('#dict-card').isHidden(), 'the card closes cleanly');
+  if (!(await chromeHidden(page))) await centerTap(page); // back to pure text
+});

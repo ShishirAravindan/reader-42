@@ -13,7 +13,11 @@
 //
 // Plain JS on purpose: the worker ships as-is, outside the bundle.
 
-const VERSION = 'shell-v5';
+const VERSION = 'shell-v6';
+// The 5 MB dictionary is a RUNTIME cache, deliberately not precached: it must
+// never bloat install, and it becomes offline-available after the first
+// lookup fetches it. Named separately so shell version bumps don't evict it.
+const DICT_CACHE = 'dict-v1';
 const SHELL = [
   '/',
   '/app.js',
@@ -46,7 +50,11 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+      .then((keys) =>
+        Promise.all(
+          keys.filter((k) => k !== VERSION && k !== DICT_CACHE).map((k) => caches.delete(k)),
+        ),
+      )
       .then(() => self.clients.claim()),
   );
 });
@@ -55,11 +63,26 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.origin !== location.origin) return;
   if (url.pathname.startsWith('/lib/')) return; // library bytes are the transport's business
+  if (url.pathname.startsWith('/dict/')) {
+    event.respondWith(dictCacheFirst(event.request));
+    return;
+  }
   // Hash routing means every navigation is the shell document.
   const path = event.request.mode === 'navigate' ? '/' : url.pathname;
   if (!SHELL.includes(path)) return;
   event.respondWith(fromCacheThenRefresh(path));
 });
+
+// Cache-first, stored on the first successful fetch: after that, dictionary
+// lookups work fully offline and never re-download the artifact.
+async function dictCacheFirst(request) {
+  const cache = await caches.open(DICT_CACHE);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  const res = await fetch(request);
+  if (res.ok) cache.put(request, res.clone());
+  return res;
+}
 
 async function fromCacheThenRefresh(path) {
   const cache = await caches.open(VERSION);
