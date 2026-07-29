@@ -10,6 +10,19 @@ export type TapZone = 'back' | 'chrome' | 'forward';
 /** Swipes shorter than this, or more vertical than horizontal, are not turns. */
 export const SWIPE_MIN_PX = 44;
 
+/**
+ * The bookmark corner (parity G1): a square at the top-right of the page,
+ * Kindle-sized for a thumb. It is carved OUT of the tap zones by the attach
+ * layer — zoneFor stays a pure three-zone split — and wins over the forward
+ * zone it overlaps, because a corner tap is never a page turn.
+ */
+export const CORNER_PX = 56;
+
+export function isCornerTap(x: number, y: number, width: number, size = CORNER_PX): boolean {
+  if (width <= 0) return false;
+  return x >= width - size && x <= width && y >= 0 && y <= size;
+}
+
 export function zoneFor(x: number, width: number, dir: ReadingDirection): TapZone {
   if (width <= 0) return 'chrome';
   const fraction = x / width;
@@ -51,6 +64,8 @@ export interface ReadingInputOptions {
   dir(): ReadingDirection;
   onTurn(d: TurnDirection): void;
   onChrome(): void;
+  /** Top-right corner tap: toggles the page's bookmark, chrome or not. */
+  onCorner?(): void;
   /** Gate for document-level keys (e.g. false while the reader is hidden). */
   keysEnabled?(): boolean;
 }
@@ -77,6 +92,15 @@ export function attachReadingInput(viewport: HTMLElement, opts: ReadingInputOpti
     }
     if (hasSelection(event)) return;
     const rect = viewport.getBoundingClientRect();
+    // The corner is carved out here, not inside zoneFor: the zone model stays
+    // the pure three-way split, and the corner simply wins where they overlap.
+    if (
+      opts.onCorner &&
+      isCornerTap(event.clientX - rect.left, event.clientY - rect.top, rect.width)
+    ) {
+      opts.onCorner();
+      return;
+    }
     const zone = zoneFor(event.clientX - rect.left, rect.width, opts.dir());
     if (zone === 'chrome') opts.onChrome();
     else opts.onTurn(zone);

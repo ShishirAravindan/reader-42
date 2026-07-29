@@ -7,7 +7,7 @@ import type { TocEntry } from '../epub/types.ts';
 import type { DeviceCacheTransport } from '../library/device-cache.ts';
 import { slugify } from '../library/identity.ts';
 import type { Library } from '../library/store.ts';
-import type { BookSidecar } from '../library/types.ts';
+import type { BookSidecar, Bookmark } from '../library/types.ts';
 import { ReaderController } from '../reader/controller.ts';
 import { type Dictionary, createDictionary } from '../reader/dictionary.ts';
 import { attachReadingInput } from '../reader/input.ts';
@@ -17,6 +17,7 @@ import { MAX_SAMPLE_SEC, createPace } from '../reader/pace.ts';
 import { readerSelection, wordFromSelection } from '../reader/selection.ts';
 import { createAaPanel } from './aa-panel.ts';
 import { type AnnotationsUI, createAnnotationsUI } from './annotations-ui.ts';
+import { type Ribbon, bookmarkOnPage, createRibbon, newBookmarkId } from './bookmarks.ts';
 import { createChrome } from './chrome.ts';
 import { createDictionaryCard } from './dictionary-card.ts';
 import { el } from './dom.ts';
@@ -188,6 +189,7 @@ export async function openReader(
   // see an initialized (if still null) binding, never a TDZ hole.
   let status: StatusLine | null = null;
   let annotations: AnnotationsUI | null = null;
+  let ribbon: Ribbon | null = null;
   controller = new ReaderController(
     book,
     viewport,
@@ -202,6 +204,7 @@ export async function openReader(
         // sidecar's highlights for it (stale ones silently don't render).
         annotations?.applyChapter();
         status?.refresh();
+        ribbon?.refresh();
       },
       onBoundary: (edge) => {
         if (edge === 'end') showFinish();
@@ -225,6 +228,7 @@ export async function openReader(
         pace.record(metrics.charsBefore(position.chapter) + fraction * chars, now);
         setPace(id, pace.state());
         status?.refresh();
+        ribbon?.refresh();
       },
     },
     metrics.chapterChars,
@@ -267,6 +271,43 @@ export async function openReader(
     linkFor,
   });
   disposeAnnotations = annotations.dispose;
+
+  // Bookmarks (G1/G2): the corner gesture toggles the visible page's mark and
+  // the dog-ear ribbon shows it. Everything reads the SYNCED sidecar — there
+  // is no device-local bookmark store (the salvage §7 debt this fixes).
+  const bookmarks = (): Bookmark[] => openSidecar?.bookmarks ?? [];
+  const setBookmarks = (next: Bookmark[]): void => {
+    if (!openSidecar) return;
+    openSidecar = { ...openSidecar, bookmarks: next };
+    void library.saveSidecar(openSidecar);
+  };
+  const bookmarkHere = (): Bookmark | null => {
+    const view = controller;
+    if (!view) return null;
+    return bookmarkOnPage(bookmarks(), view.currentChapter(), (b) =>
+      view.anchorInView(b.chapter, b.anchor),
+    );
+  };
+  ribbon = createRibbon(el<HTMLElement>('bookmark-ribbon'), { current: bookmarkHere });
+  const toggleBookmarkHere = (): void => {
+    const existing = bookmarkHere();
+    if (existing) {
+      setBookmarks(bookmarks().filter((b) => b.id !== existing.id));
+    } else {
+      const anchor = controller?.currentAnchor();
+      if (!anchor) return;
+      setBookmarks([
+        ...bookmarks(),
+        {
+          id: newBookmarkId(),
+          chapter: controller?.currentChapter() ?? 0,
+          anchor,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+    }
+    ribbon?.refresh();
+  };
 
   controller.open(sidecar.position);
 
@@ -335,6 +376,7 @@ export async function openReader(
     setDisplayMode(displayMode);
     labelModeToggle();
     controller?.relayout();
+    ribbon?.refresh(); // the same bookmark, judged against the new geometry
   };
 
   const toc = el<HTMLElement>('toc');
@@ -405,8 +447,10 @@ export async function openReader(
       if (d === 'forward') controller?.turnForward();
       else controller?.turnBack();
       status?.refresh(); // same-chapter turns update the strip before the debounced save
+      ribbon?.refresh(); // ...and so does the dog-ear
     },
     onChrome: () => chrome.toggle(),
+    onCorner: toggleBookmarkHere,
     // Keyboard turns pause while the Aa panel or an annotation overlay is up.
     keysEnabled: () =>
       !el<HTMLElement>('reader').hidden &&
@@ -482,6 +526,8 @@ export function closeReader(): void {
   closeAaPanel = null;
   teardownSession?.(); // flush the session before the sidecar goes away
   teardownSession = null;
+  const ribbonEl = document.getElementById('bookmark-ribbon');
+  if (ribbonEl) ribbonEl.hidden = true;
   controller?.dispose();
   controller = null;
   openSidecar = null;

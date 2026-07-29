@@ -222,17 +222,21 @@ async function statusTap(page: Page): Promise<void> {
   await page.waitForTimeout(60);
 }
 
+interface SyncedSidecar {
+  progress: number;
+  state: string;
+  position?: { chapter: number; updatedAt: string };
+  bookmarks?: { id: string; chapter: number; anchor: { path: number[]; ratio: number } }[];
+}
+
 /** The synced sidecar, read back through the dev lib endpoint (files are the contract). */
-async function fetchSidecar(base: string): Promise<{ progress: number; state: string }> {
+async function fetchSidecar(base: string): Promise<SyncedSidecar> {
   const index = (await (await fetch(`${base}/lib/library.json`)).json()) as {
     books: { dir: string }[];
   };
   const dir = index.books[0]?.dir;
   if (!dir) throw new Error('no book in the dev library');
-  return (await (await fetch(`${base}/lib/${dir}/book.json`)).json()) as {
-    progress: number;
-    state: string;
-  };
+  return (await (await fetch(`${base}/lib/${dir}/book.json`)).json()) as SyncedSidecar;
 }
 
 scene('chrome-rules', async ({ page, capture }) => {
@@ -1153,4 +1157,74 @@ scene('notebook-and-links', async ({ page, capture }) => {
   await page.waitForTimeout(150);
   expect((await markState(page, orangeId)).present, 'the deep link restores the highlight’s mark');
   await capture('notebook-deep-link');
+});
+
+// --- Epic 5: navigation and chrome ---
+
+/** Tap the top-right bookmark corner of the page (parity G1). */
+async function cornerTap(page: Page): Promise<void> {
+  const point = await page.evaluate(() => {
+    const r = (document.getElementById('viewport') as HTMLElement).getBoundingClientRect();
+    return { x: r.right - 20, y: r.top + 20 };
+  });
+  await page.mouse.click(point.x, point.y);
+  await page.waitForTimeout(120);
+}
+
+function ribbonShown(page: Page): Promise<boolean> {
+  return page.evaluate(() => !(document.getElementById('bookmark-ribbon') as HTMLElement).hidden);
+}
+
+scene('bookmarks', async ({ page, base, capture }) => {
+  // Off the previous scene's deep link and back onto the plain book route, so
+  // a reload later in this scene resumes rather than re-following the link.
+  await page.evaluate(() => {
+    location.hash = location.hash.replace(/\/hl\/[0-9a-f]+$/, '');
+  });
+  await page.waitForTimeout(300);
+  await tocNav(page, 'Two: The Long Middle');
+  await centerTap(page); // tocNav leaves chrome open; the corner lives on the page
+  expect(!(await ribbonShown(page)), 'no dog-ear on an unbookmarked page');
+
+  // The corner gesture: a tap where a forward turn would otherwise happen.
+  const before = await metrics(page);
+  await cornerTap(page);
+  expect(await ribbonShown(page), 'a corner tap raises the dog-ear ribbon');
+  const after = await metrics(page);
+  expectEq(after.scrollLeft, before.scrollLeft, 'the corner tap never turns the page');
+
+  await zoneClick(page, 'forward');
+  expect(!(await ribbonShown(page)), 'turning away from the page hides the ribbon');
+  await zoneClick(page, 'back');
+  expect(await ribbonShown(page), 'turning back to the bookmarked page brings it back');
+  await capture('bookmark-ribbon');
+
+  // Tapping the corner again removes it (Kindle's toggle).
+  await cornerTap(page);
+  expect(!(await ribbonShown(page)), 'a second corner tap removes the bookmark');
+  await cornerTap(page); // and back on, to keep for the Go To panel
+
+  // A second bookmark, two pages on.
+  await zoneClick(page, 'forward');
+  await zoneClick(page, 'forward');
+  await cornerTap(page);
+  expect(await ribbonShown(page), 'a second page carries its own bookmark');
+
+  // LOAD-BEARING: bookmarks are place, so they live in the SYNCED sidecar.
+  await page.waitForTimeout(1200); // bookmark writes are immediate; the position save is debounced
+  const sidecar = await fetchSidecar(base);
+  expectEq(sidecar.bookmarks?.length, 2, 'both bookmarks reached the synced sidecar');
+  expect(
+    sidecar.bookmarks?.every((b) => b.chapter === 1 && Array.isArray(b.anchor.path)),
+    'each bookmark carries its chapter and a structural anchor',
+  );
+
+  // Reload: the dog-ear comes back with the page, from the sidecar.
+  await page.reload();
+  await page.getByRole('heading', { name: 'Two: The Long Middle' }).waitFor();
+  await page.waitForTimeout(250);
+  expect(await ribbonShown(page), 'the ribbon restores after reload on the same page');
+  await zoneClick(page, 'back');
+  expect(!(await ribbonShown(page)), 'and is absent on the page before it');
+  await capture('bookmark-restored');
 });

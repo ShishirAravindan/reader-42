@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import { SWIPE_MIN_PX, attachReadingInput, swipeTurn, turnForKey, zoneFor } from './input.ts';
+import {
+  CORNER_PX,
+  SWIPE_MIN_PX,
+  attachReadingInput,
+  isCornerTap,
+  swipeTurn,
+  turnForKey,
+  zoneFor,
+} from './input.ts';
 
 describe('zoneFor', () => {
   test('kindle zone geometry: left third back, right third forward, center chrome', () => {
@@ -20,6 +28,31 @@ describe('zoneFor', () => {
 
   test('degenerate width is chrome, never an accidental turn', () => {
     expect(zoneFor(10, 0, 'ltr')).toBe('chrome');
+  });
+});
+
+describe('isCornerTap', () => {
+  test('a square at the top-right, inclusive of both edges', () => {
+    expect(isCornerTap(999, 0, 1000)).toBe(true);
+    expect(isCornerTap(1000 - CORNER_PX, CORNER_PX, 1000)).toBe(true);
+    expect(isCornerTap(970, 20, 1000)).toBe(true);
+  });
+
+  test('below the corner or left of it is ordinary page', () => {
+    expect(isCornerTap(970, CORNER_PX + 1, 1000)).toBe(false);
+    expect(isCornerTap(1000 - CORNER_PX - 1, 10, 1000)).toBe(false);
+    expect(isCornerTap(500, 10, 1000)).toBe(false);
+  });
+
+  test('the whole corner sits inside the forward zone it overrides', () => {
+    // The carve-out is only meaningful because the two overlap: every corner
+    // point would otherwise be a forward turn.
+    expect(zoneFor(1000 - CORNER_PX, 1000, 'ltr')).toBe('forward');
+    expect(zoneFor(999, 1000, 'ltr')).toBe('forward');
+  });
+
+  test('degenerate width never claims a corner', () => {
+    expect(isCornerTap(0, 0, 0)).toBe(false);
   });
 });
 
@@ -63,7 +96,7 @@ describe('swipeTurn', () => {
 });
 
 describe('attachReadingInput', () => {
-  function harness(dir: 'ltr' | 'rtl' = 'ltr', keysEnabled = true) {
+  function harness(dir: 'ltr' | 'rtl' = 'ltr', keysEnabled = true, corner = false) {
     const viewport = document.createElement('div');
     document.body.appendChild(viewport);
     // jsdom does no layout; give the viewport a real rect for zone math.
@@ -74,10 +107,27 @@ describe('attachReadingInput', () => {
       dir: () => dir,
       onTurn: (d) => events.push(d),
       onChrome: () => events.push('chrome'),
+      ...(corner ? { onCorner: (): number => events.push('corner') } : {}),
       keysEnabled: () => keysEnabled,
     });
     return { viewport, events, detach };
   }
+
+  test('the top-right corner wins over the forward zone underneath it', () => {
+    const { viewport, events, detach } = harness('ltr', true, true);
+    viewport.dispatchEvent(new MouseEvent('click', { clientX: 880, clientY: 10, bubbles: true }));
+    // Same x, below the corner square: an ordinary forward turn.
+    viewport.dispatchEvent(new MouseEvent('click', { clientX: 880, clientY: 300, bubbles: true }));
+    expect(events).toEqual(['corner', 'forward']);
+    detach();
+  });
+
+  test('without a corner handler the zone model is untouched', () => {
+    const { viewport, events, detach } = harness('ltr', true, false);
+    viewport.dispatchEvent(new MouseEvent('click', { clientX: 880, clientY: 10, bubbles: true }));
+    expect(events).toEqual(['forward']);
+    detach();
+  });
 
   test('clicks map to zones', () => {
     const { viewport, events, detach } = harness();

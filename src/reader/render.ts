@@ -60,6 +60,10 @@ export interface RenderedChapter {
   /** Structural locator for the current viewport start (top or left edge). */
   getAnchor(): PositionAnchor | null;
   scrollToAnchor(anchor: PositionAnchor): void;
+  /** True when an anchor lands on the visible page (paged) / viewport (scroll). */
+  anchorInView(anchor: PositionAnchor): boolean;
+  /** Snap to a fraction of the chapter, through the same page-snap as anchors. */
+  scrollToFraction(fraction: number): void;
   /** Re-apply mode CSS and restore the anchor; for mode switches and resize. */
   relayout(): void;
   /** One page forward/back (paged) or most of a screen (scroll). False at the chapter edge. */
@@ -241,6 +245,27 @@ export function renderChapter(
     getAnchor: (): PositionAnchor | null => anchorFor(wrapper, mount, axis()),
     scrollToAnchor(anchor: PositionAnchor): void {
       restoreAnchor(anchor);
+    },
+    // "Is this bookmark on the page I am looking at?" — resolved through the
+    // same axis-aware machinery as a restore, so the answer matches what the
+    // reader sees in either display mode.
+    anchorInView(anchor: PositionAnchor): boolean {
+      if (applied === 'paged') {
+        const target = anchorTarget(wrapper, mount, anchor, 'h') ?? 0;
+        return pageStartFor(target) === pageStartFor(mount.scrollLeft);
+      }
+      const target = anchorTarget(wrapper, mount, anchor, 'v') ?? 0;
+      return target >= mount.scrollTop && target < mount.scrollTop + mount.clientHeight;
+    },
+    scrollToFraction(fraction: number): void {
+      const clamped = Math.min(Math.max(fraction, 0), 1);
+      if (applied === 'paged') {
+        mount.scrollTop = 0;
+        mount.scrollLeft = pageStartFor(clamped * (mount.scrollWidth - mount.clientWidth));
+      } else {
+        mount.scrollLeft = 0;
+        mount.scrollTop = clamped * Math.max(mount.scrollHeight - mount.clientHeight, 0);
+      }
     },
     relayout(): void {
       // Never resolve geometry against a hidden viewport (salvage §2); the
