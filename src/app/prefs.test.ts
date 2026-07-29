@@ -1,10 +1,22 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import {
+  getAlign,
+  getBoldness,
   getDisplayMode,
+  getFontFamily,
+  getFontSizeIndex,
+  getLeading,
+  getMeasureRem,
   getPace,
   getStatusMode,
   getTheme,
+  setAlign,
+  setBoldness,
   setDisplayMode,
+  setFontFamily,
+  setFontSizeIndex,
+  setLeading,
+  setMeasureRem,
   setPace,
   setStatusMode,
   setTheme,
@@ -55,6 +67,61 @@ describe('status mode pref', () => {
   test('bad persisted status mode degrades to the default', () => {
     localStorage.setItem(KEY, JSON.stringify({ statusMode: 'sideways' }));
     expect(getStatusMode()).toBe('time-left-chapter');
+  });
+});
+
+describe('typography prefs (parity C1-C6, device-local taste)', () => {
+  beforeEach(() => localStorage.clear());
+
+  test('defaults: literata, size index 2, 400, 1.65, 38rem, left', () => {
+    expect(getFontFamily()).toBe('literata');
+    expect(getFontSizeIndex()).toBe(2);
+    expect(getBoldness()).toBe(400);
+    expect(getLeading()).toBe(1.65);
+    expect(getMeasureRem()).toBe(38);
+    expect(getAlign()).toBe('left');
+  });
+
+  test('round-trips every field', () => {
+    setFontFamily('opendyslexic');
+    setFontSizeIndex(7);
+    setBoldness(575);
+    setLeading(1.45);
+    setMeasureRem(44);
+    setAlign('justify');
+    expect(getFontFamily()).toBe('opendyslexic');
+    expect(getFontSizeIndex()).toBe(7);
+    expect(getBoldness()).toBe(575);
+    expect(getLeading()).toBe(1.45);
+    expect(getMeasureRem()).toBe(44);
+    expect(getAlign()).toBe('justify');
+  });
+
+  test('size index clamps into the step range, non-integers degrade', () => {
+    localStorage.setItem(KEY, JSON.stringify({ fontSize: 99 }));
+    expect(getFontSizeIndex()).toBe(7);
+    localStorage.setItem(KEY, JSON.stringify({ fontSize: -3 }));
+    expect(getFontSizeIndex()).toBe(0);
+    localStorage.setItem(KEY, JSON.stringify({ fontSize: 1.5 }));
+    expect(getFontSizeIndex()).toBe(2);
+  });
+
+  test('non-member persisted values degrade to defaults, never throw', () => {
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({
+        fontFamily: 'papyrus',
+        boldness: 401,
+        leading: 2.4,
+        measureRem: 10,
+        align: 'center',
+      }),
+    );
+    expect(getFontFamily()).toBe('literata');
+    expect(getBoldness()).toBe(400);
+    expect(getLeading()).toBe(1.65);
+    expect(getMeasureRem()).toBe(38);
+    expect(getAlign()).toBe('left');
   });
 });
 

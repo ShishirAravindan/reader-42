@@ -16,6 +16,7 @@ import { createChrome } from './chrome.ts';
 import { el } from './dom.ts';
 import {
   getDisplayMode,
+  getMeasureRem,
   getPace,
   getStatusMode,
   setDisplayMode,
@@ -23,6 +24,7 @@ import {
   setStatusMode,
 } from './prefs.ts';
 import { type StatusLine, createStatusLine, pageAt } from './status.ts';
+import { currentTypography } from './typography.ts';
 
 export interface ReaderDeps {
   library: Library;
@@ -155,7 +157,9 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   controller = new ReaderController(
     book,
     viewport,
-    { mode: () => displayMode },
+    // Taste read at call time (C8): the Aa panel writes a pref, then calls
+    // controller.relayout(), and the renderer re-reads these accessors.
+    { mode: () => displayMode, measureRem: getMeasureRem, typography: currentTypography },
     {
       onChapter: (index) => {
         el<HTMLElement>('reader-chapter-label').textContent =
@@ -244,7 +248,7 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
     displayMode = displayMode === 'paged' ? 'scroll' : 'paged';
     setDisplayMode(displayMode);
     labelModeToggle();
-    controller?.setMode();
+    controller?.relayout();
   };
 
   const toc = el<HTMLElement>('toc');

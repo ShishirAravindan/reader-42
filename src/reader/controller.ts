@@ -124,8 +124,13 @@ export class ReaderController {
     this.emitPosition();
   }
 
-  /** Re-derive layout after the display mode changed (mode lives in app prefs). */
-  setMode(): void {
+  /**
+   * Re-derive layout and re-emit the position after anything the ReaderView
+   * feeds the renderer changed: display mode, typography, measure. The
+   * renderer captures the anchor against the old layout, applies the new
+   * CSS, and restores — the reading position survives every change.
+   */
+  relayout(): void {
     this.rendered?.relayout();
     this.emitPosition();
   }
