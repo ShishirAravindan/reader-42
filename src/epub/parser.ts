@@ -11,7 +11,7 @@
 // because chapters and nav docs are XHTML, where getElementsByTagName misses.
 
 import { resolveAgainst, splitFragment } from './path.ts';
-import type { BookMetadata, Chapter, TocEntry } from './types.ts';
+import type { BookMetadata, Chapter, PageTarget, TocEntry } from './types.ts';
 
 const NS_CONTAINER = 'urn:oasis:names:tc:opendocument:xmlns:container';
 const NS_OPF = 'http://www.idpf.org/2007/opf';
@@ -108,22 +108,52 @@ export function buildChapters(opf: OpfData): Chapter[] {
 /** Parse the EPUB3 nav doc: the first `<nav epub:type="toc">`, or any nav as fallback. */
 export function parseNav(xml: string, navPath: string): TocEntry[] {
   const doc = parseXml(xml);
+  const target = findNavByType(doc, 'toc') ?? doc.getElementsByTagNameNS(NS_XHTML, 'nav').item(0);
+  if (!target) return [];
+  const ol = firstDescendantNS(target, NS_XHTML, 'ol');
+  return ol ? readOl(ol, navPath) : [];
+}
+
+/**
+ * Print-edition page markers from `<nav epub:type="page-list">` (parity B2).
+ * No fallback nav here: unlike the toc, a page-list is meaningless unless the
+ * publisher declared it. Empty when absent. Nested lists are flattened; the
+ * page-list is flat by spec, but wild files nest anyway.
+ */
+export function parsePageList(xml: string, navPath: string): PageTarget[] {
+  const doc = parseXml(xml);
+  const target = findNavByType(doc, 'page-list');
+  if (!target) return [];
+  const ol = firstDescendantNS(target, NS_XHTML, 'ol');
+  return ol ? readPageOl(ol, navPath) : [];
+}
+
+function readPageOl(ol: Element, navPath: string): PageTarget[] {
+  const out: PageTarget[] = [];
+  for (const li of childrenNS(ol, NS_XHTML, 'li')) {
+    const a = firstDescendantNS(li, NS_XHTML, 'a');
+    const href = a?.getAttribute('href') ?? '';
+    const label = (a?.textContent ?? '').trim();
+    if (a && label.length > 0 && href.length > 0) {
+      const split = splitFragment(decodeURI(href));
+      out.push({ label, path: resolveAgainst(navPath, split.path), fragment: split.fragment });
+    }
+    const childOl = firstDescendantNS(li, NS_XHTML, 'ol');
+    if (childOl) out.push(...readPageOl(childOl, navPath));
+  }
+  return out;
+}
+
+function findNavByType(doc: Document, type: string): Element | null {
   const navs = doc.getElementsByTagNameNS(NS_XHTML, 'nav');
-  let target: Element | null = null;
   for (let i = 0; i < navs.length; i++) {
     const nav = navs.item(i);
     if (!nav) continue;
     // epub:type lives in the ops namespace; some files leave it unprefixed.
     const epubType = nav.getAttributeNS(NS_EPUB_OPS, 'type') ?? nav.getAttribute('epub:type');
-    if (epubType === 'toc') {
-      target = nav;
-      break;
-    }
+    if (epubType === type) return nav;
   }
-  if (!target) target = navs.item(0);
-  if (!target) return [];
-  const ol = firstDescendantNS(target, NS_XHTML, 'ol');
-  return ol ? readOl(ol, navPath) : [];
+  return null;
 }
 
 function readOl(ol: Element, navPath: string): TocEntry[] {

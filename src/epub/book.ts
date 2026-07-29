@@ -5,14 +5,23 @@
 // are small, and a sync `resolveResource` keeps the renderer free of async
 // waterfalls while it rewrites URLs.
 
-import { buildChapters, parseContainer, parseNav, parseNcx, parseOpf } from './parser.ts';
-import type { BookMetadata, Chapter, Resource, TocEntry } from './types.ts';
+import {
+  buildChapters,
+  parseContainer,
+  parseNav,
+  parseNcx,
+  parseOpf,
+  parsePageList,
+} from './parser.ts';
+import type { BookMetadata, Chapter, PageTarget, Resource, TocEntry } from './types.ts';
 import { Zip } from './zip.ts';
 
 export class Book {
   readonly metadata: BookMetadata;
   readonly chapters: Chapter[];
   readonly toc: TocEntry[];
+  /** Print-edition page markers (parity B2); empty when the book has none. */
+  readonly pageList: PageTarget[];
   /** Spine page-progression-direction; drives tap-zone/swipe mirroring. */
   readonly direction: 'ltr' | 'rtl';
   private readonly resources: Map<string, Resource>;
@@ -21,12 +30,14 @@ export class Book {
     metadata: BookMetadata,
     chapters: Chapter[],
     toc: TocEntry[],
+    pageList: PageTarget[],
     direction: 'ltr' | 'rtl',
     resources: Map<string, Resource>,
   ) {
     this.metadata = metadata;
     this.chapters = chapters;
     this.toc = toc;
+    this.pageList = pageList;
     this.direction = direction;
     this.resources = resources;
   }
@@ -51,9 +62,11 @@ export class Book {
     }
 
     let toc: TocEntry[] = [];
+    let pageList: PageTarget[] = [];
     const navItem = opf.navId ? opf.manifest.get(opf.navId) : undefined;
     if (navItem && resources.has(navItem.path)) {
       toc = parseNav(text(resources, navItem.path), navItem.path);
+      pageList = parsePageList(text(resources, navItem.path), navItem.path);
     } else {
       const ncxItem = opf.ncxId ? opf.manifest.get(opf.ncxId) : undefined;
       if (ncxItem && resources.has(ncxItem.path)) {
@@ -61,7 +74,7 @@ export class Book {
       }
     }
 
-    return new Book(opf.metadata, chapters, toc, opf.pageProgression ?? 'ltr', resources);
+    return new Book(opf.metadata, chapters, toc, pageList, opf.pageProgression ?? 'ltr', resources);
   }
 
   resolveResource(path: string): Resource | null {
