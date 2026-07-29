@@ -9,6 +9,7 @@
 // nothing here is called per position update except the pure arithmetic.
 
 import type { Book } from '../epub/book.ts';
+import type { PageTarget } from '../epub/types.ts';
 import { findBody, parseChapterDoc } from './render.ts';
 
 /** One location = this many characters of flattened chapter text. */
@@ -65,4 +66,78 @@ function flattenedLength(html: string): number {
 /** The canonical flattening: collapse whitespace runs to single spaces, trim. */
 export function flattenText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
+}
+
+// --- print page anchors (parity B2) ---
+
+/** A print page's start as a global character offset; the display substrate. */
+export interface PageAnchor {
+  label: string;
+  globalChar: number;
+}
+
+/**
+ * Map the book's page-list targets onto the location coordinate system:
+ * each print page starts at the flattened-character offset of its fragment
+ * element. Layout-free like everything here, computed once per open, and
+ * clamped monotonic so a sloppy page-list can't make page numbers jump
+ * backwards. Targets whose path or fragment doesn't resolve are dropped.
+ */
+export function pageAnchors(book: Book, metrics: BookMetrics): PageAnchor[] {
+  if (book.pageList.length === 0) return [];
+  const bodies = new Map<number, Element>();
+  const bodyFor = (chapter: number): Element | null => {
+    const cached = bodies.get(chapter);
+    if (cached) return cached;
+    const path = book.chapters[chapter]?.path;
+    const resource = path ? book.resolveResource(path) : null;
+    if (!resource) return null;
+    const body = findBody(parseChapterDoc(new TextDecoder().decode(resource.bytes)));
+    bodies.set(chapter, body);
+    return body;
+  };
+
+  const anchors: PageAnchor[] = [];
+  let floor = 0; // monotonicity clamp
+  for (const target of book.pageList) {
+    const chapter = book.chapterIndexByPath(target.path);
+    if (chapter < 0) continue;
+    let offset = 0;
+    if (target.fragment) {
+      const body = bodyFor(chapter);
+      const before = body ? charsBeforeId(body, target.fragment) : null;
+      if (before === null) continue;
+      offset = Math.min(before, metrics.chapterChars[chapter] ?? 0);
+    }
+    floor = Math.max(floor, metrics.charsBefore(chapter) + offset);
+    anchors.push({ label: target.label, globalChar: floor });
+  }
+  return anchors;
+}
+
+/**
+ * Flattened-character offset of the element with `id` inside `root`, i.e.
+ * the length of all flattened text strictly before it in document order.
+ * Null when the id doesn't resolve.
+ */
+export function charsBeforeId(root: Element, id: string): number | null {
+  let raw = '';
+  let found = false;
+  const walk = (node: Node): void => {
+    if (found) return;
+    if (node.nodeType === 1 /* element */ && (node as Element).getAttribute('id') === id) {
+      found = true;
+      return;
+    }
+    if (node.nodeType === 3 /* text */) {
+      raw += node.nodeValue ?? '';
+      return;
+    }
+    for (const child of Array.from(node.childNodes)) {
+      walk(child);
+      if (found) return;
+    }
+  };
+  walk(root);
+  return found ? flattenText(raw).length : null;
 }

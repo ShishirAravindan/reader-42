@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { buildFixtureEpub, buildZip } from '../../test/fixture-epub.ts';
 import { Book } from '../epub/book.ts';
-import { LOCATION_SPAN, bookMetrics, flattenText } from './metrics.ts';
+import { LOCATION_SPAN, bookMetrics, charsBeforeId, flattenText, pageAnchors } from './metrics.ts';
 
 /** A minimal epub whose chapter texts are exactly known. */
 function knownEpub(bodies: string[]): Uint8Array {
@@ -98,5 +98,43 @@ describe('bookMetrics', () => {
     expect(m.totalChars).toBe(0);
     expect(m.totalLocations).toBe(1);
     expect(m.locationOf(0, 0.5)).toBe(1);
+  });
+});
+
+describe('charsBeforeId', () => {
+  test('counts flattened chars strictly before the element, in document order', () => {
+    const doc = new DOMParser().parseFromString(
+      '<body><h1 id="top">Title</h1><p>One  two</p><p id="mark">three</p></body>',
+      'text/html',
+    );
+    const body = doc.body;
+    expect(charsBeforeId(body, 'top')).toBe(0);
+    // textContent semantics: adjacent blocks concatenate with no separator,
+    // matching how the chapter totals are counted.
+    expect(charsBeforeId(body, 'mark')).toBe('TitleOne two'.length);
+    expect(charsBeforeId(body, 'ghost')).toBeNull();
+  });
+});
+
+describe('pageAnchors', () => {
+  test('maps the fixture page-list to monotonic global char offsets', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const m = bookMetrics(book);
+    const anchors = pageAnchors(book, m);
+    expect(anchors.map((a) => a.label)).toEqual(['1', '2', '3', '4', '5', '6']);
+    for (let i = 1; i < anchors.length; i++) {
+      const prev = anchors[i - 1]?.globalChar ?? 0;
+      const cur = anchors[i]?.globalChar ?? 0;
+      expect(cur).toBeGreaterThan(prev);
+    }
+    // Page 1 starts at the very beginning; page 6 inside the last chapter.
+    expect(anchors[0]?.globalChar).toBe(0);
+    expect(anchors[5]?.globalChar).toBeGreaterThanOrEqual(m.charsBefore(2));
+    expect(anchors[5]?.globalChar).toBeLessThanOrEqual(m.totalChars);
+  });
+
+  test('a book without a page-list yields no anchors', async () => {
+    const book = await Book.open(knownEpub(['<p>text</p>']));
+    expect(pageAnchors(book, bookMetrics(book))).toEqual([]);
   });
 });

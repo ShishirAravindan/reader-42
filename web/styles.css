@@ -164,6 +164,49 @@ button:hover {
   text-overflow: ellipsis;
   min-width: 0;
 }
+
+/* Always-visible reading status (parity B3): a slim strip over the page
+   bottom, independent of the chrome bars. The strip itself lets taps pass
+   through to the page; only the small cycle target is interactive. Hidden
+   while chrome is open — the bottom bar takes that space. */
+#status-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  pointer-events: none;
+  padding: 0.15rem calc(1rem + env(safe-area-inset-right))
+    calc(0.35rem + env(safe-area-inset-bottom)) calc(1rem + env(safe-area-inset-left));
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+#status-cycle {
+  pointer-events: auto;
+  border: none;
+  background: none;
+  padding: 0.15rem 0;
+  min-width: 3rem;
+  min-height: 1.2rem;
+  text-align: left;
+  color: inherit;
+  font-size: inherit;
+}
+#status-cycle:hover {
+  border: none;
+  color: var(--fg);
+}
+/* Off: the strip disappears, but the invisible hit target still cycles back on. */
+#status-line.status-off #status-cycle {
+  color: transparent;
+}
+#reader:not(.chrome-hidden) #status-line {
+  visibility: hidden;
+}
 #reader-chapter-label,
 #progress-label {
   font-size: 0.85rem;

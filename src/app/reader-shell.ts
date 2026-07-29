@@ -9,12 +9,20 @@ import type { Library } from '../library/store.ts';
 import type { BookSidecar } from '../library/types.ts';
 import { ReaderController } from '../reader/controller.ts';
 import { attachReadingInput } from '../reader/input.ts';
-import { bookMetrics } from '../reader/metrics.ts';
+import { bookMetrics, pageAnchors } from '../reader/metrics.ts';
 import type { DisplayMode } from '../reader/mode.ts';
 import { MAX_SAMPLE_SEC, createPace } from '../reader/pace.ts';
 import { createChrome } from './chrome.ts';
 import { el } from './dom.ts';
-import { getDisplayMode, getPace, setDisplayMode, setPace } from './prefs.ts';
+import {
+  getDisplayMode,
+  getPace,
+  getStatusMode,
+  setDisplayMode,
+  setPace,
+  setStatusMode,
+} from './prefs.ts';
+import { type StatusLine, createStatusLine, pageAt } from './status.ts';
 
 export interface ReaderDeps {
   library: Library;
@@ -111,6 +119,9 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   displayMode = getDisplayMode();
 
   const viewport = el<HTMLElement>('viewport');
+  // Declared before the controller: its hooks fire during open(), and must
+  // see an initialized (if still null) binding, never a TDZ hole.
+  let status: StatusLine | null = null;
   controller = new ReaderController(
     book,
     viewport,
@@ -119,6 +130,7 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
       onChapter: (index) => {
         el<HTMLElement>('reader-chapter-label').textContent =
           `${index + 1} of ${book.chapters.length}`;
+        status?.refresh();
       },
       onPosition: ({ position, progress }) => {
         if (!openSidecar) return;
@@ -130,7 +142,6 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
             ? { state: 'reading' as const, stateChangedAt: position.updatedAt }
             : {}),
         };
-        el<HTMLElement>('progress-label').textContent = `${Math.round(progress * 100)}%`;
         void library.saveSidecar(openSidecar);
         // Pace sample: the position as a global character offset.
         const now = Date.now();
@@ -139,12 +150,53 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
         const fraction = controller?.currentFraction() ?? 0;
         pace.record(metrics.charsBefore(position.chapter) + fraction * chars, now);
         setPace(id, pace.state());
+        status?.refresh();
       },
     },
     metrics.chapterChars,
   );
   controller.open(sidecar.position);
-  el<HTMLElement>('progress-label').textContent = `${Math.round(sidecar.progress * 100)}%`;
+
+  // The status line (B3): live values read straight off the controller and
+  // metrics, so it renders correctly immediately on open — no waiting for
+  // the first debounced position save.
+  const anchors = pageAnchors(book, metrics);
+  const currentChars = (): number => {
+    const chapter = controller?.currentChapter() ?? 0;
+    const chars = metrics.chapterChars[chapter] ?? 0;
+    return metrics.charsBefore(chapter) + (controller?.currentFraction() ?? 0) * chars;
+  };
+  status = createStatusLine(
+    el<HTMLElement>('status-line'),
+    el<HTMLButtonElement>('status-cycle'),
+    el<HTMLElement>('status-percent'),
+    {
+      progress: () => controller?.progress() ?? 0,
+      location: () => {
+        const chapter = controller?.currentChapter() ?? 0;
+        // The last page of the book is the last location, even when a short
+        // final chapter reports fraction 0 for its single page (B6).
+        const atBookEnd = (controller?.progress() ?? 0) >= 1;
+        return {
+          loc: atBookEnd
+            ? metrics.totalLocations
+            : metrics.locationOf(chapter, controller?.currentFraction() ?? 0),
+          total: metrics.totalLocations,
+        };
+      },
+      page: () => pageAt(anchors, currentChars()),
+      minutesLeft: (scope) => {
+        const chapter = controller?.currentChapter() ?? 0;
+        const remaining =
+          scope === 'chapter'
+            ? (1 - (controller?.currentFraction() ?? 0)) * (metrics.chapterChars[chapter] ?? 0)
+            : metrics.totalChars - currentChars();
+        return pace.minutesFor(remaining);
+      },
+    },
+    getStatusMode(),
+    setStatusMode,
+  );
 
   el<HTMLButtonElement>('back-to-shelf').onclick = () => {
     location.hash = '';
@@ -176,6 +228,7 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
       chrome.hide();
       if (d === 'forward') controller?.turnForward();
       else controller?.turnBack();
+      status?.refresh(); // same-chapter turns update the strip before the debounced save
     },
     onChrome: () => chrome.toggle(),
     keysEnabled: () => !el<HTMLElement>('reader').hidden,
