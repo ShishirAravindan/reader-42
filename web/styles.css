@@ -80,6 +80,10 @@
   --hover: rgba(36, 33, 27, 0.06);
   --scrim: rgba(36, 33, 27, 0.16);
   --img-dim: none;
+  --hl-yellow: #f2dd80;
+  --hl-pink: #f4bccb;
+  --hl-blue: #b1d4f2;
+  --hl-orange: #f5c491;
 }
 [data-theme="white"] {
   --bg: #ffffff;
@@ -90,6 +94,10 @@
   --hover: rgba(0, 0, 0, 0.05);
   --scrim: rgba(0, 0, 0, 0.14);
   --img-dim: none;
+  --hl-yellow: #f6e388;
+  --hl-pink: #f8c5d3;
+  --hl-blue: #b8daf8;
+  --hl-orange: #f9cb97;
 }
 [data-theme="sepia"] {
   --bg: #f3e7d0;
@@ -100,6 +108,10 @@
   --hover: rgba(63, 50, 34, 0.07);
   --scrim: rgba(63, 50, 34, 0.18);
   --img-dim: none;
+  --hl-yellow: #ecd47c;
+  --hl-pink: #ecb6bd;
+  --hl-blue: #b3cde2;
+  --hl-orange: #eebe85;
 }
 [data-theme="dark"] {
   --bg: #121212;
@@ -111,6 +123,11 @@
   --scrim: rgba(0, 0, 0, 0.5);
   /* Kindle dims images in dark mode rather than inverting them. */
   --img-dim: brightness(0.87);
+  /* Dimmed tints: backgrounds the light text stays readable on. */
+  --hl-yellow: #55491b;
+  --hl-pink: #5c2f3d;
+  --hl-blue: #23405e;
+  --hl-orange: #5c3d1e;
 }
 
 * {
