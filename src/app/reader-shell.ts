@@ -8,13 +8,16 @@ import type { DeviceCacheTransport } from '../library/device-cache.ts';
 import type { Library } from '../library/store.ts';
 import type { BookSidecar } from '../library/types.ts';
 import { ReaderController } from '../reader/controller.ts';
+import { type Dictionary, createDictionary } from '../reader/dictionary.ts';
 import { attachReadingInput } from '../reader/input.ts';
 import { bookMetrics, pageAnchors } from '../reader/metrics.ts';
 import type { DisplayMode } from '../reader/mode.ts';
 import { MAX_SAMPLE_SEC, createPace } from '../reader/pace.ts';
+import { readerSelection, wordFromSelection } from '../reader/selection.ts';
 import { createAaPanel } from './aa-panel.ts';
 import { type AnnotationsUI, createAnnotationsUI } from './annotations-ui.ts';
 import { createChrome } from './chrome.ts';
+import { createDictionaryCard } from './dictionary-card.ts';
 import { el } from './dom.ts';
 import {
   getDisplayMode,
@@ -41,6 +44,21 @@ let detachInput: (() => void) | null = null;
 let detachEscape: (() => void) | null = null;
 /** Tears down the annotation overlays (menu, note editor) and their listeners. */
 let disposeAnnotations: (() => void) | null = null;
+/** Closes the dictionary card and detaches its outside-click listener. */
+let disposeDictCard: (() => void) | null = null;
+
+// One dictionary for the app's lifetime: the 5 MB artifact is fetched on the
+// FIRST lookup only (never at book open) and the parsed map stays resident,
+// so later lookups — in this book or the next — resolve instantly, offline.
+let dictionary: Dictionary | null = null;
+function appDictionary(): Dictionary {
+  dictionary ??= createDictionary(async () => {
+    const res = await fetch('/dict/en-dict.json.gz');
+    if (!res.ok) throw new Error(`dictionary fetch failed: ${res.status}`);
+    return new Uint8Array(await res.arrayBuffer());
+  });
+  return dictionary;
+}
 /** Closes the Aa panel (detaching its outside-click listener) on teardown. */
 let closeAaPanel: (() => void) | null = null;
 /** Flushes the reading-session clock and detaches its listeners. */
@@ -203,6 +221,20 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
     metrics.chapterChars,
   );
 
+  // The dictionary card (E1): opened by double-clicking a word (the native
+  // long-press word selection routes through the same selection path on
+  // touch) and by the selection menu's Look up.
+  const dictCard = createDictionaryCard(appDictionary(), {
+    passThrough: () => [el<HTMLElement>('selection-menu')],
+  });
+  disposeDictCard = dictCard.dispose;
+  viewport.ondblclick = (): void => {
+    const view = controller?.chapterView();
+    const range = view ? readerSelection(view.shadow) : null;
+    const word = range ? wordFromSelection(range) : null;
+    if (word) dictCard.show(word);
+  };
+
   // The annotation layer (E2, F1–F3): selection menu, notes, mark overlays.
   // Persistence writes the whole sidecar through the same save path as
   // position updates; no second storage route.
@@ -217,8 +249,7 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
       openSidecar = { ...openSidecar, highlights: next };
       void library.saveSidecar(openSidecar);
     },
-    // The offline dictionary card (E1) lands with the dictionary module.
-    lookup: () => {},
+    lookup: (text) => dictCard.show(text),
     linkFor: (hid) => `${location.origin}${location.pathname}#/book/${id}/hl/${hid}`,
   });
   disposeAnnotations = annotations.dispose;
@@ -314,7 +345,10 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
     onChrome: () => chrome.toggle(),
     // Keyboard turns pause while the Aa panel or an annotation overlay is up.
     keysEnabled: () =>
-      !el<HTMLElement>('reader').hidden && !aaPanel.isOpen() && !(annotations?.isOpen() ?? false),
+      !el<HTMLElement>('reader').hidden &&
+      !aaPanel.isOpen() &&
+      !dictCard.isOpen() &&
+      !(annotations?.isOpen() ?? false),
   });
 
   // Escape only ever restores or closes (salvage §4): it closes an open
@@ -324,6 +358,10 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
     if (event.key !== 'Escape' || el<HTMLElement>('reader').hidden) return;
     if (!finishNudge.hidden) {
       closeFinish();
+      return;
+    }
+    if (dictCard.isOpen()) {
+      dictCard.close();
       return;
     }
     if (annotations?.handleEscape()) return;
@@ -368,6 +406,8 @@ export function closeReader(): void {
   detachEscape = null;
   disposeAnnotations?.();
   disposeAnnotations = null;
+  disposeDictCard?.();
+  disposeDictCard = null;
   closeAaPanel?.();
   closeAaPanel = null;
   teardownSession?.(); // flush the session before the sidecar goes away

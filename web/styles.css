@@ -570,6 +570,57 @@ button:hover {
   font-size: 0.88rem;
 }
 
+/* The dictionary card (E1): an inline popup low over the page, set like a
+   dictionary entry — serif headword, quiet source line, Wikipedia off-ramp. */
+#dict-card {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(3rem + env(safe-area-inset-bottom));
+  z-index: 7;
+  width: min(34rem, calc(100% - 2rem));
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.2);
+  padding: 1rem 1.2rem 0.85rem;
+}
+#dict-headword {
+  margin: 0 0 0.45rem;
+  font-family: "Literata", Georgia, serif;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+#dict-body {
+  margin: 0 0 0.7rem;
+  font-family: "Literata", Georgia, serif;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  max-height: 9.5rem;
+  overflow-y: auto;
+}
+#dict-card[data-state="loading"] #dict-body,
+#dict-card[data-state="miss"] #dict-body {
+  color: var(--muted);
+  font-style: italic;
+}
+.dict-footer {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.55rem;
+  font-size: 0.78rem;
+}
+.dict-source {
+  color: var(--muted);
+}
+#dict-wiki {
+  color: var(--link);
+  white-space: nowrap;
+}
+
 /* The note editor (F2): a small sheet, chrome-independent, thumb-friendly. */
 #note-editor {
   position: absolute;
