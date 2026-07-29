@@ -3,9 +3,11 @@ import {
   getDisplayMode,
   getPace,
   getStatusMode,
+  getTheme,
   setDisplayMode,
   setPace,
   setStatusMode,
+  setTheme,
 } from './prefs.ts';
 
 const KEY = 'reader42-prefs';
@@ -53,6 +55,25 @@ describe('status mode pref', () => {
   test('bad persisted status mode degrades to the default', () => {
     localStorage.setItem(KEY, JSON.stringify({ statusMode: 'sideways' }));
     expect(getStatusMode()).toBe('time-left-chapter');
+  });
+});
+
+describe('theme pref (parity D1)', () => {
+  beforeEach(() => localStorage.clear());
+
+  test('defaults to paper and round-trips every theme', () => {
+    expect(getTheme()).toBe('paper');
+    for (const theme of ['white', 'sepia', 'dark', 'paper'] as const) {
+      setTheme(theme);
+      expect(getTheme()).toBe(theme);
+    }
+  });
+
+  test('bad persisted theme degrades to paper', () => {
+    for (const bad of ['{oops', JSON.stringify({ theme: 'green' }), JSON.stringify({ theme: 7 })]) {
+      localStorage.setItem(KEY, bad);
+      expect(getTheme()).toBe('paper');
+    }
   });
 });
 

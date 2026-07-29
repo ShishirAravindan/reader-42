@@ -13,7 +13,7 @@
 //
 // Plain JS on purpose: the worker ships as-is, outside the bundle.
 
-const VERSION = 'shell-v3';
+const VERSION = 'shell-v4';
 const SHELL = [
   '/',
   '/app.js',
