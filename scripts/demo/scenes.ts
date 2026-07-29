@@ -636,3 +636,214 @@ scene('typography', async ({ page, capture }) => {
   await centerTap(page); // back to pure text
   await capture('typography-defaults');
 });
+
+// --- Epic 4: annotations ---
+
+interface MarkInfo {
+  id: string;
+  classes: string;
+  text: string;
+  hasNote: boolean;
+}
+
+/** All highlight marks in the rendered chapter shadow, in document order. */
+function marksIn(page: Page): Promise<MarkInfo[]> {
+  return page.evaluate(() => {
+    const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
+    if (!shadow) return [];
+    return Array.from(shadow.querySelectorAll<HTMLElement>('mark.hl')).map((m) => ({
+      id: m.dataset.hl ?? '',
+      classes: m.className,
+      text: m.textContent ?? '',
+      hasNote: m.classList.contains('has-note'),
+    }));
+  });
+}
+
+/**
+ * Select `needle` inside a paragraph by flattened-text offsets — the exact
+ * path a reader's drag takes (window.getSelection().setBaseAndExtent works on
+ * shadow text nodes in Chromium) — then let go (pointerup). Walks text nodes
+ * so it works in an already-marked paragraph too.
+ */
+async function selectTextIn(page: Page, pid: string, needle: string): Promise<void> {
+  await page.evaluate(
+    ([pid, needle]) => {
+      const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
+      const p = shadow?.getElementById(pid);
+      if (!p) throw new Error(`no paragraph #${pid}`);
+      const flat = p.textContent ?? '';
+      const from = flat.indexOf(needle);
+      if (from < 0) throw new Error(`"${needle}" not in #${pid}`);
+      const pointAt = (offset: number): { node: Node; off: number } => {
+        let acc = 0;
+        const walk = (node: Node): { node: Node; off: number } | null => {
+          if (node.nodeType === 3) {
+            const len = (node as Text).data.length;
+            if (offset <= acc + len) return { node, off: offset - acc };
+            acc += len;
+            return null;
+          }
+          for (const child of Array.from(node.childNodes)) {
+            const found = walk(child);
+            if (found) return found;
+          }
+          return null;
+        };
+        const found = walk(p);
+        if (!found) throw new Error('offset past paragraph text');
+        return found;
+      };
+      const s = pointAt(from);
+      const e = pointAt(from + needle.length);
+      window.getSelection()?.setBaseAndExtent(s.node, s.off, e.node, e.off);
+      document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+    },
+    [pid, needle] as const,
+  );
+  await page.locator('#selection-menu').waitFor({ state: 'visible' });
+}
+
+/** Click the middle of a highlight's first mark segment. */
+async function clickMark(page: Page, id: string): Promise<void> {
+  const point = await page.evaluate((id) => {
+    const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
+    const mark = shadow?.querySelector(`mark.hl[data-hl="${id}"]`);
+    if (!mark) throw new Error(`no mark for highlight ${id}`);
+    // First LINE box, not the bounding box: a mark wrapping across lines has
+    // a union rect whose center can miss the text entirely.
+    const r = mark.getClientRects()[0] ?? mark.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, id);
+  await page.mouse.click(point.x, point.y);
+  await page.waitForTimeout(120);
+}
+
+/** Marks tagged with a JS-only probe property: survives CSS relayouts only. */
+function probeMarks(page: Page): Promise<{ count: number; sameNodes: boolean }> {
+  return page.evaluate(() => {
+    const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
+    const marks = Array.from(shadow?.querySelectorAll('mark.hl') ?? []);
+    return {
+      count: marks.length,
+      sameNodes: marks.every((m) => (m as HTMLElement & { __probe?: boolean }).__probe === true),
+    };
+  });
+}
+
+scene('highlight-persistence', async ({ page, capture }) => {
+  await tocNav(page, 'Two: The Long Middle');
+  await centerTap(page); // toc navigation leaves chrome open; back to text
+  expectEq(await chapterLabel(page), '2 of 3', 'in chapter 2');
+
+  // First highlight: yellow, mid-paragraph.
+  await selectTextIn(page, 'p2', 'The quick brown fox');
+  await page.locator('#selection-menu [data-color="yellow"]').click();
+  await page.waitForTimeout(150);
+  let marks = await marksIn(page);
+  expectEq(marks.length, 1, 'one mark after the first highlight');
+  expect(marks[0]?.classes.includes('hl-yellow'), 'the first highlight is yellow');
+  expectEq(marks[0]?.text, 'The quick brown fox', 'the mark wraps exactly the selected text');
+  expect(await page.locator('#selection-menu').isHidden(), 'the menu closes after highlighting');
+  const firstId = marks[0]?.id ?? '';
+  expect(firstId.length === 8, 'the mark carries its highlight id');
+
+  // Second highlight in the SAME paragraph: pink. Its serialization must see
+  // the mark-free structure even though the first mark split the text nodes
+  // (salvage §1 — the bug class this scene exists for).
+  await selectTextIn(page, 'p2', 'deliberately and at length');
+  await page.locator('#selection-menu [data-color="pink"]').click();
+  await page.waitForTimeout(150);
+  marks = await marksIn(page);
+  expectEq(marks.length, 2, 'two marks in the same paragraph');
+  const secondId = marks.find((m) => m.classes.includes('hl-pink'))?.id ?? '';
+  expect(secondId.length === 8, 'the pink highlight has its own id');
+
+  // A dismissing tap closes the menu and is swallowed: no page turn, no
+  // chrome toggle (the annotation layer owns that tap).
+  await selectTextIn(page, 'p3', 'so that this chapter');
+  const before = await metrics(page);
+  await page.mouse.click(180, 400); // the back tap zone
+  await page.waitForTimeout(150);
+  expect(await page.locator('#selection-menu').isHidden(), 'an outside tap dismisses the menu');
+  const after = await metrics(page);
+  expectEq(after.scrollLeft, before.scrollLeft, 'the dismissing tap turns no page');
+  expect(await chromeHidden(page), 'the dismissing tap leaves chrome hidden');
+
+  // Attach a note to the first highlight through the edit menu.
+  await clickMark(page, firstId);
+  await page.locator('#selection-menu').waitFor({ state: 'visible' });
+  await page.locator('#sel-note').click();
+  await page.locator('#note-editor').waitFor({ state: 'visible' });
+  await page.locator('#note-text').fill('the fox is load-bearing');
+  await page.locator('#note-save').click();
+  await page.waitForTimeout(200);
+  marks = await marksIn(page);
+  expect(marks.find((m) => m.id === firstId)?.hasNote, 'the note marker rides the yellow mark');
+  await capture('highlights-created');
+
+  // RELOAD: both highlights and the note marker restore from the sidecar.
+  await page.waitForTimeout(600); // let the sidecar writes flush
+  await page.reload();
+  await page.getByRole('heading', { name: 'Two: The Long Middle' }).waitFor();
+  await page.waitForTimeout(250);
+  marks = await marksIn(page);
+  expectEq(marks.length, 2, 'LOAD-BEARING: both highlights restore after reload');
+  const yellow = marks.find((m) => m.id === firstId);
+  const pink = marks.find((m) => m.id === secondId);
+  expect(yellow?.classes.includes('hl-yellow'), 'the yellow highlight restores its color');
+  expectEq(yellow?.text, 'The quick brown fox', 'the restored yellow covers the same text');
+  expect(yellow?.hasNote, 'the note marker restores');
+  expect(pink?.classes.includes('hl-pink'), 'the pink highlight restores its color');
+  expectEq(pink?.text, 'deliberately and at length', 'the restored pink covers the same text');
+  await capture('highlights-restored');
+
+  // Mode switches relayout CSS only: the marks must be the SAME DOM nodes,
+  // not re-applied copies.
+  await page.evaluate(() => {
+    const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
+    for (const m of Array.from(shadow?.querySelectorAll('mark.hl') ?? [])) {
+      (m as HTMLElement & { __probe?: boolean }).__probe = true;
+    }
+  });
+  await centerTap(page);
+  await page.locator('#mode-toggle').click(); // paged -> scroll
+  await page.waitForTimeout(150);
+  let probes = await probeMarks(page);
+  expectEq(probes.count, 2, 'both marks present in scroll mode');
+  expect(probes.sameNodes, 'paged -> scroll kept the same mark nodes (no re-application)');
+  await page.locator('#mode-toggle').click(); // scroll -> paged
+  await page.waitForTimeout(150);
+  probes = await probeMarks(page);
+  expectEq(probes.count, 2, 'both marks present back in paged mode');
+  expect(probes.sameNodes, 'scroll -> paged kept the same mark nodes');
+  await centerTap(page); // hide chrome again
+
+  // Delete: a throwaway blue highlight is removed and the paragraph's DOM
+  // returns byte-identical (unwrap + normalize).
+  const pristine = await page.evaluate(
+    () =>
+      document.querySelector('#viewport .chapter-host')?.shadowRoot?.getElementById('p3')
+        ?.innerHTML ?? '',
+  );
+  await selectTextIn(page, 'p3', 'position anchors have real work');
+  await page.locator('#selection-menu [data-color="blue"]').click();
+  await page.waitForTimeout(150);
+  marks = await marksIn(page);
+  expectEq(marks.length, 3, 'a third (blue) highlight exists');
+  const blueId = marks.find((m) => m.classes.includes('hl-blue'))?.id ?? '';
+  await clickMark(page, blueId);
+  await page.locator('#selection-menu').waitFor({ state: 'visible' });
+  await page.locator('#sel-delete').click();
+  await page.waitForTimeout(150);
+  marks = await marksIn(page);
+  expectEq(marks.length, 2, 'delete removes the blue highlight');
+  const p3state = await page.evaluate(() => {
+    const p = document.querySelector('#viewport .chapter-host')?.shadowRoot?.getElementById('p3');
+    return { html: p?.innerHTML ?? '', nodes: p?.childNodes.length ?? 0 };
+  });
+  expectEq(p3state.html, pristine, 'delete + normalize restores the pristine paragraph');
+  expectEq(p3state.nodes, 1, 'the split text nodes re-fused into one');
+  await page.waitForTimeout(400); // let the delete write flush before reuse
+  await capture('highlight-deleted');
+});

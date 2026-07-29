@@ -67,9 +67,13 @@ export function attachReadingInput(viewport: HTMLElement, opts: ReadingInputOpti
       suppressClick = false;
       return;
     }
-    // Links navigate; the internal-link handler owns them.
+    // Links navigate; the internal-link handler owns them. Highlight marks
+    // belong to the annotation layer: tapping one opens its menu, never turns.
     for (const node of event.composedPath()) {
       if (node instanceof HTMLAnchorElement && node.hasAttribute('href')) return;
+      if (node instanceof Element && node.tagName === 'MARK' && node.classList.contains('hl')) {
+        return;
+      }
     }
     if (hasSelection(event)) return;
     const rect = viewport.getBoundingClientRect();
