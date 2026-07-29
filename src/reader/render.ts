@@ -2,14 +2,22 @@
 // rewrites in-archive resource URLs to blob URLs.
 //
 // Shadow DOM sandboxes the book: its CSS cannot leak into the app, and the
-// app's theme flows in through custom properties on :host. Scroll mode only
-// for now; the locator functions already speak both axes for paged mode later.
+// app's theme flows in through custom properties on :host. Two display modes
+// (paged CSS columns, continuous scroll); the locator functions speak both
+// axes, so positions survive the switch.
 
 import type { Book } from '../epub/book.ts';
 import { resolveAgainst } from '../epub/path.ts';
 import type { Chapter, Resource } from '../epub/types.ts';
 import type { PositionAnchor } from '../library/types.ts';
 import { absoluteStart, anchorFor, anchorTarget } from './locator.ts';
+import type { DisplayMode } from './mode.ts';
+import { columnGeometry, pageCount, pageIndexFor } from './paging.ts';
+
+export interface ReaderView {
+  /** Read at call time, never captured in a closure (salvage §2). */
+  mode(): DisplayMode;
+}
 
 export interface RenderedChapter {
   host: HTMLElement;
@@ -18,16 +26,31 @@ export interface RenderedChapter {
   scrollToFragment(id: string): void;
   getScroll(): number;
   setScroll(offset: number): void;
-  /** Structural locator for the current viewport top. */
+  /** Structural locator for the current viewport start (top or left edge). */
   getAnchor(): PositionAnchor | null;
   scrollToAnchor(anchor: PositionAnchor): void;
+  /** Re-apply mode CSS and restore the anchor; for mode switches and resize. */
+  relayout(): void;
+  /** One page forward/back (paged) or most of a screen (scroll). False at the chapter edge. */
+  turnForward(): boolean;
+  turnBack(): boolean;
+  /** Position at the chapter's last page / bottom (entering a chapter backwards). */
+  toEnd(): void;
   /** How far through this chapter the viewport is, 0..1. */
   chapterFraction(): number;
-  /** True when the viewport sits at the chapter bottom. */
+  /** True when the viewport sits at the chapter end. */
   atEnd(): boolean;
 }
 
-export function renderChapter(book: Book, chapter: Chapter, mount: HTMLElement): RenderedChapter {
+/** The comfortable text measure; also the paged column cap (salvage §2). */
+const MEASURE_REM = 38;
+
+export function renderChapter(
+  book: Book,
+  chapter: Chapter,
+  mount: HTMLElement,
+  view: ReaderView,
+): RenderedChapter {
   mount.replaceChildren();
 
   const host = document.createElement('div');
@@ -63,32 +86,181 @@ export function renderChapter(book: Book, chapter: Chapter, mount: HTMLElement):
   shadow.prepend(style);
   shadow.appendChild(wrapper);
 
-  return {
+  // Guarantees the paged scroll range covers whole pages: column overflow
+  // ends at the last column's right edge, without the trailing side pad, so
+  // the last page's stride-aligned offset would otherwise be unreachable
+  // (the browser clamps scrollLeft short and the page lands off-grid).
+  const spacer = document.createElement('div');
+  spacer.className = 'page-spacer';
+  shadow.appendChild(spacer);
+
+  // The mode the DOM is currently laid out in. view.mode() may change before
+  // relayout() runs; capture must resolve against the layout on screen and
+  // restore against the new one, so each side reads the applied state at call
+  // time (salvage §2), never a value captured at closure creation.
+  let applied: DisplayMode = view.mode();
+  let gap = 0;
+
+  const axis = (): 'h' | 'v' => (applied === 'paged' ? 'h' : 'v');
+  const stride = (): number => mount.clientWidth; // stride === clientWidth exactly
+  const pages = (): number => pageCount(mount.scrollWidth, mount.clientWidth, gap);
+  const currentPage = (): number => pageIndexFor(mount.scrollLeft, stride());
+
+  function remPx(): number {
+    const size = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+    return Number.isFinite(size) && size > 0 ? size : 16;
+  }
+
+  function applyModeCss(): void {
+    applied = view.mode();
+    if (applied === 'paged') {
+      const geom = columnGeometry(mount.clientWidth, MEASURE_REM * remPx());
+      gap = geom.gap;
+      // The mount never scrolls vertically in paged mode; chrome bars overlay
+      // the viewport, so showing them must not change this geometry.
+      mount.style.overflow = 'hidden';
+      host.style.height = `${mount.clientHeight}px`;
+      wrapper.classList.add('paged');
+      wrapper.style.setProperty('--column-width', `${geom.columnWidth}px`);
+      wrapper.style.setProperty('--column-gap', `${geom.gap}px`);
+      wrapper.style.setProperty('--side-pad', `${geom.sidePad}px`);
+      // Columns must overflow the host horizontally or scrollWidth stays 0
+      // and pagination dies silently (salvage §2); the demo scenes assert it.
+      spacer.style.display = 'block';
+      spacer.style.left = '0px';
+      spacer.style.left = `${pages() * stride() - 1}px`;
+    } else {
+      gap = 0;
+      mount.style.overflow = ''; // the app stylesheet restores overflow-y: auto
+      host.style.height = '';
+      wrapper.classList.remove('paged');
+      spacer.style.display = 'none';
+    }
+  }
+
+  /** Page whose span contains an h-axis offset, clamped into the chapter. */
+  function pageStartFor(offset: number): number {
+    if (stride() <= 0) return 0;
+    const page = Math.min(Math.max(Math.floor(offset / stride()), 0), pages() - 1);
+    return page * stride();
+  }
+
+  function restoreAnchor(anchor: PositionAnchor | null): void {
+    if (applied === 'paged') {
+      mount.scrollTop = 0;
+      const target = anchor ? anchorTarget(wrapper, mount, anchor, 'h') : null;
+      mount.scrollLeft = target === null ? 0 : pageStartFor(target);
+    } else {
+      mount.scrollLeft = 0;
+      const target = anchor ? anchorTarget(wrapper, mount, anchor, 'v') : null;
+      mount.scrollTop = target ?? 0;
+    }
+  }
+
+  function turnFlash(): void {
+    // Purely visual (opacity only): must never affect geometry reads.
+    wrapper.animate?.([{ opacity: 0.55 }, { opacity: 1 }], { duration: 130, easing: 'ease-out' });
+  }
+
+  const rendered: RenderedChapter = {
     host,
     dispose(): void {
+      observer?.disconnect();
+      if (resizeTimer) clearTimeout(resizeTimer);
       for (const url of blobUrls) URL.revokeObjectURL(url);
       host.remove();
     },
     scrollToFragment(id: string): void {
-      shadow.getElementById(id)?.scrollIntoView({ block: 'start' });
+      const target = shadow.getElementById(id);
+      if (!target) return;
+      // Paged: snap to the page containing the element; scrollIntoView would
+      // land between pages.
+      if (applied === 'paged') mount.scrollLeft = pageStartFor(absoluteStart(target, mount, 'h'));
+      else target.scrollIntoView({ block: 'start' });
     },
-    getScroll: (): number => mount.scrollTop,
+    getScroll: (): number => (applied === 'paged' ? mount.scrollLeft : mount.scrollTop),
     setScroll(offset: number): void {
-      mount.scrollTop = offset;
+      if (applied === 'paged') mount.scrollLeft = pageStartFor(offset);
+      else mount.scrollTop = offset;
     },
-    getAnchor: (): PositionAnchor | null => anchorFor(wrapper, mount, 'v'),
+    getAnchor: (): PositionAnchor | null => anchorFor(wrapper, mount, axis()),
     scrollToAnchor(anchor: PositionAnchor): void {
-      const target = anchorTarget(wrapper, mount, anchor, 'v');
-      mount.scrollTop = target ?? 0;
+      restoreAnchor(anchor);
+    },
+    relayout(): void {
+      // Never resolve geometry against a hidden viewport (salvage §2); the
+      // resize observer re-runs this once the mount is visible again.
+      if (mount.clientWidth <= 0 && mount.clientHeight <= 0) return;
+      const anchor = anchorFor(wrapper, mount, axis()); // current layout's axis
+      applyModeCss();
+      restoreAnchor(anchor); // new layout's axis
+    },
+    turnForward(): boolean {
+      if (applied === 'paged') {
+        const next = currentPage() + 1;
+        if (next > pages() - 1) return false;
+        mount.scrollLeft = next * stride();
+        turnFlash();
+        return true;
+      }
+      const max = mount.scrollHeight - mount.clientHeight;
+      if (mount.scrollTop >= max - 1) return false;
+      mount.scrollTop = Math.min(mount.scrollTop + 0.88 * mount.clientHeight, max);
+      return true;
+    },
+    turnBack(): boolean {
+      if (applied === 'paged') {
+        const current = currentPage();
+        if (current <= 0) return false;
+        mount.scrollLeft = (current - 1) * stride();
+        turnFlash();
+        return true;
+      }
+      if (mount.scrollTop <= 0) return false;
+      mount.scrollTop = Math.max(mount.scrollTop - 0.88 * mount.clientHeight, 0);
+      return true;
+    },
+    toEnd(): void {
+      if (applied === 'paged') mount.scrollLeft = (pages() - 1) * stride();
+      else mount.scrollTop = Math.max(mount.scrollHeight - mount.clientHeight, 0);
     },
     chapterFraction(): number {
-      const max = mount.scrollHeight - mount.clientHeight;
-      return max > 0 ? Math.min(mount.scrollTop / max, 1) : 0;
+      const paged = applied === 'paged';
+      const max = paged
+        ? mount.scrollWidth - mount.clientWidth
+        : mount.scrollHeight - mount.clientHeight;
+      const pos = paged ? mount.scrollLeft : mount.scrollTop;
+      return max > 0 ? Math.min(Math.max(pos / max, 0), 1) : 0;
     },
     atEnd(): boolean {
-      return mount.scrollTop >= mount.scrollHeight - mount.clientHeight - 1;
+      const paged = applied === 'paged';
+      const max = paged
+        ? mount.scrollWidth - mount.clientWidth
+        : mount.scrollHeight - mount.clientHeight;
+      return (paged ? mount.scrollLeft : mount.scrollTop) >= max - 1;
     },
   };
+
+  applyModeCss();
+
+  // Resize re-derives column geometry and re-anchors; debounced because
+  // interactive resizes stream events. Guarded: jsdom has no ResizeObserver.
+  let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+  let observer: ResizeObserver | null = null;
+  if (typeof ResizeObserver !== 'undefined') {
+    let initial = true;
+    observer = new ResizeObserver(() => {
+      if (initial) {
+        initial = false; // the observe() call itself fires once; layout is fresh
+        return;
+      }
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => rendered.relayout(), 150);
+    });
+    observer.observe(mount);
+  }
+
+  return rendered;
 }
 
 // --- document parsing ---
@@ -272,16 +444,41 @@ const SHADOW_BASE_CSS = `
     --reader-link: #33518a;
     --reader-muted: #6e6759;
     display: block;
+    position: relative;
     color: var(--reader-fg);
     background: var(--reader-bg);
   }
   .chapter {
-    max-width: 38rem;
+    max-width: 38rem; /* keep in sync with MEASURE_REM */
     margin: 0 auto;
     padding: 2.5rem 1.5rem 6rem;
     font-family: 'Charter', 'Bitstream Charter', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
     font-size: 1.05rem;
     line-height: 1.65;
+  }
+  /* Paged: one column per page, geometry injected as custom properties by
+     applyModeCss. column-fill: auto is load-bearing: without it columns
+     balance instead of filling the viewport height. */
+  .chapter.paged {
+    height: 100%;
+    box-sizing: border-box;
+    max-width: none;
+    margin: 0;
+    padding: 2rem var(--side-pad, 1.5rem);
+    column-width: var(--column-width, 38rem);
+    column-gap: var(--column-gap, 3rem);
+    column-fill: auto;
+  }
+  .chapter.paged img, .chapter.paged figure, .chapter.paged svg {
+    max-height: 85vh;
+    break-inside: avoid;
+  }
+  .page-spacer {
+    display: none;
+    position: absolute;
+    top: 0;
+    width: 1px;
+    height: 1px;
   }
   .chapter p { margin: 0 0 1em; }
   .chapter h1, .chapter h2, .chapter h3, .chapter h4 {

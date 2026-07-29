@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import { buildFixtureEpub } from '../../test/fixture-epub.ts';
+import { Book } from '../epub/book.ts';
 import type { ReadingPosition } from '../library/types.ts';
-import { positionKey } from './controller.ts';
+import { type ControllerHooks, ReaderController, positionKey } from './controller.ts';
+import type { DisplayMode } from './mode.ts';
 
 const at = (chapter: number, path: number[], ratio: number): ReadingPosition => ({
   chapter,
@@ -26,5 +29,60 @@ describe('positionKey', () => {
   test('anchor-less positions collapse to a stable top key', () => {
     const top: ReadingPosition = { chapter: 0, scroll: 0, updatedAt: 'x' };
     expect(positionKey(top)).toBe(positionKey({ ...top, scroll: 50, updatedAt: 'y' }));
+  });
+});
+
+// jsdom does no layout, so every chapter measures as a single page: an
+// in-chapter turn immediately reports the chapter edge. That makes the
+// chapter-crossing and book-boundary logic testable without geometry;
+// in-chapter page math is covered by the demo scenes.
+describe('turns across chapters and book boundaries', () => {
+  async function make(mode: DisplayMode, hooks: ControllerHooks = {}) {
+    const book = await Book.open(buildFixtureEpub());
+    const mount = document.createElement('div');
+    document.body.appendChild(mount);
+    const controller = new ReaderController(book, mount, { mode: () => mode }, hooks);
+    controller.open(null);
+    return { controller, mount };
+  }
+
+  test('forward at the chapter edge crosses to the next chapter', async () => {
+    const chapters: number[] = [];
+    const { controller } = await make('paged', { onChapter: (i) => chapters.push(i) });
+    controller.turnForward();
+    expect(controller.currentChapter()).toBe(1);
+    expect(chapters).toEqual([0, 1]);
+    controller.dispose();
+  });
+
+  test('back at the start of a chapter enters the previous chapter', async () => {
+    const { controller } = await make('paged');
+    controller.goToChapter(2);
+    controller.turnBack();
+    expect(controller.currentChapter()).toBe(1);
+    controller.dispose();
+  });
+
+  test('book boundaries are gentle stops, no wrap', async () => {
+    const edges: ('start' | 'end')[] = [];
+    const { controller } = await make('paged', { onBoundary: (e) => edges.push(e) });
+    controller.turnBack();
+    expect(controller.currentChapter()).toBe(0);
+    controller.goToChapter(2);
+    controller.turnForward();
+    expect(controller.currentChapter()).toBe(2);
+    expect(edges).toEqual(['start', 'end']);
+    controller.dispose();
+  });
+
+  test('chapter crossings emit the new position immediately', async () => {
+    const positions: number[] = [];
+    const { controller } = await make('scroll', {
+      onPosition: ({ position }) => positions.push(position.chapter),
+    });
+    controller.turnForward();
+    controller.turnBack();
+    expect(positions).toEqual([1, 0]);
+    controller.dispose();
   });
 });
