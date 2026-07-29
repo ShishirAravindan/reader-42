@@ -12,6 +12,7 @@ import { attachReadingInput } from '../reader/input.ts';
 import { bookMetrics, pageAnchors } from '../reader/metrics.ts';
 import type { DisplayMode } from '../reader/mode.ts';
 import { MAX_SAMPLE_SEC, createPace } from '../reader/pace.ts';
+import { createAaPanel } from './aa-panel.ts';
 import { createChrome } from './chrome.ts';
 import { el } from './dom.ts';
 import {
@@ -37,6 +38,8 @@ let controller: ReaderController | null = null;
 let openSidecar: BookSidecar | null = null;
 let detachInput: (() => void) | null = null;
 let detachEscape: (() => void) | null = null;
+/** Closes the Aa panel (detaching its outside-click listener) on teardown. */
+let closeAaPanel: (() => void) | null = null;
 /** Flushes the reading-session clock and detaches its listeners. */
 let teardownSession: (() => void) | null = null;
 
@@ -257,6 +260,19 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
     toc.hidden = !toc.hidden;
   };
 
+  // The Aa panel (C1-C6/D1): controls write device-local prefs; reflowing
+  // ones call relayout(), which re-reads the ReaderView accessors above.
+  const aaPanel = createAaPanel(el<HTMLElement>('aa-panel'), el<HTMLButtonElement>('aa-toggle'), {
+    relayout: () => {
+      controller?.relayout();
+      status?.refresh();
+    },
+    onOpen: () => {
+      toc.hidden = true;
+    },
+  });
+  closeAaPanel = aaPanel.close;
+
   detachInput = attachReadingInput(viewport, {
     dir: () => book.direction,
     onTurn: (d) => {
@@ -268,7 +284,8 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
       status?.refresh(); // same-chapter turns update the strip before the debounced save
     },
     onChrome: () => chrome.toggle(),
-    keysEnabled: () => !el<HTMLElement>('reader').hidden,
+    // Keyboard turns pause while the Aa panel is up (its own keys still work).
+    keysEnabled: () => !el<HTMLElement>('reader').hidden && !aaPanel.isOpen(),
   });
 
   // Escape only ever restores or closes (salvage §4): it closes an open
@@ -277,6 +294,10 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
     if (event.key !== 'Escape' || el<HTMLElement>('reader').hidden) return;
     if (!finishNudge.hidden) {
       closeFinish();
+      return;
+    }
+    if (aaPanel.isOpen()) {
+      aaPanel.close();
       return;
     }
     if (!toc.hidden) {
@@ -314,6 +335,8 @@ export function closeReader(): void {
   detachInput = null;
   detachEscape?.();
   detachEscape = null;
+  closeAaPanel?.();
+  closeAaPanel = null;
   teardownSession?.(); // flush the session before the sidecar goes away
   teardownSession = null;
   controller?.dispose();

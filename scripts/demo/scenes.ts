@@ -409,3 +409,230 @@ scene('finish-the-book', async ({ page, base, capture }) => {
   expect(await nudge.isHidden(), 'a finished book is never re-nudged');
   await capture('finished-book');
 });
+
+/** Ids of all paragraphs intersecting the viewport (the visible page). */
+function visibleParagraphs(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const v = document.getElementById('viewport') as HTMLElement;
+    const wrapper = v.querySelector('.chapter-host')?.shadowRoot?.querySelector('.chapter');
+    if (!wrapper) return [];
+    const paged = getComputedStyle(v).overflowY === 'hidden';
+    const vr = v.getBoundingClientRect();
+    const out: string[] = [];
+    for (const p of Array.from(wrapper.querySelectorAll('p[id]'))) {
+      const r = p.getBoundingClientRect();
+      const visible = paged
+        ? r.right > vr.left + 1 && r.left < vr.right - 1
+        : r.bottom > vr.top + 1 && r.top < vr.bottom - 1;
+      if (visible) out.push(p.id);
+    }
+    return out;
+  });
+}
+
+/** Computed style of the first paragraph inside the chapter shadow. */
+async function chapterParagraphStyle(page: Page): Promise<{
+  fontFamily: string;
+  fontSizePx: number;
+  fontWeight: string;
+  lineHeightPx: number;
+  textAlign: string;
+}> {
+  return await page.evaluate(() => {
+    const p = document
+      .querySelector('#viewport .chapter-host')
+      ?.shadowRoot?.querySelector('.chapter p');
+    if (!p) throw new Error('no paragraph in the chapter shadow');
+    const s = getComputedStyle(p);
+    return {
+      fontFamily: s.fontFamily,
+      fontSizePx: Number.parseFloat(s.fontSize),
+      fontWeight: s.fontWeight,
+      lineHeightPx: Number.parseFloat(s.lineHeight),
+      textAlign: s.textAlign,
+    };
+  });
+}
+
+/** The paged column width the renderer derived, in px. */
+async function columnWidth(page: Page): Promise<number> {
+  return await page.evaluate(() => {
+    const wrapper = document
+      .querySelector('#viewport .chapter-host')
+      ?.shadowRoot?.querySelector('.chapter') as HTMLElement | null;
+    if (!wrapper) throw new Error('no chapter wrapper');
+    return Number.parseFloat(wrapper.style.getPropertyValue('--column-width'));
+  });
+}
+
+scene('typography', async ({ page, capture }) => {
+  // Deep into the long chapter so reflows have real position work to do.
+  await tocNav(page, 'Deep in the middle');
+  expect(!(await chromeHidden(page)), 'chrome is open before the Aa panel');
+
+  await page.locator('#aa-toggle').click();
+  await page.locator('#aa-panel').waitFor({ state: 'visible' });
+  expect(!(await chromeHidden(page)), 'chrome stays open under the Aa panel');
+  await capture('aa-panel');
+
+  // Theme -> dark: ONE token source proves itself — the app shell, the meta
+  // theme-color, and the book page inside the shadow all move together.
+  await page.locator('#aa-panel [data-theme="dark"]').click();
+  await page.waitForTimeout(80);
+  const dark = await page.evaluate(() => {
+    const host = document.querySelector('#viewport .chapter-host') as HTMLElement;
+    const p = host.shadowRoot?.querySelector('.chapter p') as Element;
+    return {
+      rootTheme: document.documentElement.dataset.theme,
+      bodyBg: getComputedStyle(document.body).backgroundColor,
+      hostBg: getComputedStyle(host).backgroundColor,
+      pageFg: getComputedStyle(p).color,
+      meta: document.querySelector('meta[name="theme-color"]')?.getAttribute('content'),
+    };
+  });
+  expectEq(dark.rootTheme, 'dark', 'dark theme lands on the root element');
+  expectEq(dark.hostBg, 'rgb(18, 18, 18)', 'the book page background follows the app token');
+  expectEq(dark.bodyBg, dark.hostBg, 'app shell and shadow page share ONE bg token');
+  expectEq(dark.pageFg, 'rgb(214, 211, 205)', 'book text color follows the theme');
+  expectEq(dark.meta, '#121212', 'meta theme-color follows the theme');
+  await capture('theme-dark');
+
+  // Font -> Atkinson: the family flows through the shadow seam.
+  await page.locator('.aa-font-atkinson').click();
+  await page.waitForTimeout(120);
+  let style = await chapterParagraphStyle(page);
+  expect(
+    style.fontFamily.includes('Atkinson'),
+    `paragraphs render in Atkinson (got "${style.fontFamily}")`,
+  );
+
+  // Size +2: text grows AND the reading position survives the reflow.
+  const beforeSize = style.fontSizePx;
+  const beforeId = await firstVisibleParagraph(page);
+  expect(beforeId, 'a paragraph is visible before the size change');
+  await page.locator('#aa-size-up').click();
+  await page.locator('#aa-size-up').click();
+  await page.waitForTimeout(120);
+  style = await chapterParagraphStyle(page);
+  expect(
+    style.fontSizePx > beforeSize,
+    `font size grew (${beforeSize}px -> ${style.fontSizePx}px)`,
+  );
+  // The anchor point maps to the page CONTAINING it in the new pagination
+  // (pages are a grid from the chapter start, so the point is generally
+  // mid-page — Kindle behaves the same way). Preserved position therefore
+  // means: the paragraph that led the old page is on the new visible page,
+  // and the page never jumped ahead of it.
+  const afterIds = await visibleParagraphs(page);
+  expect(
+    afterIds.includes(beforeId),
+    `LOAD-BEARING: the page-start paragraph ${beforeId} is still on the visible page after the size reflow (visible: ${afterIds.join(' ')})`,
+  );
+  const firstAfter = afterIds[0] ?? '';
+  expect(
+    Number(firstAfter.slice(1)) <= Number(beforeId.slice(1)),
+    `the reflowed page never jumps past the reading position (${firstAfter} vs ${beforeId})`,
+  );
+  await capture('size-up-dark');
+
+  // An outside tap closes the panel and is swallowed: no page turn, no
+  // chrome toggle. (It landed in what would be the back tap zone.)
+  const beforeOutside = await metrics(page);
+  await page.mouse.click(180, 400);
+  await page.waitForTimeout(80);
+  expect(await page.locator('#aa-panel').isHidden(), 'a tap outside closes the panel');
+  const afterOutside = await metrics(page);
+  expectEq(afterOutside.scrollLeft, beforeOutside.scrollLeft, 'the closing tap turns no page');
+  expect(!(await chromeHidden(page)), 'the closing tap leaves chrome alone');
+  await page.locator('#aa-toggle').click();
+  await page.locator('#aa-panel').waitFor({ state: 'visible' });
+
+  // Alignment -> justified, with hyphenation armed on the wrapper.
+  await page.locator('#aa-align-justify').click();
+  await page.waitForTimeout(120);
+  style = await chapterParagraphStyle(page);
+  expectEq(style.textAlign, 'justify', 'paragraphs justify');
+  const hyphenation = await page.evaluate(() => {
+    const wrapper = document
+      .querySelector('#viewport .chapter-host')
+      ?.shadowRoot?.querySelector('.chapter') as HTMLElement;
+    return { hyphens: getComputedStyle(wrapper).hyphens, lang: wrapper.getAttribute('lang') };
+  });
+  expectEq(hyphenation.hyphens, 'auto', 'justification brings real hyphenation');
+  expectEq(hyphenation.lang, 'en', 'the wrapper carries the book language for the hyphenator');
+
+  // Weight and spacing steps apply live.
+  await page.locator('#aa-weight-575').click();
+  await page.waitForTimeout(80);
+  style = await chapterParagraphStyle(page);
+  expectEq(style.fontWeight, '575', 'the heavy weight step reaches the text');
+  const beforeLeading = style.lineHeightPx;
+  await page.locator('#aa-spacing-relaxed').click();
+  await page.waitForTimeout(80);
+  style = await chapterParagraphStyle(page);
+  expect(
+    style.lineHeightPx > beforeLeading,
+    `relaxed spacing opens the leading (${beforeLeading}px -> ${style.lineHeightPx}px)`,
+  );
+
+  // Margins -> "Wide" (narrower text): the paged column narrows.
+  const beforeColumn = await columnWidth(page);
+  await page.locator('#aa-margins-wide').click();
+  await page.waitForTimeout(120);
+  const afterColumn = await columnWidth(page);
+  expect(
+    afterColumn < beforeColumn,
+    `wide margins narrow the column (${beforeColumn}px -> ${afterColumn}px)`,
+  );
+  await capture('typography-tuned');
+
+  // Reload: taste is device-local (C8) and all of it comes back.
+  await page.reload();
+  await page.getByRole('heading', { name: 'Two: The Long Middle' }).waitFor();
+  await page.waitForTimeout(200);
+  const restored = await page.evaluate(() => document.documentElement.dataset.theme);
+  expectEq(restored, 'dark', 'reload restores the theme');
+  expectEq(
+    await page.evaluate(() =>
+      document.querySelector('meta[name="theme-color"]')?.getAttribute('content'),
+    ),
+    '#121212',
+    'reload restores the meta theme-color',
+  );
+  style = await chapterParagraphStyle(page);
+  expect(style.fontFamily.includes('Atkinson'), 'reload restores the font');
+  expectEq(style.fontSizePx, 20.48, 'reload restores the size step (1.28rem)');
+  await capture('typography-restored');
+
+  // Back to the stock look so later scenes (and the next run) start clean.
+  await centerTap(page);
+  await page.locator('#aa-toggle').click();
+  await page.locator('#aa-panel').waitFor({ state: 'visible' });
+  await page.locator('#aa-panel [data-theme="paper"]').click();
+  await page.locator('.aa-font-literata').click();
+  await page.locator('#aa-size-down').click();
+  await page.locator('#aa-size-down').click();
+  await page.locator('#aa-weight-400').click();
+  await page.locator('#aa-spacing-normal').click();
+  await page.locator('#aa-margins-medium').click();
+  await page.locator('#aa-align-left').click();
+  await page.waitForTimeout(120);
+
+  // Escape closes the panel BEFORE the TOC/chrome get a say (the panel chain).
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(80);
+  expect(await page.locator('#aa-panel').isHidden(), 'Escape closes the Aa panel');
+  expect(!(await chromeHidden(page)), 'Escape spent itself on the panel; chrome stays open');
+
+  style = await chapterParagraphStyle(page);
+  expect(style.fontFamily.includes('Literata'), 'defaults restored: Literata');
+  expectEq(style.fontSizePx, 16.8, 'defaults restored: size step 2 (1.05rem)');
+  expectEq(style.textAlign, 'left', 'defaults restored: left alignment');
+  expectEq(
+    await page.evaluate(() => document.documentElement.dataset.theme),
+    'paper',
+    'defaults restored: paper theme',
+  );
+  await centerTap(page); // back to pure text
+  await capture('typography-defaults');
+});
