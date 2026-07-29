@@ -149,6 +149,58 @@ describe('mergeSidecars: highlights', () => {
     const merged = mergeSidecars(a, b);
     expect(merged.highlights.map((h) => h.id)).toEqual(['h1', 'h2', 'h3']);
   });
+
+  test('a recolor (editedAt) beats the untouched copy from the other device', () => {
+    const untouched = sidecar({ highlights: [hl('h1', T0)] });
+    const recolored = sidecar({ highlights: [hl('h1', T0, { color: 'pink', editedAt: T2 })] });
+    for (const merged of [
+      mergeSidecars(untouched, recolored),
+      mergeSidecars(recolored, untouched),
+    ]) {
+      expect(merged.highlights[0]?.color).toBe('pink');
+      expect(merged.highlights[0]?.editedAt).toBe(T2);
+    }
+  });
+
+  test('conflicting edits: the later editedAt wins the whole record', () => {
+    const recoloredEarlier = sidecar({
+      highlights: [hl('h1', T0, { color: 'blue', editedAt: T1 })],
+    });
+    const notedLater = sidecar({
+      highlights: [hl('h1', T0, { note: 'the later thought', editedAt: T2 })],
+    });
+    for (const merged of [
+      mergeSidecars(recoloredEarlier, notedLater),
+      mergeSidecars(notedLater, recoloredEarlier),
+    ]) {
+      // Record-wise, not field-wise: the blue recolor is lost to the later edit.
+      expect(merged.highlights[0]?.note).toBe('the later thought');
+      expect(merged.highlights[0]?.color).toBeUndefined();
+      expect(merged.highlights[0]?.editedAt).toBe(T2);
+    }
+  });
+
+  test('an edited bare record beats an unedited annotated one (editedAt is the clock)', () => {
+    const notedAtCreation = sidecar({ highlights: [hl('h1', T0, { note: 'first' })] });
+    const recoloredLater = sidecar({
+      highlights: [hl('h1', T0, { color: 'orange', editedAt: T2 })],
+    });
+    for (const merged of [
+      mergeSidecars(notedAtCreation, recoloredLater),
+      mergeSidecars(recoloredLater, notedAtCreation),
+    ]) {
+      expect(merged.highlights[0]?.color).toBe('orange');
+      expect(merged.highlights[0]?.note).toBeUndefined();
+    }
+  });
+
+  test('equal edit clocks keep the note preference, then resolve by value', () => {
+    const noted = sidecar({ highlights: [hl('h1', T0, { note: 'kept', editedAt: T2 })] });
+    const bare = sidecar({ highlights: [hl('h1', T0, { color: 'pink', editedAt: T2 })] });
+    for (const merged of [mergeSidecars(noted, bare), mergeSidecars(bare, noted)]) {
+      expect(merged.highlights[0]?.note).toBe('kept');
+    }
+  });
 });
 
 describe('mergeSidecars: sessions', () => {
@@ -199,10 +251,15 @@ describe('mergeSidecars: algebra', () => {
       stateChangedAt: T1,
       progress: 0.5,
       position: { chapter: 4, anchor: { path: [2, 1], ratio: 0.25 }, updatedAt: T3 },
-      highlights: [hl('h2', T1), hl('h3', T2)],
+      highlights: [hl('h2', T1, { color: 'pink', editedAt: T3 }), hl('h3', T2)],
       sessions: [session(T2, 300)],
     }),
-    sidecar({ position: null, progress: 0, highlights: [hl('h4', T3)], sessions: [] }),
+    sidecar({
+      position: null,
+      progress: 0,
+      highlights: [hl('h2', T1, { note: 'nb', editedAt: T2 }), hl('h4', T3)],
+      sessions: [],
+    }),
   ];
   const [va, vb, vc] = variants as [BookSidecar, BookSidecar, BookSidecar];
 
