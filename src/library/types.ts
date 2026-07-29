@@ -18,8 +18,9 @@
 //
 // Sync rule the shapes are designed for: sidecars from two devices merge
 // field-wise, not whole-file. Position resolves by its own `updatedAt`
-// (latest wins), state by `stateChangedAt`, highlights and sessions union by
-// id / value. Every mergeable field family therefore carries its own clock.
+// (latest wins), state by `stateChangedAt`, highlights, bookmarks and
+// sessions union by id / value. Every mergeable field family therefore
+// carries its own clock.
 //
 // All timestamps are ISO 8601 strings: the files are meant to be read by
 // humans in a file browser, not just by code.
@@ -64,6 +65,19 @@ export interface Highlight {
   editedAt?: string;
 }
 
+/**
+ * A bookmarked page (parity G1/G2). Place, not taste, so it lives in the
+ * synced sidecar (kickoff resolution 4 — the v1 localStorage bookmark was the
+ * debt this fixes). The anchor is the same structural locator a position uses,
+ * so a bookmark set on a phone resolves on a laptop at another font size.
+ */
+export interface Bookmark {
+  id: string;
+  chapter: number;
+  anchor: PositionAnchor;
+  createdAt: string;
+}
+
 /** A completed reading stretch. Append-only; unioned across devices. */
 export interface ReadingSession {
   seconds: number;
@@ -94,6 +108,8 @@ export interface BookSidecar {
   progress: number;
   position: ReadingPosition | null;
   highlights: Highlight[];
+  /** Absent means none: sidecars written before bookmarks existed stay valid. */
+  bookmarks?: Bookmark[];
   sessions: ReadingSession[];
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { mergeIndexes, mergeSidecars } from './merge.ts';
-import type { BookSidecar, Highlight, LibraryIndex, ReadingSession } from './types.ts';
+import type { BookSidecar, Bookmark, Highlight, LibraryIndex, ReadingSession } from './types.ts';
 
 const T0 = '2026-07-10T08:00:00.000Z';
 const T1 = '2026-07-11T09:00:00.000Z';
@@ -34,6 +34,10 @@ function hl(id: string, createdAt: string, over: Partial<Highlight> = {}): Highl
     createdAt,
     ...over,
   };
+}
+
+function bm(id: string, createdAt: string, over: Partial<Bookmark> = {}): Bookmark {
+  return { id, chapter: 2, anchor: { path: [4], ratio: 0 }, createdAt, ...over };
 }
 
 const session = (endedAt: string, seconds: number): ReadingSession => ({ endedAt, seconds });
@@ -203,6 +207,46 @@ describe('mergeSidecars: highlights', () => {
   });
 });
 
+describe('mergeSidecars: bookmarks', () => {
+  test('bookmarks set on two devices union, ordered by creation', () => {
+    const phone = sidecar({ bookmarks: [bm('b2', T2)] });
+    const laptop = sidecar({ bookmarks: [bm('b1', T1)] });
+    for (const merged of [mergeSidecars(phone, laptop), mergeSidecars(laptop, phone)]) {
+      expect(merged.bookmarks?.map((b) => b.id)).toEqual(['b1', 'b2']);
+    }
+  });
+
+  test('the same bookmark from both devices dedupes to one', () => {
+    const a = sidecar({ bookmarks: [bm('b1', T1)] });
+    const b = sidecar({ bookmarks: [bm('b1', T1)] });
+    expect(mergeSidecars(a, b).bookmarks).toHaveLength(1);
+  });
+
+  test('a device that never bookmarked keeps the other device’s bookmarks', () => {
+    const none = sidecar();
+    const some = sidecar({ bookmarks: [bm('b1', T1)] });
+    for (const merged of [mergeSidecars(none, some), mergeSidecars(some, none)]) {
+      expect(merged.bookmarks?.map((b) => b.id)).toEqual(['b1']);
+    }
+  });
+
+  test('sidecars with no bookmarks merge to a sidecar with no bookmarks field', () => {
+    expect(mergeSidecars(sidecar(), sidecar())).not.toHaveProperty('bookmarks');
+  });
+
+  test('an equal clock resolves by value, not argument order', () => {
+    const x = sidecar({ bookmarks: [bm('b1', T1, { chapter: 3 })] });
+    const y = sidecar({ bookmarks: [bm('b1', T1, { chapter: 7 })] });
+    expect(mergeSidecars(x, y).bookmarks).toEqual(mergeSidecars(y, x).bookmarks);
+  });
+
+  test('a delete on one device loses to the surviving copy (union, documented)', () => {
+    const deleted = sidecar({ bookmarks: [bm('b1', T1)] });
+    const kept = sidecar({ bookmarks: [bm('b1', T1), bm('b2', T2)] });
+    expect(mergeSidecars(deleted, kept).bookmarks?.map((b) => b.id)).toEqual(['b1', 'b2']);
+  });
+});
+
 describe('mergeSidecars: sessions', () => {
   test('sessions union by value: shared history dedupes, new stretches join', () => {
     const a = sidecar({ sessions: [session(T1, 600), session(T2, 300)] });
@@ -244,6 +288,7 @@ describe('mergeSidecars: algebra', () => {
       progress: 1,
       position: { chapter: 9, updatedAt: T2 },
       highlights: [hl('h1', T0), hl('h2', T1, { note: 'nb' })],
+      bookmarks: [bm('b1', T0), bm('b2', T1)],
       sessions: [session(T1, 600)],
     }),
     sidecar({
@@ -252,6 +297,7 @@ describe('mergeSidecars: algebra', () => {
       progress: 0.5,
       position: { chapter: 4, anchor: { path: [2, 1], ratio: 0.25 }, updatedAt: T3 },
       highlights: [hl('h2', T1, { color: 'pink', editedAt: T3 }), hl('h3', T2)],
+      bookmarks: [bm('b2', T1), bm('b3', T2, { chapter: 5 })],
       sessions: [session(T2, 300)],
     }),
     sidecar({

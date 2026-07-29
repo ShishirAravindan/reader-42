@@ -9,6 +9,7 @@
 import {
   type BookSidecar,
   type BookState,
+  type Bookmark,
   HIGHLIGHT_COLORS,
   HIGHLIGHT_TEXT_CAP,
   type Highlight,
@@ -101,6 +102,30 @@ export function parseHighlight(value: unknown): Highlight | null {
   };
 }
 
+/**
+ * A bookmark is its anchor: without a resolvable one there is no page to
+ * return to, so a corrupt anchor drops the whole record rather than leaving a
+ * bookmark that would silently land at the top of the chapter.
+ */
+export function parseBookmark(value: unknown): Bookmark | null {
+  if (!isRecord(value)) return null;
+  const id = asString(value.id);
+  const chapter = value.chapter;
+  const anchor = parseAnchor(value.anchor);
+  const createdAt = asIsoDate(value.createdAt);
+  if (
+    !id ||
+    typeof chapter !== 'number' ||
+    !Number.isInteger(chapter) ||
+    chapter < 0 ||
+    !anchor ||
+    !createdAt
+  ) {
+    return null;
+  }
+  return { id, chapter, anchor, createdAt };
+}
+
 function parsePosition(value: unknown): ReadingPosition | null {
   if (!isRecord(value)) return null;
   const chapter = value.chapter;
@@ -158,6 +183,13 @@ export function parseSidecar(value: unknown, fallbackNow: string): BookSidecar |
       if (hl) highlights.push(hl);
     }
   }
+  const bookmarks: Bookmark[] = [];
+  if (Array.isArray(value.bookmarks)) {
+    for (const raw of value.bookmarks) {
+      const bm = parseBookmark(raw);
+      if (bm) bookmarks.push(bm);
+    }
+  }
   const sessions: ReadingSession[] = [];
   if (Array.isArray(value.sessions)) {
     for (const raw of value.sessions) {
@@ -181,6 +213,9 @@ export function parseSidecar(value: unknown, fallbackNow: string): BookSidecar |
         : 0,
     position: parsePosition(value.position),
     highlights,
+    // Omitted when empty: a sidecar that never had bookmarks round-trips
+    // byte-identical, so the field only appears once one is set.
+    ...(bookmarks.length > 0 ? { bookmarks } : {}),
     sessions,
   };
 }
