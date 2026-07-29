@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { parseAnchor, parseHighlight, parseIndex, parseSidecar } from './parse.ts';
+import { parseAnchor, parseBookmark, parseHighlight, parseIndex, parseSidecar } from './parse.ts';
 
 const NOW = '2026-07-12T00:00:00.000Z';
 
@@ -90,6 +90,40 @@ describe('parseSidecar', () => {
     expect(parsed?.stateChangedAt).toBe(NOW);
     expect(parsed?.highlights).toEqual([]);
     expect(parsed?.sessions).toEqual([]);
+  });
+
+  test('a sidecar without bookmarks stays without the field (old files round-trip)', () => {
+    expect(parseSidecar(validSidecar, NOW)).not.toHaveProperty('bookmarks');
+  });
+
+  test('bookmarks survive; a bookmark with a corrupt anchor is dropped alone', () => {
+    const parsed = parseSidecar(
+      {
+        ...validSidecar,
+        bookmarks: [
+          { id: 'bm1', chapter: 2, anchor: { path: [4, 0], ratio: 0.25 }, createdAt: NOW },
+          { id: 'bm2', chapter: 2, anchor: { path: ['nope'], ratio: 0 }, createdAt: NOW },
+          { id: 'bm3', chapter: 2, anchor: { path: [5], ratio: 0 } },
+          { id: 'bm4', chapter: -1, anchor: { path: [5], ratio: 0 }, createdAt: NOW },
+        ],
+      },
+      NOW,
+    );
+    expect(parsed?.bookmarks?.map((b) => b.id)).toEqual(['bm1']);
+    expect(parsed?.bookmarks?.[0]?.anchor).toEqual({ path: [4, 0], ratio: 0.25 });
+  });
+});
+
+describe('parseBookmark', () => {
+  const valid = { id: 'bm1', chapter: 2, anchor: { path: [4], ratio: 0.5 }, createdAt: NOW };
+
+  test('an anchorless bookmark has no page to return to, so it is dropped', () => {
+    expect(parseBookmark({ ...valid, anchor: undefined })).toBeNull();
+    expect(parseBookmark({ ...valid, anchor: { path: [1], ratio: Number.NaN } })).toBeNull();
+  });
+
+  test('keeps exactly the four contract fields', () => {
+    expect(parseBookmark({ ...valid, junk: 'ignored' })).toEqual(valid);
   });
 });
 

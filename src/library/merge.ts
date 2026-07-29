@@ -7,6 +7,7 @@
 //   position + progress   position.updatedAt, latest wins
 //   state                 stateChangedAt, latest wins
 //   highlights            union by id; same-id edits resolve by editedAt
+//   bookmarks             union by id (bookmarks are never edited)
 //   sessions              union by value (append-only on both sides)
 //   addedAt/title/author  the earliest addition wins (import metadata)
 //
@@ -16,7 +17,7 @@
 // Clock ties resolve by comparing serialized values, never by argument
 // order.
 
-import type { BookSidecar, Highlight, LibraryIndex, ReadingSession } from './types.ts';
+import type { BookSidecar, Bookmark, Highlight, LibraryIndex, ReadingSession } from './types.ts';
 
 /** Compare ISO timestamps; ties fall through to a deterministic value compare. */
 function laterOf<T>(a: T, aClock: string, b: T, bClock: string): T {
@@ -54,6 +55,24 @@ function mergeHighlights(a: Highlight[], b: Highlight[]): Highlight[] {
   );
 }
 
+/**
+ * Bookmarks union by id and are never edited in place, so a same-id pair from
+ * two devices is the same bookmark: the deterministic value compare settles
+ * any byte difference. Union means a delete on one device loses to a copy on
+ * the other (the bookmark comes back) — the same accepted semantics as
+ * highlights, and the price of never losing a page someone marked.
+ */
+function mergeBookmarks(a: Bookmark[], b: Bookmark[]): Bookmark[] {
+  const byId = new Map<string, Bookmark>();
+  for (const bm of [...a, ...b]) {
+    const seen = byId.get(bm.id);
+    byId.set(bm.id, seen ? laterOf(seen, seen.createdAt, bm, bm.createdAt) : bm);
+  }
+  return [...byId.values()].sort(
+    (x, y) => Date.parse(x.createdAt) - Date.parse(y.createdAt) || (x.id < y.id ? -1 : 1),
+  );
+}
+
 function mergeSessions(a: ReadingSession[], b: ReadingSession[]): ReadingSession[] {
   const byValue = new Map<string, ReadingSession>();
   for (const s of [...a, ...b]) {
@@ -83,6 +102,10 @@ export function mergeSidecars(a: BookSidecar, b: BookSidecar): BookSidecar {
 
   const stateWinner = laterOf(a, a.stateChangedAt, b, b.stateChangedAt);
 
+  // Absent stays absent: a pair of sidecars that never carried bookmarks
+  // merges back to a sidecar without the field (idempotence on old files).
+  const bookmarks = mergeBookmarks(a.bookmarks ?? [], b.bookmarks ?? []);
+
   // Import metadata: the earliest addition is the origin.
   const addedWinner =
     Date.parse(a.addedAt) !== Date.parse(b.addedAt)
@@ -102,6 +125,7 @@ export function mergeSidecars(a: BookSidecar, b: BookSidecar): BookSidecar {
     progress: positionWinner ? positionWinner.progress : Math.max(a.progress, b.progress),
     position: positionWinner ? positionWinner.position : null,
     highlights: mergeHighlights(a.highlights, b.highlights),
+    ...(bookmarks.length > 0 ? { bookmarks } : {}),
     sessions: mergeSessions(a.sessions, b.sessions),
   };
 }
