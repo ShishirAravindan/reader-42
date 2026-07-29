@@ -10,7 +10,9 @@ import type { BookSidecar } from '../library/types.ts';
 import { ReaderController } from '../reader/controller.ts';
 import { attachReadingInput } from '../reader/input.ts';
 import type { DisplayMode } from '../reader/mode.ts';
+import { createChrome } from './chrome.ts';
 import { el } from './dom.ts';
+import { getDisplayMode, setDisplayMode } from './prefs.ts';
 
 export interface ReaderDeps {
   library: Library;
@@ -22,9 +24,10 @@ export interface ReaderDeps {
 let controller: ReaderController | null = null;
 let openSidecar: BookSidecar | null = null;
 let detachInput: (() => void) | null = null;
-// Kindle parity: paginated is the default mode. The toggle arrives with the
-// chrome bar; until then this is a fixed default read at call time.
-const displayMode: DisplayMode = 'paged';
+let detachEscape: (() => void) | null = null;
+// Kindle parity: paginated is the default; the current value is device-local
+// taste (prefs), re-read on every open and read at call time by the renderer.
+let displayMode: DisplayMode = 'paged';
 
 export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   const { library, deviceCache } = deps;
@@ -45,6 +48,11 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
 
   deps.showReader();
   el<HTMLElement>('reader-book-title').textContent = sidecar.title;
+
+  // Product law 2: opening a book lands straight in the text, chrome hidden.
+  const chrome = createChrome(el<HTMLElement>('reader'));
+  chrome.hide();
+  displayMode = getDisplayMode();
 
   const viewport = el<HTMLElement>('viewport');
   controller = new ReaderController(
@@ -77,24 +85,50 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   el<HTMLButtonElement>('back-to-shelf').onclick = () => {
     location.hash = '';
   };
-  el<HTMLButtonElement>('prev-chapter').onclick = () => controller?.prevChapter();
-  el<HTMLButtonElement>('next-chapter').onclick = () => controller?.nextChapter();
 
-  detachInput = attachReadingInput(viewport, {
-    dir: () => book.direction,
-    onTurn: (d) => (d === 'forward' ? controller?.turnForward() : controller?.turnBack()),
-    onChrome: () => {
-      // The auto-hiding chrome arrives with the next commit; center taps are
-      // deliberately inert until then.
-    },
-    keysEnabled: () => !el<HTMLElement>('reader').hidden,
-  });
+  const modeToggle = el<HTMLButtonElement>('mode-toggle');
+  const labelModeToggle = (): void => {
+    modeToggle.textContent = displayMode === 'paged' ? 'Paged' : 'Scroll';
+  };
+  labelModeToggle();
+  modeToggle.onclick = () => {
+    displayMode = displayMode === 'paged' ? 'scroll' : 'paged';
+    setDisplayMode(displayMode);
+    labelModeToggle();
+    controller?.setMode();
+  };
 
   const toc = el<HTMLElement>('toc');
   renderToc(toc, book.toc);
   el<HTMLButtonElement>('toc-toggle').onclick = () => {
     toc.hidden = !toc.hidden;
   };
+
+  detachInput = attachReadingInput(viewport, {
+    dir: () => book.direction,
+    onTurn: (d) => {
+      // A page turn drops you back into pure text (parity I1).
+      toc.hidden = true;
+      chrome.hide();
+      if (d === 'forward') controller?.turnForward();
+      else controller?.turnBack();
+    },
+    onChrome: () => chrome.toggle(),
+    keysEnabled: () => !el<HTMLElement>('reader').hidden,
+  });
+
+  // Escape only ever restores or closes (salvage §4): it closes an open
+  // panel, else reveals hidden chrome; it never hides anything else.
+  const onEscape = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || el<HTMLElement>('reader').hidden) return;
+    if (!toc.hidden) {
+      toc.hidden = true;
+      return;
+    }
+    if (!chrome.isOpen()) chrome.reveal();
+  };
+  document.addEventListener('keydown', onEscape);
+  detachEscape = () => document.removeEventListener('keydown', onEscape);
 
   // Internal links inside the chapter shadow jump within the book.
   viewport.onclick = (event) => {
@@ -120,6 +154,8 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
 export function closeReader(): void {
   detachInput?.();
   detachInput = null;
+  detachEscape?.();
+  detachEscape = null;
   controller?.dispose();
   controller = null;
   openSidecar = null;

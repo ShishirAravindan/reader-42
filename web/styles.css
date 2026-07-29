@@ -112,51 +112,74 @@ button:hover {
   white-space: nowrap;
 }
 
-/* reader */
+/* reader: a full-bleed viewport with the chrome bars OVERLAYING it, so
+   showing or hiding chrome never resizes the mount (a resize would
+   re-paginate the whole chapter). */
 #reader {
+  position: relative;
   height: 100%;
-  display: flex;
-  flex-direction: column;
+  overflow: hidden;
 }
-.reader-header,
-.reader-footer {
+#viewport {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+}
+.chrome-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
   padding: 0.5rem 1rem;
-  border-bottom: 1px solid var(--line);
   background: var(--bg);
+  transition: opacity 160ms ease, transform 160ms ease;
 }
-.reader-footer {
-  border-bottom: none;
+#top-bar {
+  top: 0;
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 10px rgba(36, 33, 27, 0.07);
+}
+#bottom-bar {
+  bottom: 0;
   border-top: 1px solid var(--line);
+  box-shadow: 0 -1px 10px rgba(36, 33, 27, 0.07);
 }
-.reader-title {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 0;
+#reader.chrome-hidden .chrome-bar {
+  opacity: 0;
+  pointer-events: none;
 }
-.reader-title span {
+#reader.chrome-hidden #top-bar {
+  transform: translateY(-35%);
+}
+#reader.chrome-hidden #bottom-bar {
+  transform: translateY(35%);
+}
+#reader-book-title {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 60vw;
+  min-width: 0;
 }
-#reader-chapter-label {
-  font-size: 0.8rem;
-}
-.reader-body {
-  flex: 1;
-  display: flex;
-  min-height: 0;
+#reader-chapter-label,
+#progress-label {
+  font-size: 0.85rem;
+  white-space: nowrap;
 }
 #toc {
-  width: 16rem;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: min(20rem, 100%);
+  z-index: 2;
   overflow-y: auto;
+  background: var(--bg);
   border-right: 1px solid var(--line);
-  padding: 1rem;
+  padding: 4rem 1rem;
 }
 #toc ol {
   list-style: none;
@@ -175,21 +198,6 @@ button:hover {
 }
 #toc a:hover {
   background: rgba(0, 0, 0, 0.05);
-}
-#viewport {
-  flex: 1;
-  overflow-y: auto;
-  min-width: 0;
-}
-
-@media (max-width: 40rem) {
-  #toc {
-    position: absolute;
-    inset: 3rem 0 3rem 0;
-    background: var(--bg);
-    width: 100%;
-    z-index: 2;
-  }
 }
 
 /* Touch: every control is a real fingertip target (44px minimum). */
@@ -214,12 +222,12 @@ button:hover {
 
 /* Phones with notches and home bars: chrome respects the safe area, and the
    reading column never hides under it. */
-.reader-header {
+#top-bar {
   padding-top: calc(0.5rem + env(safe-area-inset-top));
   padding-left: calc(1rem + env(safe-area-inset-left));
   padding-right: calc(1rem + env(safe-area-inset-right));
 }
-.reader-footer {
+#bottom-bar {
   padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
   padding-left: calc(1rem + env(safe-area-inset-left));
   padding-right: calc(1rem + env(safe-area-inset-right));
