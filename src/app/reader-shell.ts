@@ -8,6 +8,7 @@ import type { DeviceCacheTransport } from '../library/device-cache.ts';
 import type { Library } from '../library/store.ts';
 import type { BookSidecar } from '../library/types.ts';
 import { ReaderController } from '../reader/controller.ts';
+import type { DisplayMode } from '../reader/mode.ts';
 import { el } from './dom.ts';
 
 export interface ReaderDeps {
@@ -19,6 +20,9 @@ export interface ReaderDeps {
 
 let controller: ReaderController | null = null;
 let openSidecar: BookSidecar | null = null;
+// Kindle parity: paginated is the default mode. The toggle arrives with the
+// chrome bar; until then this is a fixed default read at call time.
+const displayMode: DisplayMode = 'paged';
 
 export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   const { library, deviceCache } = deps;
@@ -41,25 +45,30 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   el<HTMLElement>('reader-book-title').textContent = sidecar.title;
 
   const viewport = el<HTMLElement>('viewport');
-  controller = new ReaderController(book, viewport, {
-    onChapter: (index) => {
-      el<HTMLElement>('reader-chapter-label').textContent =
-        `${index + 1} of ${book.chapters.length}`;
+  controller = new ReaderController(
+    book,
+    viewport,
+    { mode: () => displayMode },
+    {
+      onChapter: (index) => {
+        el<HTMLElement>('reader-chapter-label').textContent =
+          `${index + 1} of ${book.chapters.length}`;
+      },
+      onPosition: ({ position, progress }) => {
+        if (!openSidecar) return;
+        openSidecar = {
+          ...openSidecar,
+          position,
+          progress,
+          ...(openSidecar.state === 'unread'
+            ? { state: 'reading' as const, stateChangedAt: position.updatedAt }
+            : {}),
+        };
+        el<HTMLElement>('progress-label').textContent = `${Math.round(progress * 100)}%`;
+        void library.saveSidecar(openSidecar);
+      },
     },
-    onPosition: ({ position, progress }) => {
-      if (!openSidecar) return;
-      openSidecar = {
-        ...openSidecar,
-        position,
-        progress,
-        ...(openSidecar.state === 'unread'
-          ? { state: 'reading' as const, stateChangedAt: position.updatedAt }
-          : {}),
-      };
-      el<HTMLElement>('progress-label').textContent = `${Math.round(progress * 100)}%`;
-      void library.saveSidecar(openSidecar);
-    },
-  });
+  );
   controller.open(sidecar.position);
   el<HTMLElement>('progress-label').textContent = `${Math.round(sidecar.progress * 100)}%`;
 

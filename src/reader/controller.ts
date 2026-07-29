@@ -3,7 +3,7 @@
 
 import type { Book } from '../epub/book.ts';
 import type { PositionAnchor, ReadingPosition } from '../library/types.ts';
-import { type RenderedChapter, renderChapter } from './render.ts';
+import { type ReaderView, type RenderedChapter, renderChapter } from './render.ts';
 
 export interface PositionUpdate {
   position: ReadingPosition;
@@ -16,6 +16,8 @@ export interface ControllerHooks {
   onPosition?(update: PositionUpdate): void;
   /** Called when the visible chapter changes (render, prev/next, TOC jump). */
   onChapter?(index: number): void;
+  /** A turn hit the book edge: gentle stop, no wrap; the caller may hint. */
+  onBoundary?(edge: 'start' | 'end'): void;
 }
 
 const SAVE_DEBOUNCE_MS = 800;
@@ -23,6 +25,7 @@ const SAVE_DEBOUNCE_MS = 800;
 export class ReaderController {
   private readonly book: Book;
   private readonly mount: HTMLElement;
+  private readonly view: ReaderView;
   private readonly hooks: ControllerHooks;
   private readonly weights: number[];
   private readonly totalWeight: number;
@@ -37,11 +40,13 @@ export class ReaderController {
   constructor(
     book: Book,
     mount: HTMLElement,
+    view: ReaderView,
     hooks: ControllerHooks = {},
     now: () => string = () => new Date().toISOString(),
   ) {
     this.book = book;
     this.mount = mount;
+    this.view = view;
     this.hooks = hooks;
     this.now = now;
     this.weights = book.chapterWeights();
@@ -82,6 +87,41 @@ export class ReaderController {
     return this.goToChapter(this.chapterIndex - 1);
   }
 
+  /**
+   * One page (or most of a screen, in scroll mode) forward; crosses into the
+   * next chapter at the chapter edge. At the end of the book: a gentle stop.
+   * Same-chapter turns save through the debounced scroll path (programmatic
+   * scrolls fire scroll events); chapter crossings save immediately.
+   */
+  turnForward(): void {
+    if (!this.rendered) return;
+    if (this.rendered.turnForward()) return;
+    if (this.chapterIndex + 1 >= this.book.chapters.length) {
+      this.hooks.onBoundary?.('end');
+      return;
+    }
+    this.goToChapter(this.chapterIndex + 1);
+  }
+
+  /** Backward counterpart; entering the previous chapter lands on its end. */
+  turnBack(): void {
+    if (!this.rendered) return;
+    if (this.rendered.turnBack()) return;
+    if (this.chapterIndex === 0) {
+      this.hooks.onBoundary?.('start');
+      return;
+    }
+    this.renderChapterAt(this.chapterIndex - 1);
+    this.rendered?.toEnd();
+    this.emitPosition();
+  }
+
+  /** Re-derive layout after the display mode changed (mode lives in app prefs). */
+  setMode(): void {
+    this.rendered?.relayout();
+    this.emitPosition();
+  }
+
   goToChapter(index: number, fragment?: string): boolean {
     if (index < 0 || index >= this.book.chapters.length) return false;
     this.renderChapterAt(index);
@@ -109,8 +149,9 @@ export class ReaderController {
     if (!chapter) return;
     this.rendered?.dispose();
     this.chapterIndex = index;
-    this.rendered = renderChapter(this.book, chapter, this.mount);
+    this.rendered = renderChapter(this.book, chapter, this.mount, this.view);
     this.mount.scrollTop = 0;
+    this.mount.scrollLeft = 0;
     this.hooks.onChapter?.(index);
   }
 
