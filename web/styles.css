@@ -63,12 +63,54 @@
   font-display: swap;
 }
 
-:root {
+/* Page-color themes (parity D1). The ONLY place colors are defined: the
+   shadow CSS consumes these same custom properties (they inherit through the
+   shadow boundary), so app chrome and book page always agree — the salvage §7
+   token duplication is dead. Each block carries the full set. The selector is
+   `[data-theme=…]`, not `:root[data-theme=…]`, so an Aa-panel swatch can
+   preview a theme by carrying its data-theme attribute — same single source.
+   Order matters: the themed blocks must follow the paper default. */
+:root,
+[data-theme="paper"] {
   --bg: #f5f4ef;
   --fg: #24211b;
   --muted: #6e6759;
   --link: #33518a;
   --line: #ddd8cc;
+  --hover: rgba(36, 33, 27, 0.06);
+  --scrim: rgba(36, 33, 27, 0.16);
+  --img-dim: none;
+}
+[data-theme="white"] {
+  --bg: #ffffff;
+  --fg: #1c1c1c;
+  --muted: #6b6b6b;
+  --link: #2f5aa8;
+  --line: #e4e4e1;
+  --hover: rgba(0, 0, 0, 0.05);
+  --scrim: rgba(0, 0, 0, 0.14);
+  --img-dim: none;
+}
+[data-theme="sepia"] {
+  --bg: #f3e7d0;
+  --fg: #3f3222;
+  --muted: #7c6c52;
+  --link: #6f5322;
+  --line: #e0d0b0;
+  --hover: rgba(63, 50, 34, 0.07);
+  --scrim: rgba(63, 50, 34, 0.18);
+  --img-dim: none;
+}
+[data-theme="dark"] {
+  --bg: #121212;
+  --fg: #d6d3cd;
+  --muted: #8f8c85;
+  --link: #92aede;
+  --line: #2c2c2a;
+  --hover: rgba(255, 255, 255, 0.07);
+  --scrim: rgba(0, 0, 0, 0.5);
+  /* Kindle dims images in dark mode rather than inverting them. */
+  --img-dim: brightness(0.87);
 }
 
 * {
@@ -279,7 +321,7 @@ button:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(36, 33, 27, 0.16);
+  background: var(--scrim);
 }
 .finish-card {
   background: var(--bg);
@@ -339,7 +381,7 @@ button:hover {
   border-radius: 4px;
 }
 #toc a:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--hover);
 }
 
 /* Touch: every control is a real fingertip target (44px minimum). */

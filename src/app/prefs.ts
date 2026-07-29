@@ -18,6 +18,20 @@ export function setDisplayMode(mode: DisplayMode): void {
   writePrefs({ ...readPrefs(), displayMode: mode });
 }
 
+// --- page-color theme (parity D1) ---
+
+export const THEMES = ['paper', 'white', 'sepia', 'dark'] as const;
+export type Theme = (typeof THEMES)[number];
+
+export function getTheme(): Theme {
+  const raw = readPrefs().theme;
+  return THEMES.includes(raw as Theme) ? (raw as Theme) : 'paper';
+}
+
+export function setTheme(theme: Theme): void {
+  writePrefs({ ...readPrefs(), theme });
+}
+
 export function getStatusMode(): StatusMode {
   const raw = readPrefs().statusMode;
   return STATUS_MODES.includes(raw as StatusMode) ? (raw as StatusMode) : 'time-left-chapter';

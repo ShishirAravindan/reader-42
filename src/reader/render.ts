@@ -438,16 +438,17 @@ function isExternal(href: string): boolean {
 
 // --- base typography inside the shadow ---
 
+// Colors come exclusively from the app stylesheet's theme tokens (parity D1):
+// custom properties inherit through the shadow boundary, so the [data-theme]
+// blocks in web/styles.css are the single source of truth. The var() fallbacks
+// mirror the paper theme purely for headless rendering (tests without the app
+// stylesheet); no color may be defined here outside a fallback (salvage §7).
 const SHADOW_BASE_CSS = `
   :host {
-    --reader-fg: #24211b;
-    --reader-bg: #f5f4ef;
-    --reader-link: #33518a;
-    --reader-muted: #6e6759;
     display: block;
     position: relative;
-    color: var(--reader-fg);
-    background: var(--reader-bg);
+    color: var(--fg, #24211b);
+    background: var(--bg, #f5f4ef);
   }
   .chapter {
     max-width: 38rem; /* keep in sync with MEASURE_REM */
@@ -492,16 +493,18 @@ const SHADOW_BASE_CSS = `
   .chapter h2 { font-size: 1.35rem; }
   .chapter h3 { font-size: 1.15rem; }
   .chapter a {
-    color: var(--reader-link);
+    color: var(--link, #33518a);
     text-decoration-thickness: 1px;
     text-underline-offset: 0.15em;
   }
   .chapter blockquote {
-    border-left: 2px solid var(--reader-link);
+    border-left: 2px solid var(--link, #33518a);
     margin: 1em 0;
     padding: 0 0 0 1em;
-    color: var(--reader-muted);
+    color: var(--muted, #6e6759);
   }
   .chapter img, .chapter svg, .chapter image { max-width: 100%; height: auto; }
+  /* Dark theme dims images (Kindle-style), never inverts; other themes set none. */
+  .chapter img { filter: var(--img-dim, none); }
   .chapter pre, .chapter code { font-family: 'SF Mono', 'Menlo', monospace; font-size: 0.9em; }
 `;
