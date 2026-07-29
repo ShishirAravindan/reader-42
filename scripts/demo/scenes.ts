@@ -1267,6 +1267,7 @@ function bookmarkRows(page: Page): Promise<BookmarkRow[]> {
 }
 
 scene('go-to', async ({ page, capture }) => {
+  const fromLoc = await statusLocation(page); // where the reader is before any jump
   await openGoTo(page);
   expect(
     await page.locator('#toc a', { hasText: 'Two: The Long Middle' }).isVisible(),
@@ -1304,6 +1305,25 @@ scene('go-to', async ({ page, capture }) => {
   await zoneClick(page, 'back');
   await capture('go-to-location');
 
+  // The jump-back pill (H3): the jump left a way back, named by where it
+  // started, and tapping it really returns.
+  expectEq(
+    await page.locator('#jump-back').textContent(),
+    `Back to Loc ${fromLoc.toLocaleString('en-US')}`,
+    'the jump offers a way back, named by the place it started from',
+  );
+  await page.locator('#jump-back').click();
+  await page.waitForTimeout(250);
+  const returned = await statusLocation(page);
+  expect(
+    Math.abs(returned - fromLoc) <= 1,
+    `the pill returns to the pre-jump page (left ${fromLoc}, back at ${returned})`,
+  );
+  expect(
+    await page.locator('#jump-back').isHidden(),
+    'with nothing left on the stack the pill goes quiet',
+  );
+
   // The fixture carries a page-list, so a print page label wins over reading
   // the same characters as a location number.
   await openGoTo(page);
@@ -1317,6 +1337,17 @@ scene('go-to', async ({ page, capture }) => {
   expect(
     (await visibleParagraphs(page)).includes('p55'),
     'entering “5” goes to PRINT page 5, not to location 5',
+  );
+
+  // Reading on settles the pill away — the stack survives, the nagging does not.
+  expect(
+    await page.locator('#jump-back').isVisible(),
+    'the print-page jump offers its own way back',
+  );
+  for (let i = 0; i < 3; i++) await zoneClick(page, 'forward');
+  expect(
+    await page.locator('#jump-back').isHidden(),
+    'three page turns later the reader has settled and the pill withdraws',
   );
 
   // A bookmark row jumps to its page — proven by the dog-ear reappearing.
@@ -1437,5 +1468,15 @@ scene('footnotes', async ({ page, capture }) => {
     return r.right > vr.left && r.left < vr.right;
   });
   expect(onScreen, '“Go to note” brings the note itself on screen');
+  expect(
+    await page.locator('#jump-back').isVisible(),
+    'and leaves the pill to carry the reader back',
+  );
   await capture('footnote-jumped');
+  await page.locator('#jump-back').click();
+  await page.waitForTimeout(200);
+  expect(
+    (await metrics(page)).scrollLeft === before.scrollLeft,
+    'the pill returns to the page the note was referenced from',
+  );
 });
