@@ -32,6 +32,7 @@ import { createDictionaryCard } from './dictionary-card.ts';
 import { el } from './dom.ts';
 import { createFootnotePopover } from './footnote-popover.ts';
 import { createGoToPanel } from './goto-panel.ts';
+import { createJumpBack, jumpBackLabel } from './jumpback.ts';
 import { chapterTitles, createNotebook, logseqOutline, sortHighlights } from './notebook.ts';
 import {
   getDisplayMode,
@@ -324,6 +325,34 @@ export async function openReader(
     ribbon?.refresh();
   };
 
+  // The jump-back stack (H3): anything that is not a page turn records where
+  // the reader was, and the pill offers the way back. Wrapping the jump — not
+  // the destination — keeps every caller a one-liner and the rule in one place.
+  const backStack = createJumpBack();
+  const backPill = el<HTMLButtonElement>('jump-back');
+  const renderPill = (): void => {
+    const { visible, entry } = backStack.state();
+    backPill.hidden = !visible || !entry;
+    if (entry) backPill.textContent = jumpBackLabel(entry);
+  };
+  renderPill();
+  const jumpFrom = (run: () => void): void => {
+    const from = controller?.currentPosition() ?? null;
+    // The label is the place BEFORE the jump, so read the location first.
+    const location = from
+      ? metrics.locationOf(from.chapter, controller?.currentFraction() ?? 0)
+      : 1;
+    run();
+    if (from) backStack.push({ position: from, location });
+    renderPill();
+  };
+  backPill.onclick = (event): void => {
+    event.stopPropagation(); // never reaches the tap zones: no page turn
+    const entry = backStack.pop();
+    if (entry) controller?.goToPosition(entry.position);
+    renderPill();
+  };
+
   controller.open(sidecar.position);
 
   // A deep link (F5) lands on its highlight, flashed; the address bar keeps
@@ -413,21 +442,23 @@ export async function openReader(
       snippet: (bm) => bookmarkSnippet(metrics, bm),
       pages: () => anchors,
       totalLocations: () => metrics.totalLocations,
-      goToCover: () => controller?.goToChapter(0),
-      goToBeginning: () => controller?.goToChapter(book.beginning),
+      goToCover: () => jumpFrom(() => controller?.goToChapter(0)),
+      goToBeginning: () => jumpFrom(() => controller?.goToChapter(book.beginning)),
       goToTarget: (target) => {
         const place =
           target.kind === 'page'
             ? metrics.placeAtChar(target.globalChar)
             : metrics.placeAtLocation(target.location);
-        controller?.goToFraction(place.chapter, place.fraction);
+        jumpFrom(() => controller?.goToFraction(place.chapter, place.fraction));
       },
       goToBookmark: (bm) => {
-        controller?.goToPosition({
-          chapter: bm.chapter,
-          anchor: bm.anchor,
-          updatedAt: new Date().toISOString(),
-        });
+        jumpFrom(() =>
+          controller?.goToPosition({
+            chapter: bm.chapter,
+            anchor: bm.anchor,
+            updatedAt: new Date().toISOString(),
+          }),
+        );
       },
       removeBookmark: (bm) => {
         setBookmarks(bookmarks().filter((b) => b.id !== bm.id));
@@ -440,7 +471,7 @@ export async function openReader(
     },
   );
   closeGoTo = gotoPanel.close;
-  renderToc(toc, book.toc, gotoPanel.close);
+  renderToc(toc, book.toc, gotoPanel.close, jumpFrom);
   const notebook = createNotebook(
     el<HTMLElement>('notebook'),
     el<HTMLButtonElement>('notebook-toggle'),
@@ -450,8 +481,10 @@ export async function openReader(
       jumpTo: (hl) => {
         // Through the controller first: the chapter renders (and its marks
         // re-apply) before any geometry is resolved for the flash.
-        controller?.goToChapter(hl.chapter);
-        annotations?.reveal(hl.id);
+        jumpFrom(() => {
+          controller?.goToChapter(hl.chapter);
+          annotations?.reveal(hl.id);
+        });
       },
       exportFile: () => ({
         name: `${slugify(openSidecar?.title ?? 'book')}-highlights.md`,
@@ -509,6 +542,8 @@ export async function openReader(
       else controller?.turnBack();
       status?.refresh(); // same-chapter turns update the strip before the debounced save
       ribbon?.refresh(); // ...and so does the dog-ear
+      backStack.turn(); // three turns and the pill settles away
+      renderPill();
     },
     onChrome: () => chrome.toggle(),
     onCorner: toggleBookmarkHere,
@@ -585,15 +620,15 @@ export async function openReader(
       ) {
         const here = controller?.currentChapter() ?? 0;
         footnotes.show(target.getBoundingClientRect(), note, () => {
-          controller?.goToChapter(here, fragment);
+          jumpFrom(() => controller?.goToChapter(here, fragment));
         });
         return;
       }
-      controller?.goToChapter(controller.currentChapter(), fragment);
+      jumpFrom(() => controller?.goToChapter(controller.currentChapter(), fragment));
       return;
     }
     const resolved = resolveHref(chapter.path, path ?? '');
-    controller?.goToPath(resolved, fragment ?? null);
+    jumpFrom(() => controller?.goToPath(resolved, fragment ?? null));
   };
 }
 
@@ -612,6 +647,8 @@ export function closeReader(): void {
   closeGoTo = null;
   disposeFootnotes?.();
   disposeFootnotes = null;
+  const pill = document.getElementById('jump-back');
+  if (pill) pill.hidden = true;
   closeAaPanel?.();
   closeAaPanel = null;
   teardownSession?.(); // flush the session before the sidecar goes away
@@ -623,12 +660,21 @@ export function closeReader(): void {
   openSidecar = null;
 }
 
-function renderToc(root: HTMLElement, entries: TocEntry[], close: () => void): void {
+function renderToc(
+  root: HTMLElement,
+  entries: TocEntry[],
+  close: () => void,
+  jumpFrom: (run: () => void) => void,
+): void {
   root.replaceChildren();
-  root.appendChild(tocList(entries, close));
+  root.appendChild(tocList(entries, close, jumpFrom));
 }
 
-function tocList(entries: TocEntry[], close: () => void): HTMLOListElement {
+function tocList(
+  entries: TocEntry[],
+  close: () => void,
+  jumpFrom: (run: () => void) => void,
+): HTMLOListElement {
   const ol = document.createElement('ol');
   for (const entry of entries) {
     const li = document.createElement('li');
@@ -638,10 +684,10 @@ function tocList(entries: TocEntry[], close: () => void): HTMLOListElement {
     a.addEventListener('click', (event) => {
       event.preventDefault();
       close();
-      controller?.goToPath(entry.path, entry.fragment);
+      jumpFrom(() => controller?.goToPath(entry.path, entry.fragment));
     });
     li.appendChild(a);
-    if (entry.children.length > 0) li.appendChild(tocList(entry.children, close));
+    if (entry.children.length > 0) li.appendChild(tocList(entry.children, close, jumpFrom));
     ol.appendChild(li);
   }
   return ol;

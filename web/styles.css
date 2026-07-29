@@ -355,6 +355,25 @@ button:hover {
   opacity: 0;
 }
 
+/* The jump-back pill (H3): a small offer, bottom-left, just above the status
+   strip. It appears on any in-book jump and settles away once the reader has
+   turned a few pages — the way back stays, the nagging does not. */
+#jump-back {
+  position: absolute;
+  left: calc(1rem + env(safe-area-inset-left));
+  bottom: calc(2rem + env(safe-area-inset-bottom));
+  z-index: 4;
+  font-size: 0.82rem;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  background: var(--bg);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.14);
+}
+#reader:not(.chrome-hidden) #jump-back {
+  /* The bottom bar owns that band while chrome is open. */
+  bottom: calc(3.6rem + env(safe-area-inset-bottom));
+}
+
 /* End-of-book nudge (B6): a quiet centered card in the app's paper tones.
    It is a panel: Escape closes it before touching anything else. */
 #finish-nudge {
