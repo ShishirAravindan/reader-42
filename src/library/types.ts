@@ -45,6 +45,10 @@ export interface HighlightBoundary {
   offset: number;
 }
 
+/** The four Kindle-parity highlight tints (F1). */
+export const HIGHLIGHT_COLORS = ['yellow', 'pink', 'blue', 'orange'] as const;
+export type HighlightColor = (typeof HIGHLIGHT_COLORS)[number];
+
 export interface Highlight {
   id: string;
   chapter: number;
@@ -52,8 +56,12 @@ export interface Highlight {
   end: HighlightBoundary;
   /** The highlighted text, whitespace-collapsed, capped at 5000 chars. */
   text: string;
+  /** Absent means yellow: sidecars written before colors existed stay valid. */
+  color?: HighlightColor;
   note?: string;
   createdAt: string;
+  /** Clock for color/note edits; a record edited later wins the merge. */
+  editedAt?: string;
 }
 
 /** A completed reading stretch. Append-only; unioned across devices. */

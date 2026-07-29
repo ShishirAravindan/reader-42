@@ -6,7 +6,7 @@
 //
 //   position + progress   position.updatedAt, latest wins
 //   state                 stateChangedAt, latest wins
-//   highlights            union by id
+//   highlights            union by id; same-id edits resolve by editedAt
 //   sessions              union by value (append-only on both sides)
 //   addedAt/title/author  the earliest addition wins (import metadata)
 //
@@ -26,23 +26,28 @@ function laterOf<T>(a: T, aClock: string, b: T, bClock: string): T {
   return JSON.stringify(a) >= JSON.stringify(b) ? a : b;
 }
 
+/**
+ * Same-id conflict: a lexicographic total order, so the pick is associative
+ * and commutative no matter which device flushes first. Keys, in order:
+ * the edit clock (editedAt, falling back to createdAt — so a record recolored
+ * or annotated later wins over an untouched copy), then the note preference
+ * (an annotated record beats a bare one at equal clocks), then createdAt,
+ * then the deterministic value compare inside laterOf.
+ */
+function preferHighlight(a: Highlight, b: Highlight): Highlight {
+  const aClock = Date.parse(a.editedAt ?? a.createdAt);
+  const bClock = Date.parse(b.editedAt ?? b.createdAt);
+  if (aClock !== bClock) return aClock > bClock ? a : b;
+  if (a.note && !b.note) return a;
+  if (b.note && !a.note) return b;
+  return laterOf(a, a.createdAt, b, b.createdAt);
+}
+
 function mergeHighlights(a: Highlight[], b: Highlight[]): Highlight[] {
   const byId = new Map<string, Highlight>();
   for (const hl of [...a, ...b]) {
     const seen = byId.get(hl.id);
-    if (!seen) {
-      byId.set(hl.id, hl);
-      continue;
-    }
-    // Same id from both devices. Identical in practice; if they diverge
-    // (a note added on one side), prefer the annotated one, then the later
-    // one, then the deterministic value compare inside laterOf.
-    if (seen.note && !hl.note) continue;
-    if (hl.note && !seen.note) {
-      byId.set(hl.id, hl);
-      continue;
-    }
-    byId.set(hl.id, laterOf(seen, seen.createdAt, hl, hl.createdAt));
+    byId.set(hl.id, seen ? preferHighlight(seen, hl) : hl);
   }
   return [...byId.values()].sort(
     (x, y) => Date.parse(x.createdAt) - Date.parse(y.createdAt) || (x.id < y.id ? -1 : 1),
