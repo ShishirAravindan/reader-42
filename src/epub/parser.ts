@@ -11,7 +11,7 @@
 // because chapters and nav docs are XHTML, where getElementsByTagName misses.
 
 import { resolveAgainst, splitFragment } from './path.ts';
-import type { BookMetadata, Chapter, PageTarget, TocEntry } from './types.ts';
+import type { BookMetadata, Chapter, Landmark, PageTarget, TocEntry } from './types.ts';
 
 const NS_CONTAINER = 'urn:oasis:names:tc:opendocument:xmlns:container';
 const NS_OPF = 'http://www.idpf.org/2007/opf';
@@ -140,6 +140,28 @@ function readPageOl(ol: Element, navPath: string): PageTarget[] {
     }
     const childOl = firstDescendantNS(li, NS_XHTML, 'ol');
     if (childOl) out.push(...readPageOl(childOl, navPath));
+  }
+  return out;
+}
+
+/**
+ * The book's own landmarks (`<nav epub:type="landmarks">`). Each entry's
+ * epub:type names the place; entries without one are meaningless and dropped.
+ * Absent in most files — the caller must have a fallback, never a guess.
+ */
+export function parseLandmarks(xml: string, navPath: string): Landmark[] {
+  const doc = parseXml(xml);
+  const target = findNavByType(doc, 'landmarks');
+  const ol = target ? firstDescendantNS(target, NS_XHTML, 'ol') : null;
+  if (!ol) return [];
+  const out: Landmark[] = [];
+  for (const li of childrenNS(ol, NS_XHTML, 'li')) {
+    const a = firstDescendantNS(li, NS_XHTML, 'a');
+    const href = a?.getAttribute('href') ?? '';
+    const type = a?.getAttributeNS(NS_EPUB_OPS, 'type') ?? a?.getAttribute('epub:type') ?? '';
+    if (!a || href.length === 0 || type.length === 0) continue;
+    const split = splitFragment(decodeURI(href));
+    out.push({ type, path: resolveAgainst(navPath, split.path), fragment: split.fragment });
   }
   return out;
 }

@@ -31,6 +31,17 @@ export interface PageTarget {
   fragment: string | null;
 }
 
+/**
+ * One `<nav epub:type="landmarks">` entry: what the publisher calls a place
+ * in their own book ("cover", "toc", "bodymatter"). The only non-guessing
+ * source for "where does the book actually begin" (parity H1's Beginning).
+ */
+export interface Landmark {
+  type: string;
+  path: string;
+  fragment: string | null;
+}
+
 export interface Resource {
   path: string;
   mediaType: string;

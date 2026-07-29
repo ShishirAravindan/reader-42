@@ -11,7 +11,14 @@ import type { BookSidecar, Bookmark } from '../library/types.ts';
 import { ReaderController } from '../reader/controller.ts';
 import { type Dictionary, createDictionary } from '../reader/dictionary.ts';
 import { attachReadingInput } from '../reader/input.ts';
-import { bookMetrics, pageAnchors } from '../reader/metrics.ts';
+import { elementAtPath } from '../reader/locator.ts';
+import {
+  type BookMetrics,
+  bookMetrics,
+  excerptAt,
+  pageAnchors,
+  rawOffsetOfElement,
+} from '../reader/metrics.ts';
 import type { DisplayMode } from '../reader/mode.ts';
 import { MAX_SAMPLE_SEC, createPace } from '../reader/pace.ts';
 import { readerSelection, wordFromSelection } from '../reader/selection.ts';
@@ -21,6 +28,7 @@ import { type Ribbon, bookmarkOnPage, createRibbon, newBookmarkId } from './book
 import { createChrome } from './chrome.ts';
 import { createDictionaryCard } from './dictionary-card.ts';
 import { el } from './dom.ts';
+import { createGoToPanel } from './goto-panel.ts';
 import { chapterTitles, createNotebook, logseqOutline, sortHighlights } from './notebook.ts';
 import {
   getDisplayMode,
@@ -51,6 +59,8 @@ let disposeAnnotations: (() => void) | null = null;
 let disposeDictCard: (() => void) | null = null;
 /** Closes the notebook panel on teardown. */
 let closeNotebook: (() => void) | null = null;
+/** Closes the Go To panel on teardown. */
+let closeGoTo: (() => void) | null = null;
 
 // One dictionary for the app's lifetime: the 5 MB artifact is fetched on the
 // FIRST lookup only (never at book open) and the parsed map stays resident,
@@ -379,18 +389,53 @@ export async function openReader(
     ribbon?.refresh(); // the same bookmark, judged against the new geometry
   };
 
-  const toc = el<HTMLElement>('toc');
-  renderToc(toc, book.toc);
-  el<HTMLButtonElement>('toc-toggle').onclick = () => {
-    notebook.close();
-    toc.hidden = !toc.hidden;
-  };
-
-  // The Notebook (F4): every highlight in book order with human chapter
-  // titles (never spine indices — salvage §5), color filters, jump-and-flash
-  // rows, and the Logseq outline export.
+  // Human chapter titles, from the toc (salvage §5: never spine indices).
+  // Shared by the notebook, the Go To bookmark rows, and the peek preview.
   const titles = chapterTitles(book.toc, book.chapters.length, (p) => book.chapterIndexByPath(p));
   const chapterTitleFor = (chapter: number): string => titles[chapter] ?? `Chapter ${chapter + 1}`;
+
+  // The Go To panel (H1/G2): Cover, Beginning, page-or-location entry, the
+  // contents, and the bookmark list. The panel resolves what the reader asked
+  // for; every jump goes through the shell so the back stack sees it.
+  const toc = el<HTMLElement>('toc');
+  const gotoPanel = createGoToPanel(
+    el<HTMLElement>('goto-panel'),
+    el<HTMLButtonElement>('toc-toggle'),
+    {
+      contents: toc,
+      bookmarks,
+      chapterTitle: chapterTitleFor,
+      snippet: (bm) => bookmarkSnippet(metrics, bm),
+      pages: () => anchors,
+      totalLocations: () => metrics.totalLocations,
+      goToCover: () => controller?.goToChapter(0),
+      goToBeginning: () => controller?.goToChapter(book.beginning),
+      goToTarget: (target) => {
+        const place =
+          target.kind === 'page'
+            ? metrics.placeAtChar(target.globalChar)
+            : metrics.placeAtLocation(target.location);
+        controller?.goToFraction(place.chapter, place.fraction);
+      },
+      goToBookmark: (bm) => {
+        controller?.goToPosition({
+          chapter: bm.chapter,
+          anchor: bm.anchor,
+          updatedAt: new Date().toISOString(),
+        });
+      },
+      removeBookmark: (bm) => {
+        setBookmarks(bookmarks().filter((b) => b.id !== bm.id));
+        ribbon?.refresh();
+      },
+      onOpen: () => {
+        notebook.close();
+        aaPanel.close();
+      },
+    },
+  );
+  closeGoTo = gotoPanel.close;
+  renderToc(toc, book.toc, gotoPanel.close);
   const notebook = createNotebook(
     el<HTMLElement>('notebook'),
     el<HTMLButtonElement>('notebook-toggle'),
@@ -416,7 +461,7 @@ export async function openReader(
         ),
       }),
       onOpen: () => {
-        toc.hidden = true;
+        gotoPanel.close();
         aaPanel.close();
       },
     },
@@ -431,7 +476,7 @@ export async function openReader(
       status?.refresh();
     },
     onOpen: () => {
-      toc.hidden = true;
+      gotoPanel.close();
       notebook.close();
     },
   });
@@ -441,7 +486,7 @@ export async function openReader(
     dir: () => book.direction,
     onTurn: (d) => {
       // A page turn drops you back into pure text (parity I1).
-      toc.hidden = true;
+      gotoPanel.close();
       notebook.close();
       chrome.hide();
       if (d === 'forward') controller?.turnForward();
@@ -481,8 +526,8 @@ export async function openReader(
       aaPanel.close();
       return;
     }
-    if (!toc.hidden) {
-      toc.hidden = true;
+    if (gotoPanel.isOpen()) {
+      gotoPanel.close();
       return;
     }
     if (!chrome.isOpen()) chrome.reveal();
@@ -522,6 +567,8 @@ export function closeReader(): void {
   disposeDictCard = null;
   closeNotebook?.();
   closeNotebook = null;
+  closeGoTo?.();
+  closeGoTo = null;
   closeAaPanel?.();
   closeAaPanel = null;
   teardownSession?.(); // flush the session before the sidecar goes away
@@ -533,12 +580,12 @@ export function closeReader(): void {
   openSidecar = null;
 }
 
-function renderToc(root: HTMLElement, entries: TocEntry[]): void {
+function renderToc(root: HTMLElement, entries: TocEntry[], close: () => void): void {
   root.replaceChildren();
-  root.appendChild(tocList(entries));
+  root.appendChild(tocList(entries, close));
 }
 
-function tocList(entries: TocEntry[]): HTMLOListElement {
+function tocList(entries: TocEntry[], close: () => void): HTMLOListElement {
   const ol = document.createElement('ol');
   for (const entry of entries) {
     const li = document.createElement('li');
@@ -547,15 +594,31 @@ function tocList(entries: TocEntry[]): HTMLOListElement {
     a.href = '#';
     a.addEventListener('click', (event) => {
       event.preventDefault();
+      close();
       controller?.goToPath(entry.path, entry.fragment);
-      el<HTMLElement>('toc').hidden = true;
     });
     li.appendChild(a);
-    if (entry.children.length > 0) li.appendChild(tocList(entry.children));
+    if (entry.children.length > 0) li.appendChild(tocList(entry.children, close));
     ol.appendChild(li);
   }
   return ol;
 }
+
+/**
+ * What sits at a bookmark, without rendering its chapter: resolve the
+ * structural anchor against the parsed chapter body, turn it into a raw text
+ * offset, and excerpt from the chapter's text. Layout-free, so the Go To
+ * panel can describe pages the reader is nowhere near.
+ */
+function bookmarkSnippet(metrics: BookMetrics, bookmark: Bookmark): string {
+  const body = metrics.chapterBody(bookmark.chapter);
+  if (!body) return '';
+  const element = elementAtPath(body, bookmark.anchor.path) ?? body;
+  const offset = rawOffsetOfElement(body, element) ?? 0;
+  return excerptAt(metrics.chapterText(bookmark.chapter), offset, BOOKMARK_SNIPPET_CHARS);
+}
+
+const BOOKMARK_SNIPPET_CHARS = 90;
 
 function resolveHref(basePath: string, href: string): string {
   const base = basePath.split('/').slice(0, -1);

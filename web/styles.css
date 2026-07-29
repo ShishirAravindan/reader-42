@@ -396,17 +396,112 @@ button:hover {
   font-size: 0.85rem;
   white-space: nowrap;
 }
-#toc {
+/* The Go To panel (H1): Cover/Beginning, a page-or-location box, the book's
+   contents, and every bookmarked page — one panel that answers "take me
+   somewhere". The TOC list keeps its own id and behavior inside it. */
+#goto-panel {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 0;
-  width: min(20rem, 100%);
+  width: min(22rem, 100%);
   z-index: 2;
   overflow-y: auto;
   background: var(--bg);
   border-right: 1px solid var(--line);
-  padding: 4rem 1rem;
+  padding: calc(3.4rem + env(safe-area-inset-top)) 1rem calc(1rem + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.goto-quick {
+  display: flex;
+  gap: 0.4rem;
+}
+.goto-quick button {
+  flex: 1;
+}
+.goto-entry {
+  display: flex;
+  gap: 0.4rem;
+}
+#goto-location {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--fg);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+}
+.goto-error:empty {
+  display: none;
+}
+.goto-error {
+  font-size: 0.8rem;
+}
+.goto-heading {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 0.4rem;
+}
+.goto-bm-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.3rem;
+  border-bottom: 1px solid var(--line);
+}
+.goto-bm-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  text-align: left;
+  border: none;
+  border-radius: 0;
+  padding: 0.55rem 0.15rem;
+}
+.goto-bm-main:hover {
+  background: var(--hover);
+  border-color: transparent;
+}
+.goto-bm-chapter {
+  font-size: 0.9rem;
+}
+.goto-bm-snippet {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.goto-bm-date {
+  font-size: 0.72rem;
+}
+.goto-bm-delete {
+  flex: 0 0 auto;
+  border: none;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0 0.5rem;
+}
+.goto-bm-delete:hover {
+  color: var(--fg);
+  border-color: transparent;
+}
+.goto-empty {
+  margin: 0.6rem 0.15rem;
+  font-size: 0.85rem;
+}
+#toc {
+  margin: 0;
 }
 #toc ol {
   list-style: none;

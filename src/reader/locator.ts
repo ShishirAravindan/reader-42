@@ -146,8 +146,13 @@ export function anchorTarget(
   return absoluteStart(el, mount, axis) + ratio * boxSize(el, axis);
 }
 
-/** Element at a structural path, or null when the path no longer resolves. */
-export function elementAtPath(wrapper: HTMLElement, path: number[]): Element | null {
+/**
+ * Element at a structural path, or null when the path no longer resolves.
+ * Takes any Element: paths captured against a live chapter wrapper resolve
+ * just as well against the same chapter parsed offline (bookmark snippets,
+ * peek excerpts), because the structure is the same either way.
+ */
+export function elementAtPath(wrapper: Element, path: number[]): Element | null {
   const clean = sanitizePath(path);
   if (!clean) return null;
   let el: Element = wrapper;
