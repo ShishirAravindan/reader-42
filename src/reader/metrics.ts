@@ -9,11 +9,16 @@
 // nothing here is called per position update except the pure arithmetic.
 
 import type { Book } from '../epub/book.ts';
-import type { PageTarget } from '../epub/types.ts';
-import { findBody, parseChapterDoc } from './render.ts';
+import { findBody, parseChapterDoc, sanitizeContent } from './render.ts';
 
 /** One location = this many characters of flattened chapter text. */
 export const LOCATION_SPAN = 128;
+
+/** A place in the book as the reader's own coordinates: chapter + how far in. */
+export interface BookPlace {
+  chapter: number;
+  fraction: number;
+}
 
 export interface BookMetrics {
   /** Flattened text length per spine chapter. */
@@ -24,13 +29,33 @@ export interface BookMetrics {
   /** 1-based linear location for a place, as in "Location X of Y". */
   locationOf(chapter: number, fraction: number): number;
   totalLocations: number;
+  /** Inverse of the location index: where a global character offset sits. */
+  placeAtChar(globalChar: number): BookPlace;
+  /** Inverse of locationOf: the place a 1-based location names. */
+  placeAtLocation(location: number): BookPlace;
+  /**
+   * The chapter's text nodes concatenated raw, in document order — the exact
+   * string annotate.ts addresses with `{ path: [], offset }` against the
+   * rendered wrapper. Search hits and peek excerpts live in this coordinate
+   * system; the whitespace-collapsed lengths above are a different one, used
+   * only for locations and progress.
+   */
+  chapterText(chapter: number): string;
+  /** Parsed, sanitized chapter body; structural paths resolve against it. */
+  chapterBody(chapter: number): Element | null;
 }
 
 export function bookMetrics(book: Book): BookMetrics {
+  const rawText: string[] = [];
   const chapterChars = book.chapters.map((chapter) => {
     const resource = book.resolveResource(chapter.path);
-    if (!resource) return 0;
-    return flattenedLength(new TextDecoder().decode(resource.bytes));
+    if (!resource) {
+      rawText.push('');
+      return 0;
+    }
+    const body = parseBody(new TextDecoder().decode(resource.bytes));
+    rawText.push(rawTextOf(body));
+    return flattenText(body.textContent ?? '').length;
   });
 
   const prefix: number[] = [0];
@@ -43,6 +68,11 @@ export function bookMetrics(book: Book): BookMetrics {
     return prefix[i] ?? 0;
   };
 
+  // Bodies are re-parsed on demand rather than retained: the eager pass above
+  // needs one parse per chapter for its counts, but keeping every chapter's
+  // DOM resident for a whole book would cost far more than the strings do.
+  const bodies = new Map<number, Element>();
+
   return {
     chapterChars,
     totalChars,
@@ -54,18 +84,110 @@ export function bookMetrics(book: Book): BookMetrics {
       const loc = Math.floor(offset / LOCATION_SPAN) + 1;
       return Math.min(Math.max(loc, 1), totalLocations);
     },
+    placeAtChar(globalChar: number): BookPlace {
+      const target = Math.min(Math.max(globalChar, 0), totalChars);
+      // The last chapter that starts at or before the offset, skipping empty
+      // ones so a place never lands in a chapter with nothing to show.
+      let chapter = 0;
+      for (let i = 0; i < chapterChars.length; i++) {
+        if ((prefix[i] ?? 0) <= target && (chapterChars[i] ?? 0) > 0) chapter = i;
+        if ((prefix[i] ?? 0) > target) break;
+      }
+      const chars = chapterChars[chapter] ?? 0;
+      const into = target - (prefix[chapter] ?? 0);
+      return { chapter, fraction: chars > 0 ? Math.min(Math.max(into / chars, 0), 1) : 0 };
+    },
+    placeAtLocation(location: number): BookPlace {
+      const loc = Math.min(Math.max(Math.floor(location), 1), totalLocations);
+      return this.placeAtChar((loc - 1) * LOCATION_SPAN);
+    },
+    chapterText: (chapter: number): string => rawText[chapter] ?? '',
+    chapterBody(chapter: number): Element | null {
+      const cached = bodies.get(chapter);
+      if (cached) return cached;
+      const path = book.chapters[chapter]?.path;
+      const resource = path ? book.resolveResource(path) : null;
+      if (!resource) return null;
+      const body = parseBody(new TextDecoder().decode(resource.bytes));
+      bodies.set(chapter, body);
+      return body;
+    },
   };
 }
 
-/** Length of the chapter's flattened text: textContent, whitespace-collapsed. */
-function flattenedLength(html: string): number {
+/**
+ * One chapter body, parsed and sanitized exactly as the renderer will show it
+ * — active content is stripped there too, so text the reader never sees never
+ * counts toward offsets or lengths.
+ */
+function parseBody(html: string): Element {
   const body = findBody(parseChapterDoc(html));
-  return flattenText(body.textContent ?? '').length;
+  sanitizeContent(body);
+  return body;
+}
+
+/** Text-node data concatenated in document order; no whitespace collapsing. */
+function rawTextOf(root: Element): string {
+  let out = '';
+  const walk = (node: Node): void => {
+    if (node.nodeType === 3 /* text */) {
+      out += node.nodeValue ?? '';
+      return;
+    }
+    for (const child of Array.from(node.childNodes)) walk(child);
+  };
+  walk(root);
+  return out;
+}
+
+/**
+ * Raw text offset of an element inside `root`: how much text-node data comes
+ * strictly before it in document order. Null when the element is not under
+ * `root`. Structure in, an offset into chapterText out — no layout anywhere,
+ * which is what lets a bookmark or a peek excerpt be resolved without ever
+ * rendering the chapter it points at.
+ */
+export function rawOffsetOfElement(root: Element, target: Element): number | null {
+  let offset = 0;
+  let found = false;
+  const walk = (node: Node): void => {
+    if (found) return;
+    if (node === target) {
+      found = true;
+      return;
+    }
+    if (node.nodeType === 3 /* text */) {
+      offset += (node.nodeValue ?? '').length;
+      return;
+    }
+    for (const child of Array.from(node.childNodes)) {
+      walk(child);
+      if (found) return;
+    }
+  };
+  walk(root);
+  return found ? offset : null;
 }
 
 /** The canonical flattening: collapse whitespace runs to single spaces, trim. */
 export function flattenText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * A readable excerpt of `text` starting at a raw offset: whitespace-collapsed,
+ * cut at a word boundary, with an ellipsis when the text runs on. Used by the
+ * bookmark rows and the Page Flip preview — both need to show WHERE a place is
+ * without rendering the chapter it lives in.
+ */
+export function excerptAt(text: string, offset: number, maxChars: number): string {
+  const from = Math.min(Math.max(offset, 0), text.length);
+  // Collapse first, then cut: collapsing after would leave a ragged tail.
+  const rest = flattenText(text.slice(from, from + maxChars * 2 + 1));
+  if (rest.length <= maxChars) return rest;
+  const cut = rest.slice(0, maxChars);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > maxChars * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
 }
 
 // --- print page anchors (parity B2) ---
@@ -85,18 +207,6 @@ export interface PageAnchor {
  */
 export function pageAnchors(book: Book, metrics: BookMetrics): PageAnchor[] {
   if (book.pageList.length === 0) return [];
-  const bodies = new Map<number, Element>();
-  const bodyFor = (chapter: number): Element | null => {
-    const cached = bodies.get(chapter);
-    if (cached) return cached;
-    const path = book.chapters[chapter]?.path;
-    const resource = path ? book.resolveResource(path) : null;
-    if (!resource) return null;
-    const body = findBody(parseChapterDoc(new TextDecoder().decode(resource.bytes)));
-    bodies.set(chapter, body);
-    return body;
-  };
-
   const anchors: PageAnchor[] = [];
   let floor = 0; // monotonicity clamp
   for (const target of book.pageList) {
@@ -104,7 +214,7 @@ export function pageAnchors(book: Book, metrics: BookMetrics): PageAnchor[] {
     if (chapter < 0) continue;
     let offset = 0;
     if (target.fragment) {
-      const body = bodyFor(chapter);
+      const body = metrics.chapterBody(chapter);
       const before = body ? charsBeforeId(body, target.fragment) : null;
       if (before === null) continue;
       offset = Math.min(before, metrics.chapterChars[chapter] ?? 0);

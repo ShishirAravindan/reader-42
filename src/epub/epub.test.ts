@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { buildFixtureEpub, buildZip } from '../../test/fixture-epub.ts';
 import { Book, readMetadata } from './book.ts';
-import { parsePageList } from './parser.ts';
+import { parseLandmarks, parsePageList } from './parser.ts';
 import { resolveAgainst, splitFragment } from './path.ts';
 import { Zip } from './zip.ts';
 
@@ -158,6 +158,112 @@ describe('parsePageList', () => {
     expect(pages.map((p) => p.label)).toEqual(['1']);
   });
 });
+
+describe('parseLandmarks', () => {
+  const navDoc = (body: string): string =>
+    `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>nav</title></head><body>${body}</body></html>`;
+
+  test("reads the publisher's own names for places, with resolved paths", () => {
+    const marks = parseLandmarks(
+      navDoc(
+        `<nav epub:type="landmarks"><ol>
+           <li><a epub:type="cover" href="cover.xhtml">Cover</a></li>
+           <li><a epub:type="bodymatter" href="text/ch2.xhtml">Start Reading</a></li>
+         </ol></nav>`,
+      ),
+      'OEBPS/nav.xhtml',
+    );
+    expect(marks).toEqual([
+      { type: 'cover', path: 'OEBPS/cover.xhtml', fragment: null },
+      { type: 'bodymatter', path: 'OEBPS/text/ch2.xhtml', fragment: null },
+    ]);
+  });
+
+  test('entries without an epub:type or href are meaningless and dropped', () => {
+    const marks = parseLandmarks(
+      navDoc(
+        `<nav epub:type="landmarks"><ol>
+           <li><a href="a.xhtml">Untyped</a></li>
+           <li><a epub:type="toc">No href</a></li>
+         </ol></nav>`,
+      ),
+      'nav.xhtml',
+    );
+    expect(marks).toEqual([]);
+  });
+
+  test('a book with no landmarks nav yields nothing, never a toc bleed', () => {
+    expect(
+      parseLandmarks(
+        navDoc('<nav epub:type="toc"><ol><li><a href="a.xhtml">A</a></li></ol></nav>'),
+        'nav.xhtml',
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe('Book.beginning', () => {
+  test('the bodymatter landmark names where the book proper starts', async () => {
+    const book = await Book.open(
+      landmarkEpub('<a epub:type="bodymatter" href="ch2.xhtml">Start</a>'),
+    );
+    expect(book.beginning).toBe(1);
+  });
+
+  test('no landmark, an unresolvable one, or one at the cover falls back to chapter 0', async () => {
+    expect((await Book.open(landmarkEpub(''))).beginning).toBe(0);
+    expect(
+      (await Book.open(landmarkEpub('<a epub:type="bodymatter" href="missing.xhtml">S</a>')))
+        .beginning,
+    ).toBe(0);
+    expect(
+      (await Book.open(landmarkEpub('<a epub:type="bodymatter" href="ch1.xhtml">S</a>'))).beginning,
+    ).toBe(0);
+  });
+});
+
+function landmarkEpub(entry: string): Uint8Array {
+  const chapter = (n: number): string =>
+    `<html xmlns="http://www.w3.org/1999/xhtml"><head><title>${n}</title></head><body><p>c${n}</p></body></html>`;
+  return buildZip([
+    ['mimetype', 'application/epub+zip'],
+    [
+      'META-INF/container.xml',
+      `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`,
+    ],
+    [
+      'content.opf',
+      `<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">lm-1</dc:identifier><dc:title>Landmarks</dc:title>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="ch2" href="ch2.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="ch1"/><itemref idref="ch2"/></spine>
+</package>`,
+    ],
+    [
+      'nav.xhtml',
+      `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>nav</title></head><body>
+  <nav epub:type="toc"><ol><li><a href="ch1.xhtml">One</a></li></ol></nav>
+  ${entry ? `<nav epub:type="landmarks"><ol><li>${entry}</li></ol></nav>` : ''}
+</body></html>`,
+    ],
+    ['ch1.xhtml', chapter(1)],
+    ['ch2.xhtml', chapter(2)],
+  ]);
+}
 
 function rtlEpub(progression: string): Uint8Array {
   return buildZip([

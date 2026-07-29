@@ -1228,3 +1228,140 @@ scene('bookmarks', async ({ page, base, capture }) => {
   expect(!(await ribbonShown(page)), 'and is absent on the page before it');
   await capture('bookmark-restored');
 });
+
+async function openGoTo(page: Page): Promise<void> {
+  if (await chromeHidden(page)) await centerTap(page);
+  await page.locator('#toc-toggle').click();
+  await page.locator('#goto-panel').waitFor({ state: 'visible' });
+}
+
+/** The status line's location number, cycling the strip to it if needed. */
+async function statusLocation(page: Page): Promise<number> {
+  if (!(await chromeHidden(page))) await centerTap(page);
+  for (let i = 0; i < 7; i++) {
+    const match = (await statusLeft(page)).match(/^Loc ([\d,]+) of ([\d,]+)$/);
+    if (match) return Number(match[1]?.replace(/,/g, ''));
+    await statusTap(page);
+  }
+  throw new Error('status never reached the location state');
+}
+
+interface BookmarkRow {
+  id: string;
+  chapter: string;
+  snippet: string;
+  date: string;
+}
+
+function bookmarkRows(page: Page): Promise<BookmarkRow[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>('#goto-bookmarks .goto-bm-row')).map(
+      (row) => ({
+        id: row.dataset.bookmark ?? '',
+        chapter: row.querySelector('.goto-bm-chapter')?.textContent ?? '',
+        snippet: row.querySelector('.goto-bm-snippet')?.textContent ?? '',
+        date: row.querySelector('.goto-bm-date')?.textContent ?? '',
+      }),
+    ),
+  );
+}
+
+scene('go-to', async ({ page, capture }) => {
+  await openGoTo(page);
+  expect(
+    await page.locator('#toc a', { hasText: 'Two: The Long Middle' }).isVisible(),
+    'the contents still live in the panel, unchanged',
+  );
+  await capture('go-to-panel');
+
+  // Bookmarks: the two set in the previous scene, each described by what is
+  // actually on that page — resolved from the anchor without rendering it.
+  const rows = await bookmarkRows(page);
+  expectEq(rows.length, 2, 'both bookmarks are listed');
+  expectEq(rows[0]?.chapter, 'Two: The Long Middle', 'each row names its chapter, not an index');
+  expect(
+    (rows[0]?.snippet ?? '').includes('Paragraph'),
+    `the row shows the text at the bookmark (got "${rows[0]?.snippet}")`,
+  );
+  expect(/^\d+ \w+ \d{4}$/.test(rows[1]?.date ?? ''), `rows carry a date (got "${rows[1]?.date}")`);
+  expect(rows[0]?.snippet !== rows[1]?.snippet, 'the two bookmarks describe different pages');
+
+  // Location entry. A page spans many locations, so landing "at" location 40
+  // means landing on the PAGE that holds it: the status reads at or before it,
+  // and one more turn reads past it.
+  const target = 40;
+  await page.locator('#goto-location').fill(String(target));
+  await page.locator('#goto-location-go').click();
+  await page.waitForTimeout(250);
+  expect(await page.locator('#goto-panel').isHidden(), 'the panel closes behind the jump');
+  const landed = await statusLocation(page);
+  await zoneClick(page, 'forward');
+  const nextPage = await statusLocation(page);
+  expect(
+    landed <= target && nextPage > target,
+    `location entry lands on the page holding location ${target} (${landed} ≤ ${target} < ${nextPage})`,
+  );
+  await zoneClick(page, 'back');
+  await capture('go-to-location');
+
+  // The fixture carries a page-list, so a print page label wins over reading
+  // the same characters as a location number.
+  await openGoTo(page);
+  await page.locator('#goto-location').fill('5');
+  await page.locator('#goto-location-go').click();
+  await page.waitForTimeout(250);
+  await centerTap(page);
+  // The fixture's print page 5 starts at #p55, so landing with that paragraph
+  // on screen means the label branch won. Read as a LOCATION instead, "5"
+  // would have landed near the very start of the book.
+  expect(
+    (await visibleParagraphs(page)).includes('p55'),
+    'entering “5” goes to PRINT page 5, not to location 5',
+  );
+
+  // A bookmark row jumps to its page — proven by the dog-ear reappearing.
+  await openGoTo(page);
+  const first = (await bookmarkRows(page))[0];
+  expect(first, 'a bookmark row to jump to');
+  await page
+    .locator(`#goto-bookmarks .goto-bm-row[data-bookmark="${first.id}"] .goto-bm-main`)
+    .click();
+  await page.waitForTimeout(250);
+  await centerTap(page); // the jump left chrome open; back to pure text
+  expect(await ribbonShown(page), 'the bookmark row landed on the bookmarked page');
+  await capture('go-to-bookmark');
+
+  // Cover: the top of the first chapter, wherever you were.
+  await openGoTo(page);
+  await page.locator('#goto-cover').click();
+  await page.waitForTimeout(250);
+  expectEq(await chapterLabel(page), '1 of 3', 'Cover goes to the first spine chapter');
+  const m = await metrics(page);
+  expectEq(m.scrollLeft, 0, 'and to its first page');
+
+  // Beginning: this fixture declares no bodymatter landmark, so it honestly
+  // falls back to the same place rather than guessing at front matter.
+  await openGoTo(page);
+  await page.locator('#goto-beginning').click();
+  await page.waitForTimeout(250);
+  expectEq(
+    await chapterLabel(page),
+    '1 of 3',
+    'Beginning falls back to chapter 1 with no landmark',
+  );
+
+  // A location the book does not have is refused in place, with the panel open.
+  await openGoTo(page);
+  await page.locator('#goto-location').fill('99999');
+  await page.locator('#goto-location-go').click();
+  await page.waitForTimeout(120);
+  expect(await page.locator('#goto-panel').isVisible(), 'a bad entry leaves the panel open');
+  expect(
+    ((await page.locator('#goto-error').textContent()) ?? '').includes('99999'),
+    'and says plainly that there is nothing there',
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(80);
+  expect(await page.locator('#goto-panel').isHidden(), 'Escape closes the Go To panel');
+  await centerTap(page);
+});
