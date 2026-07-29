@@ -5,6 +5,7 @@
 
 import type { DisplayMode } from '../reader/mode.ts';
 import type { PaceState } from '../reader/pace.ts';
+import { STATUS_MODES, type StatusMode } from './status.ts';
 
 const KEY = 'reader42-prefs';
 const PACE_KEY_PREFIX = 'reader42-pace-';
@@ -15,6 +16,15 @@ export function getDisplayMode(): DisplayMode {
 
 export function setDisplayMode(mode: DisplayMode): void {
   writePrefs({ ...readPrefs(), displayMode: mode });
+}
+
+export function getStatusMode(): StatusMode {
+  const raw = readPrefs().statusMode;
+  return STATUS_MODES.includes(raw as StatusMode) ? (raw as StatusMode) : 'time-left-chapter';
+}
+
+export function setStatusMode(mode: StatusMode): void {
+  writePrefs({ ...readPrefs(), statusMode: mode });
 }
 
 // --- reading pace, per book (parity B5) ---

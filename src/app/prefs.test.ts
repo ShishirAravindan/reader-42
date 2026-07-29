@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
-import { getDisplayMode, getPace, setDisplayMode, setPace } from './prefs.ts';
+import {
+  getDisplayMode,
+  getPace,
+  getStatusMode,
+  setDisplayMode,
+  setPace,
+  setStatusMode,
+} from './prefs.ts';
 
 const KEY = 'reader42-prefs';
 
@@ -29,6 +36,23 @@ describe('display mode pref', () => {
     setDisplayMode('paged');
     const stored = JSON.parse(localStorage.getItem(KEY) ?? '{}');
     expect(stored).toEqual({ future: true, displayMode: 'paged' });
+  });
+});
+
+describe('status mode pref', () => {
+  beforeEach(() => localStorage.clear());
+
+  test('defaults to time-left-chapter and round-trips', () => {
+    expect(getStatusMode()).toBe('time-left-chapter');
+    setStatusMode('location');
+    expect(getStatusMode()).toBe('location');
+    setStatusMode('off');
+    expect(getStatusMode()).toBe('off');
+  });
+
+  test('bad persisted status mode degrades to the default', () => {
+    localStorage.setItem(KEY, JSON.stringify({ statusMode: 'sideways' }));
+    expect(getStatusMode()).toBe('time-left-chapter');
   });
 });
 

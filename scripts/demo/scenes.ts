@@ -208,6 +208,32 @@ scene('resume', async ({ page, capture }) => {
   await capture('resumed');
 });
 
+async function statusLeft(page: Page): Promise<string> {
+  return (await page.locator('#status-cycle').textContent()) ?? '';
+}
+
+async function statusRight(page: Page): Promise<string> {
+  return (await page.locator('#status-percent').textContent()) ?? '';
+}
+
+async function statusTap(page: Page): Promise<void> {
+  await page.locator('#status-cycle').click();
+  await page.waitForTimeout(60);
+}
+
+/** The synced sidecar, read back through the dev lib endpoint (files are the contract). */
+async function fetchSidecar(base: string): Promise<{ progress: number; state: string }> {
+  const index = (await (await fetch(`${base}/lib/library.json`)).json()) as {
+    books: { dir: string }[];
+  };
+  const dir = index.books[0]?.dir;
+  if (!dir) throw new Error('no book in the dev library');
+  return (await (await fetch(`${base}/lib/${dir}/book.json`)).json()) as {
+    progress: number;
+    state: string;
+  };
+}
+
 scene('chrome-rules', async ({ page, capture }) => {
   expect(await chromeHidden(page), 'chrome starts hidden after (re)open');
   await centerTap(page);
@@ -233,4 +259,96 @@ scene('chrome-rules', async ({ page, capture }) => {
   await page.waitForTimeout(80);
   expect(!(await chromeHidden(page)), 'Escape with chrome hidden reveals it (never hides)');
   await capture('chrome-rules');
+});
+
+scene('status-cycle', async ({ page, base, capture }) => {
+  // Chrome is open after the previous scene; the status strip shows only in
+  // pure-text reading, so hide it first.
+  await centerTap(page);
+  expect(await chromeHidden(page), 'chrome hidden: the status strip is visible');
+
+  // Initial state: time-left-chapter, still learning (no pace evidence yet).
+  expectEq(
+    await statusLeft(page),
+    'Learning reading speed…',
+    'time-left-chapter starts in the learning state',
+  );
+  const rightPct = await statusRight(page);
+  expect(/^\d+%$/.test(rightPct), `right slot shows a percent (got "${rightPct}")`);
+  await capture('status-learning');
+
+  const before = await metrics(page);
+
+  await statusTap(page); // -> time-left-book
+  expectEq(await statusLeft(page), 'Learning reading speed…', 'time-left-book is also learning');
+
+  await statusTap(page); // -> location
+  const locText = await statusLeft(page);
+  const loc = locText.match(/^Loc ([\d,]+) of ([\d,]+)$/);
+  expect(loc, `location state shows "Loc X of Y" (got "${locText}")`);
+  const locX = Number(loc[1]?.replace(/,/g, ''));
+  const locY = Number(loc[2]?.replace(/,/g, ''));
+  expect(locX >= 1 && locX <= locY, `Loc X within bounds (${locX} of ${locY})`);
+  expect(locY > 50 && locY < 500, `location total is sane for the fixture (${locY})`);
+  await capture('status-location');
+
+  await statusTap(page); // -> page (the fixture has a page-list)
+  const pageText = await statusLeft(page);
+  expect(/^Page \d+ of 6$/.test(pageText), `page state shows "Page X of 6" (got "${pageText}")`);
+
+  await statusTap(page); // -> percent
+  const pctText = await statusLeft(page);
+  expect(/^\d+%$/.test(pctText), `percent state shows a percent (got "${pctText}")`);
+  await page.waitForTimeout(1200); // let the debounced position save flush
+  const sidecar = await fetchSidecar(base);
+  const saved = Math.round(sidecar.progress * 100);
+  const shown = Number(pctText.replace('%', ''));
+  expect(
+    Math.abs(shown - saved) <= 1,
+    `percent matches the saved progress within rounding (${shown}% vs ${saved}%)`,
+  );
+  expectEq(await statusRight(page), '', 'right slot empty when the left shows percent');
+
+  await statusTap(page); // -> off
+  expect(
+    await page.evaluate(() =>
+      document.getElementById('status-line')?.classList.contains('status-off'),
+    ),
+    'off state hides the strip',
+  );
+  expectEq(await statusLeft(page), '', 'off state shows no text');
+  expectEq(await statusRight(page), '', 'off state shows no percent');
+
+  await statusTap(page); // one more tap brings it back
+  expectEq(
+    await statusLeft(page),
+    'Learning reading speed…',
+    'a tap on the invisible target cycles back on',
+  );
+
+  const after = await metrics(page);
+  expectEq(after.scrollLeft, before.scrollLeft, 'status taps never turn the page');
+  expectEq(after.scrollTop, before.scrollTop, 'status taps never scroll');
+
+  // Print page numbers march monotonically while reading through the book.
+  await tocNav(page, 'Two: The Long Middle');
+  await centerTap(page); // tocNav left chrome open; back to pure text
+  for (let i = 0; i < 3; i++) await statusTap(page); // t-l-chapter -> ... -> page
+  const pages: number[] = [];
+  for (let i = 0; i < 15; i++) {
+    const text = await statusLeft(page);
+    const n = Number(text.match(/^Page (\d+) of 6$/)?.[1]);
+    expect(Number.isFinite(n), `page state stays sane while turning (got "${text}")`);
+    pages.push(n);
+    if ((await chapterLabel(page)) === '3 of 3') break;
+    await zoneClick(page, 'forward');
+  }
+  for (let i = 1; i < pages.length; i++) {
+    const prev = pages[i - 1] ?? 0;
+    const cur = pages[i] ?? 0;
+    expect(cur >= prev, `page number never goes backwards (${pages.join(' -> ')})`);
+  }
+  expect((pages[0] ?? 99) <= 2, `starts near the front of the print edition (${pages[0]})`);
+  expect((pages[pages.length - 1] ?? 0) >= 5, `reaches the back pages (${pages.join(' -> ')})`);
+  await capture('status-page-numbers');
 });
