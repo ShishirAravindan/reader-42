@@ -143,6 +143,14 @@ export function buildFixtureEpub(): Uint8Array {
           <li><a href="ch2.xhtml">Two: The Long Middle</a>
             <ol><li><a href="ch2.xhtml#p30">Deep in the middle</a></li></ol></li>
           <li><a href="ch3.xhtml">Three: An End</a></li>
+        </ol></nav>
+        <nav epub:type="page-list" xmlns:epub="http://www.idpf.org/2007/ops" hidden="hidden"><ol>
+          <li><a href="ch1.xhtml#c1">1</a></li>
+          <li><a href="ch2.xhtml#p1">2</a></li>
+          <li><a href="ch2.xhtml#p20">3</a></li>
+          <li><a href="ch2.xhtml#p40">4</a></li>
+          <li><a href="ch2.xhtml#p55">5</a></li>
+          <li><a href="ch3.xhtml#c3">6</a></li>
         </ol></nav>`,
       ),
     ],
@@ -151,13 +159,16 @@ export function buildFixtureEpub(): Uint8Array {
       'OEBPS/ch1.xhtml',
       xhtml(
         'One',
-        `<h1>One: A Beginning</h1><p>The first chapter is short. It links ahead to <a href="ch3.xhtml">the end</a> so internal navigation has something to do.</p>`,
+        `<h1 id="c1">One: A Beginning</h1><p>The first chapter is short. It links ahead to <a href="ch3.xhtml">the end</a> so internal navigation has something to do.</p>`,
       ),
     ],
     ['OEBPS/ch2.xhtml', xhtml('Two', `<h1>Two: The Long Middle</h1>\n${longChapter()}`)],
     [
       'OEBPS/ch3.xhtml',
-      xhtml('Three', '<h1>Three: An End</h1><p>It ends, as chapters do, <em>quietly</em>.</p>'),
+      xhtml(
+        'Three',
+        '<h1 id="c3">Three: An End</h1><p>It ends, as chapters do, <em>quietly</em>.</p>',
+      ),
     ],
   ]);
 }

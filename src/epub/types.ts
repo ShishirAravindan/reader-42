@@ -21,6 +21,16 @@ export interface TocEntry {
   children: TocEntry[];
 }
 
+/**
+ * One print-edition page marker from the EPUB page-list nav (parity B2).
+ * Label is the print page ("1", "xii"); path/fragment locate its start.
+ */
+export interface PageTarget {
+  label: string;
+  path: string;
+  fragment: string | null;
+}
+
 export interface Resource {
   path: string;
   mediaType: string;
