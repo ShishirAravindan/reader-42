@@ -159,7 +159,12 @@ export function buildFixtureEpub(): Uint8Array {
       'OEBPS/ch1.xhtml',
       xhtml(
         'One',
-        `<h1 id="c1">One: A Beginning</h1><p>The first chapter is short. It links ahead to <a href="ch3.xhtml">the end</a> so internal navigation has something to do.</p>`,
+        // The noteref + trailing aside is the shape real EPUB3 books use for
+        // footnotes (H2): the marker sits inline, the note lives at the foot
+        // of the chapter, and epub:type says what each one is.
+        `<h1 id="c1">One: A Beginning</h1><p>The first chapter is short. It links ahead to <a href="ch3.xhtml">the end</a> so internal navigation has something to do.</p>
+         <p id="fnp">Some claims want support<a epub:type="noteref" xmlns:epub="http://www.idpf.org/2007/ops" href="#fn1" id="nr1"><sup>1</sup></a> before a reader will take them.</p>
+         <aside epub:type="footnote" xmlns:epub="http://www.idpf.org/2007/ops" id="fn1"><p>Marginalia belongs at the foot of the page, where it can be ignored.</p></aside>`,
       ),
     ],
     ['OEBPS/ch2.xhtml', xhtml('Two', `<h1>Two: The Long Middle</h1>\n${longChapter()}`)],

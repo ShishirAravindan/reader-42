@@ -10,12 +10,14 @@ import type { Library } from '../library/store.ts';
 import type { BookSidecar, Bookmark } from '../library/types.ts';
 import { ReaderController } from '../reader/controller.ts';
 import { type Dictionary, createDictionary } from '../reader/dictionary.ts';
+import { epubType, isFootnoteRef } from '../reader/footnotes.ts';
 import { attachReadingInput } from '../reader/input.ts';
 import { elementAtPath } from '../reader/locator.ts';
 import {
   type BookMetrics,
   bookMetrics,
   excerptAt,
+  flattenText,
   pageAnchors,
   rawOffsetOfElement,
 } from '../reader/metrics.ts';
@@ -28,6 +30,7 @@ import { type Ribbon, bookmarkOnPage, createRibbon, newBookmarkId } from './book
 import { createChrome } from './chrome.ts';
 import { createDictionaryCard } from './dictionary-card.ts';
 import { el } from './dom.ts';
+import { createFootnotePopover } from './footnote-popover.ts';
 import { createGoToPanel } from './goto-panel.ts';
 import { chapterTitles, createNotebook, logseqOutline, sortHighlights } from './notebook.ts';
 import {
@@ -61,6 +64,8 @@ let disposeDictCard: (() => void) | null = null;
 let closeNotebook: (() => void) | null = null;
 /** Closes the Go To panel on teardown. */
 let closeGoTo: (() => void) | null = null;
+/** Closes the footnote popover and detaches its outside-click listener. */
+let disposeFootnotes: (() => void) | null = null;
 
 // One dictionary for the app's lifetime: the 5 MB artifact is fetched on the
 // FIRST lookup only (never at book open) and the parsed map stays resident,
@@ -482,10 +487,21 @@ export async function openReader(
   });
   closeAaPanel = aaPanel.close;
 
+  // The footnote popover (H2): a transient overlay, so it closes ahead of
+  // every panel in the Escape chain and steps aside for a page turn.
+  const footnotes = createFootnotePopover(
+    el<HTMLElement>('footnote-popover'),
+    el<HTMLElement>('footnote-body'),
+    el<HTMLButtonElement>('footnote-goto'),
+    el<HTMLElement>('reader'),
+  );
+  disposeFootnotes = footnotes.dispose;
+
   detachInput = attachReadingInput(viewport, {
     dir: () => book.direction,
     onTurn: (d) => {
       // A page turn drops you back into pure text (parity I1).
+      footnotes.close();
       gotoPanel.close();
       notebook.close();
       chrome.hide();
@@ -511,6 +527,10 @@ export async function openReader(
     if (event.key !== 'Escape' || el<HTMLElement>('reader').hidden) return;
     if (!finishNudge.hidden) {
       closeFinish();
+      return;
+    }
+    if (footnotes.isOpen()) {
+      footnotes.close();
       return;
     }
     if (dictCard.isOpen()) {
@@ -548,6 +568,27 @@ export async function openReader(
     const chapter = book.chapters[controller?.currentChapter() ?? 0];
     if (!chapter) return;
     if (!path && fragment) {
+      // A same-chapter note shows in place (H2) rather than navigating: the
+      // reading position never moves, so there is nothing to come back from.
+      const view = controller?.chapterView();
+      const note = view?.shadow.getElementById(fragment) ?? null;
+      if (
+        view &&
+        note &&
+        isFootnoteRef({
+          linkType: epubType(target),
+          linkText: target.textContent ?? '',
+          targetTag: note.localName.toLowerCase(),
+          targetType: epubType(note),
+          targetTextLength: flattenText(note.textContent ?? '').length,
+        })
+      ) {
+        const here = controller?.currentChapter() ?? 0;
+        footnotes.show(target.getBoundingClientRect(), note, () => {
+          controller?.goToChapter(here, fragment);
+        });
+        return;
+      }
       controller?.goToChapter(controller.currentChapter(), fragment);
       return;
     }
@@ -569,6 +610,8 @@ export function closeReader(): void {
   closeNotebook = null;
   closeGoTo?.();
   closeGoTo = null;
+  disposeFootnotes?.();
+  disposeFootnotes = null;
   closeAaPanel?.();
   closeAaPanel = null;
   teardownSession?.(); // flush the session before the sidecar goes away

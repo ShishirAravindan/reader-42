@@ -1365,3 +1365,77 @@ scene('go-to', async ({ page, capture }) => {
   expect(await page.locator('#goto-panel').isHidden(), 'Escape closes the Go To panel');
   await centerTap(page);
 });
+
+/** Click the fixture's footnote marker inside the chapter shadow. */
+async function clickNoteref(page: Page): Promise<void> {
+  const point = await page.evaluate(() => {
+    const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
+    const link = shadow?.getElementById('nr1');
+    if (!link) throw new Error('no noteref in the rendered chapter');
+    const r = link.getClientRects()[0] ?? link.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  await page.mouse.click(point.x, point.y);
+  await page.waitForTimeout(150);
+}
+
+scene('footnotes', async ({ page, capture }) => {
+  await tocNav(page, 'One: A Beginning');
+  await centerTap(page);
+  expectEq(await chapterLabel(page), '1 of 3', 'in the chapter that carries the note');
+
+  // LOAD-BEARING: the note appears without the page moving under the reader.
+  const before = await metrics(page);
+  await clickNoteref(page);
+  await page.locator('#footnote-popover').waitFor({ state: 'visible' });
+  const noteText = (await page.locator('#footnote-body').textContent()) ?? '';
+  expect(
+    noteText.includes('Marginalia belongs at the foot'),
+    `the popover shows the note text (got "${noteText.slice(0, 40)}…")`,
+  );
+  const after = await metrics(page);
+  expectEq(after.scrollLeft, before.scrollLeft, 'reading the note turned no page');
+  expectEq(await chapterLabel(page), '1 of 3', 'and changed no chapter');
+  expect(await chromeHidden(page), 'and left the chrome alone');
+  await capture('footnote-popover');
+
+  // The note's own id never leaves the chapter: the popover holds a clone.
+  const cloned = await page.evaluate(() => ({
+    inPopover: document.querySelector('#footnote-body [id]') !== null,
+    stillInChapter:
+      document.querySelector('#viewport .chapter-host')?.shadowRoot?.getElementById('fn1') !== null,
+  }));
+  expect(!cloned.inPopover, 'the clone carries no ids to collide with the app');
+  expect(cloned.stillInChapter, 'the note itself stays in the chapter, untouched');
+
+  // An outside tap closes it, and is swallowed: no page turn, no chrome.
+  await page.mouse.click(1100, 400);
+  await page.waitForTimeout(120);
+  expect(await page.locator('#footnote-popover').isHidden(), 'an outside tap closes the popover');
+  expectEq((await metrics(page)).scrollLeft, before.scrollLeft, 'the closing tap turns no page');
+  expect(await chromeHidden(page), 'the closing tap leaves chrome hidden');
+
+  // Escape closes it too, ahead of everything else in the chain.
+  await clickNoteref(page);
+  await page.locator('#footnote-popover').waitFor({ state: 'visible' });
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(80);
+  expect(await page.locator('#footnote-popover').isHidden(), 'Escape closes the popover first');
+  expect(await chromeHidden(page), 'Escape spent itself on the popover; chrome stays hidden');
+
+  // "Go to note" is the real jump, for readers who want it in context.
+  await clickNoteref(page);
+  await page.locator('#footnote-goto').click();
+  await page.waitForTimeout(200);
+  expect(await page.locator('#footnote-popover').isHidden(), 'the popover closes behind the jump');
+  const onScreen = await page.evaluate(() => {
+    const v = document.getElementById('viewport') as HTMLElement;
+    const note = v.querySelector('.chapter-host')?.shadowRoot?.getElementById('fn1');
+    if (!note) return false;
+    const r = note.getBoundingClientRect();
+    const vr = v.getBoundingClientRect();
+    return r.right > vr.left && r.left < vr.right;
+  });
+  expect(onScreen, '“Go to note” brings the note itself on screen');
+  await capture('footnote-jumped');
+});
