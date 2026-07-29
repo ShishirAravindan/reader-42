@@ -285,7 +285,7 @@ button:hover {
   text-overflow: ellipsis;
   min-width: 0;
 }
-/* Aa clusters with Contents on the right; the title keeps the middle. */
+/* Aa, Notebook and Contents cluster right; the title keeps the middle. */
 #aa-toggle {
   margin-left: auto;
 }
@@ -515,6 +515,111 @@ button:hover {
 }
 .aa-dots span.on {
   background: var(--fg);
+}
+
+/* The Notebook panel (F4): the TOC pattern, mirrored to the right side. */
+#notebook {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: min(22rem, 100%);
+  z-index: 2;
+  overflow-y: auto;
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+  padding: calc(3.4rem + env(safe-area-inset-top)) 1rem calc(1rem + env(safe-area-inset-bottom))
+    1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.nb-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.nb-heading {
+  font-size: 1.05rem;
+}
+.nb-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.nb-chip {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+}
+.nb-chip[aria-pressed="true"] {
+  border-color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--fg);
+}
+/* Color filters wear their color, so the chips read at a glance. */
+.nb-chip-yellow {
+  background: var(--hl-yellow);
+}
+.nb-chip-pink {
+  background: var(--hl-pink);
+}
+.nb-chip-blue {
+  background: var(--hl-blue);
+}
+.nb-chip-orange {
+  background: var(--hl-orange);
+}
+.nb-list {
+  display: flex;
+  flex-direction: column;
+}
+.nb-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  text-align: left;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.65rem 0.15rem;
+}
+.nb-row:hover {
+  background: var(--hover);
+  border-color: var(--line);
+}
+.nb-dot {
+  flex: 0 0 auto;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  margin-top: 0.28rem;
+  border: 1px solid var(--line);
+}
+.nb-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.nb-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.92rem;
+}
+.nb-note {
+  font-style: italic;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.nb-chapter {
+  font-size: 0.78rem;
+}
+.nb-empty {
+  margin: 1rem 0.15rem;
+  font-size: 0.9rem;
 }
 
 /* The selection/highlight menu (E2, F1): a chrome-independent floating card

@@ -2,6 +2,7 @@
 // behavior before capturing evidence; the worst rendering bugs (zero-width
 // pagination, mode-switch position loss) are only catchable this way.
 
+import { readFileSync } from 'node:fs';
 import type { Page } from 'playwright';
 import { buildFixtureEpub } from '../../test/fixture-epub.ts';
 import { expect, expectEq, scene } from './harness.ts';
@@ -949,4 +950,207 @@ scene('dictionary', async ({ page, capture }) => {
   await page.waitForTimeout(80);
   expect(await page.locator('#dict-card').isHidden(), 'the card closes cleanly');
   if (!(await chromeHidden(page))) await centerTap(page); // back to pure text
+});
+
+// --- Epic 4: the notebook and deep links ---
+
+interface NotebookRow {
+  id: string;
+  color: string;
+  text: string;
+  note: string | null;
+  chapter: string;
+}
+
+/** The notebook panel's rows, in the order it lists them. */
+function notebookRows(page: Page): Promise<NotebookRow[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>('#notebook .nb-row')).map((row) => ({
+      id: row.dataset.hl ?? '',
+      color: row.querySelector('.nb-dot')?.className.match(/hl-dot-(\w+)/)?.[1] ?? '',
+      text: row.querySelector('.nb-text')?.textContent ?? '',
+      note: row.querySelector('.nb-note')?.textContent ?? null,
+      chapter: row.querySelector('.nb-chapter')?.textContent ?? '',
+    })),
+  );
+}
+
+/** Where a highlight's mark sits, and whether it is flashing right now. */
+function markState(
+  page: Page,
+  id: string,
+): Promise<{ present: boolean; inViewport: boolean; flashed: boolean }> {
+  return page.evaluate((id) => {
+    const v = document.getElementById('viewport') as HTMLElement;
+    const mark = v
+      .querySelector('.chapter-host')
+      ?.shadowRoot?.querySelector(`mark.hl[data-hl="${id}"]`);
+    if (!mark) return { present: false, inViewport: false, flashed: false };
+    const r = mark.getBoundingClientRect();
+    const vr = v.getBoundingClientRect();
+    return {
+      present: true,
+      inViewport: r.right > vr.left && r.left < vr.right && r.bottom > vr.top && r.top < vr.bottom,
+      flashed: mark.classList.contains('hl-flash'),
+    };
+  }, id);
+}
+
+async function openNotebook(page: Page): Promise<void> {
+  if (await chromeHidden(page)) await centerTap(page);
+  await page.locator('#notebook-toggle').click();
+  await page.locator('#notebook').waitFor({ state: 'visible' });
+}
+
+scene('notebook-and-links', async ({ page, capture }) => {
+  // A third highlight, in ANOTHER chapter: the notebook has to name each
+  // chapter from the toc, and a jump has to really cross chapters.
+  await tocNav(page, 'Three: An End');
+  await centerTap(page);
+  expectEq(await chapterLabel(page), '3 of 3', 'in chapter 3');
+  await selectTextIn(page, 'c3', 'An End');
+  await page.locator('#selection-menu [data-color="orange"]').click();
+  await page.waitForTimeout(200);
+  const orangeId = (await marksIn(page)).find((m) => m.classes.includes('hl-orange'))?.id ?? '';
+  expect(orangeId.length === 8, 'an orange highlight now lives in chapter 3');
+
+  // The panel: every highlight in the book, in book order, named by chapter.
+  await openNotebook(page);
+  const rows = await notebookRows(page);
+  expectEq(rows.length, 3, 'the notebook lists every highlight in the book');
+  expectEq(
+    rows.map((r) => r.text).join(' / '),
+    'The quick brown fox / deliberately and at length / An End',
+    'rows are in BOOK order (chapter, then position) — never creation order',
+  );
+  expectEq(rows.map((r) => r.color).join(','), 'yellow,pink,orange', 'each row wears its color');
+  expectEq(rows[0]?.chapter, 'Two: The Long Middle', 'the chapter title comes from the toc');
+  expectEq(rows[1]?.chapter, 'Two: The Long Middle', 'both chapter-2 highlights name chapter 2');
+  expectEq(rows[2]?.chapter, 'Three: An End', 'the chapter-3 highlight names chapter 3');
+  expectEq(rows[0]?.note, 'the fox is load-bearing', 'the note rides its highlight');
+  expectEq(rows[1]?.note, null, 'a note-less highlight shows no note line');
+  const yellowId = rows[0]?.id ?? '';
+  await capture('notebook-panel');
+
+  // Color filters narrow the list; a color nobody used shows the empty state.
+  await page.locator('#notebook [data-filter="pink"]').click();
+  const filtered = await notebookRows(page);
+  expectEq(filtered.length, 1, 'the pink filter narrows the list to one row');
+  expectEq(filtered[0]?.text, 'deliberately and at length', 'and it is the pink highlight');
+  await capture('notebook-filtered');
+  await page.locator('#notebook [data-filter="blue"]').click();
+  expectEq((await notebookRows(page)).length, 0, 'a color with no highlights lists nothing');
+  expectEq(
+    await page.locator('#notebook .nb-empty').textContent(),
+    'Nothing highlighted yet.',
+    'the empty state says so plainly',
+  );
+  await page.locator('#notebook [data-filter="all"]').click();
+  expectEq((await notebookRows(page)).length, 3, 'All restores the whole list');
+
+  // Export: one markdown outline per book, ready to drop into Logseq.
+  const linkBase = await page.evaluate(
+    () => `${location.origin}${location.pathname}${location.search}`,
+  );
+  const bookId = await page.evaluate(() => location.hash.match(/#\/book\/([0-9a-f]+)/)?.[1] ?? '');
+  const link = (hid: string): string => `${linkBase}#/book/${bookId}/hl/${hid}`;
+  const expected = `${[
+    '# The Fixture of Everything',
+    '- The quick brown fox',
+    '  - Two: The Long Middle',
+    `  - [link](${link(yellowId)})`,
+    '  - note: the fox is load-bearing',
+    '- deliberately and at length',
+    '  - Two: The Long Middle',
+    `  - [link](${link(rows[1]?.id ?? '')})`,
+    '- An End',
+    '  - Three: An End',
+    `  - [link](${link(orangeId)})`,
+  ].join('\n')}\n`;
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('#notebook-export').click(),
+  ]);
+  expectEq(
+    download.suggestedFilename(),
+    'the-fixture-of-everything-highlights.md',
+    'the export is named after the book',
+  );
+  expectEq(
+    readFileSync(await download.path(), 'utf8'),
+    expected,
+    'LOAD-BEARING: the outline matches bullet for bullet, links and all',
+  );
+
+  // Escape closes the notebook and nothing else; the sibling panels take
+  // turns (chain order: cards/menus, notebook, Aa, toc, chrome).
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(80);
+  expect(await page.locator('#notebook').isHidden(), 'Escape closes the notebook');
+  expect(!(await chromeHidden(page)), 'Escape closing the notebook left the chrome alone');
+  await openNotebook(page);
+  await page.locator('#aa-toggle').click();
+  await page.waitForTimeout(80);
+  expect(await page.locator('#notebook').isHidden(), 'opening the Aa panel closes the notebook');
+  await page.keyboard.press('Escape');
+  await openNotebook(page);
+  await page.locator('#toc-toggle').click();
+  await page.waitForTimeout(80);
+  expect(await page.locator('#notebook').isHidden(), 'opening the toc closes the notebook');
+  await page.locator('#toc-toggle').click(); // and away again
+
+  // A row jump: out of chapter 3, into the yellow highlight in chapter 2.
+  await openNotebook(page);
+  await page.locator(`#notebook .nb-row[data-hl="${yellowId}"]`).click();
+  await page.waitForTimeout(200);
+  expectEq(await chapterLabel(page), '2 of 3', 'the row jumped to the highlight’s chapter');
+  expect(await page.locator('#notebook').isHidden(), 'the notebook closes behind the jump');
+  let state = await markState(page, yellowId);
+  expect(state.inViewport, 'the jump brought the highlight on screen');
+  expect(state.flashed, 'landing on a highlight flashes it');
+  await capture('notebook-jump');
+
+  // Copy link on the chapter-3 highlight, then park the reading position in
+  // chapter 1: a fresh page must jump to the LINK, not to the saved place.
+  await tocNav(page, 'Three: An End');
+  await centerTap(page);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await clickMark(page, orangeId);
+  await page.locator('#sel-copy-link').click();
+  await page.waitForTimeout(120);
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expectEq(copied, link(orangeId), 'Copy link yields the absolute highlight deep link');
+
+  await tocNav(page, 'One: A Beginning');
+  await centerTap(page);
+  await page.waitForTimeout(500); // let the position write land
+
+  const fresh = await page.context().newPage();
+  await fresh.goto(copied);
+  await fresh.getByRole('heading', { name: 'Three: An End' }).waitFor();
+  // The flash is transient (1s): wait for it rather than sampling once.
+  await fresh.waitForFunction(() => {
+    const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
+    return !!shadow?.querySelector('mark.hl.hl-flash');
+  });
+  expectEq(
+    await chapterLabel(fresh),
+    '3 of 3',
+    'a cold-opened deep link lands in the right chapter',
+  );
+  state = await markState(fresh, orangeId);
+  expect(state.inViewport, 'the deep-linked highlight is on screen, flashed');
+  expectEq(
+    await fresh.evaluate(() => location.hash),
+    `#/book/${bookId}/hl/${orangeId}`,
+    'the address bar keeps the deep link (still copyable)',
+  );
+  await fresh.close();
+
+  // The same link in the page we have been driving, for the evidence shot.
+  await page.goto(copied);
+  await page.getByRole('heading', { name: 'Three: An End' }).waitFor();
+  await page.waitForTimeout(150);
+  expect((await markState(page, orangeId)).present, 'the deep link restores the highlight’s mark');
+  await capture('notebook-deep-link');
 });

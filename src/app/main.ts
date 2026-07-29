@@ -1,7 +1,8 @@
 // App shell: transport selection, routing, and the shelf.
 //
-// Routing is the URL hash ('' = shelf, '#/book/<id>' = reader) so browser
-// Back always returns to the shelf. The reader's own wiring lives in
+// Routing is the URL hash ('' = shelf, '#/book/<id>' = reader,
+// '#/book/<id>/hl/<hid>' = reader at a highlight) so browser Back always
+// returns to the shelf. The reader's own wiring lives in
 // reader-shell.ts; chrome here is deliberately plain.
 
 import { readMetadata } from '../epub/book.ts';
@@ -137,9 +138,16 @@ async function openRemoteLibrary(remote: LibraryTransport): Promise<void> {
 // --- routing ---
 
 function route(): void {
-  const match = location.hash.match(/^#\/book\/([0-9a-f]+)/);
+  // '#/book/<id>' opens the book; '#/book/<id>/hl/<hid>' is a highlight deep
+  // link (F5) — same book, landing on that highlight. The hash is never
+  // rewritten, so the address bar stays copyable.
+  const match = location.hash.match(/^#\/book\/([0-9a-f]+)(?:\/hl\/([0-9a-f]+))?/);
   if (match?.[1] && library) {
-    void openReader({ library, deviceCache, showReader: () => show('reader') }, match[1]);
+    void openReader(
+      { library, deviceCache, showReader: () => show('reader') },
+      match[1],
+      match[2] ?? null,
+    );
   } else {
     closeReader();
     renderShelf();
