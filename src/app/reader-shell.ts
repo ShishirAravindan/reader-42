@@ -11,9 +11,10 @@ import { ReaderController } from '../reader/controller.ts';
 import { attachReadingInput } from '../reader/input.ts';
 import { bookMetrics } from '../reader/metrics.ts';
 import type { DisplayMode } from '../reader/mode.ts';
+import { MAX_SAMPLE_SEC, createPace } from '../reader/pace.ts';
 import { createChrome } from './chrome.ts';
 import { el } from './dom.ts';
-import { getDisplayMode, setDisplayMode } from './prefs.ts';
+import { getDisplayMode, getPace, setDisplayMode, setPace } from './prefs.ts';
 
 export interface ReaderDeps {
   library: Library;
@@ -26,6 +27,11 @@ let controller: ReaderController | null = null;
 let openSidecar: BookSidecar | null = null;
 let detachInput: (() => void) | null = null;
 let detachEscape: (() => void) | null = null;
+/** Flushes the reading-session clock and detaches its listeners. */
+let teardownSession: (() => void) | null = null;
+
+/** A stretch under this long is a peek, not a reading session (salvage §5). */
+const MIN_SESSION_SEC = 30;
 // Kindle parity: paginated is the default; the current value is device-local
 // taste (prefs), re-read on every open and read at call time by the renderer.
 let displayMode: DisplayMode = 'paged';
@@ -49,6 +55,52 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   // Character counts, once per open (milliseconds): the substrate for honest
   // progress weights, the location index, and time-left (parity B1/B4/B5).
   const metrics = bookMetrics(book);
+
+  // Reading pace (B5): device-local, per book, fed with character offsets
+  // (never pixels) at each position emission. Sessions (salvage §5) reuse the
+  // same activity clock: time between emissions counts as reading unless the
+  // gap is long enough to be an idle.
+  const pace = createPace(getPace(id));
+  let sessionSec = 0;
+  let lastActiveMs: number | null = Date.now();
+
+  const tickActivity = (nowMs: number): void => {
+    if (lastActiveMs !== null) {
+      const dt = (nowMs - lastActiveMs) / 1000;
+      if (dt > 0 && dt <= MAX_SAMPLE_SEC) sessionSec += dt;
+    }
+    lastActiveMs = nowMs;
+  };
+
+  const flushSession = (): void => {
+    if (sessionSec >= MIN_SESSION_SEC && openSidecar) {
+      openSidecar = {
+        ...openSidecar,
+        sessions: [
+          ...openSidecar.sessions,
+          { seconds: Math.round(sessionSec), endedAt: new Date().toISOString() },
+        ],
+      };
+      void library.saveSidecar(openSidecar);
+    }
+    sessionSec = 0;
+  };
+
+  const onVisibility = (): void => {
+    if (document.hidden) {
+      tickActivity(Date.now());
+      flushSession();
+      lastActiveMs = null; // hidden time never counts
+    } else {
+      lastActiveMs = Date.now();
+    }
+  };
+  document.addEventListener('visibilitychange', onVisibility);
+  teardownSession = () => {
+    document.removeEventListener('visibilitychange', onVisibility);
+    tickActivity(Date.now());
+    flushSession();
+  };
 
   deps.showReader();
   el<HTMLElement>('reader-book-title').textContent = sidecar.title;
@@ -80,6 +132,13 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
         };
         el<HTMLElement>('progress-label').textContent = `${Math.round(progress * 100)}%`;
         void library.saveSidecar(openSidecar);
+        // Pace sample: the position as a global character offset.
+        const now = Date.now();
+        tickActivity(now);
+        const chars = metrics.chapterChars[position.chapter] ?? 0;
+        const fraction = controller?.currentFraction() ?? 0;
+        pace.record(metrics.charsBefore(position.chapter) + fraction * chars, now);
+        setPace(id, pace.state());
       },
     },
     metrics.chapterChars,
@@ -161,6 +220,8 @@ export function closeReader(): void {
   detachInput = null;
   detachEscape?.();
   detachEscape = null;
+  teardownSession?.(); // flush the session before the sidecar goes away
+  teardownSession = null;
   controller?.dispose();
   controller = null;
   openSidecar = null;
