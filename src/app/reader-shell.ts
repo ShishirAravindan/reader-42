@@ -13,6 +13,7 @@ import { bookMetrics, pageAnchors } from '../reader/metrics.ts';
 import type { DisplayMode } from '../reader/mode.ts';
 import { MAX_SAMPLE_SEC, createPace } from '../reader/pace.ts';
 import { createAaPanel } from './aa-panel.ts';
+import { type AnnotationsUI, createAnnotationsUI } from './annotations-ui.ts';
 import { createChrome } from './chrome.ts';
 import { el } from './dom.ts';
 import {
@@ -38,6 +39,8 @@ let controller: ReaderController | null = null;
 let openSidecar: BookSidecar | null = null;
 let detachInput: (() => void) | null = null;
 let detachEscape: (() => void) | null = null;
+/** Tears down the annotation overlays (menu, note editor) and their listeners. */
+let disposeAnnotations: (() => void) | null = null;
 /** Closes the Aa panel (detaching its outside-click listener) on teardown. */
 let closeAaPanel: (() => void) | null = null;
 /** Flushes the reading-session clock and detaches its listeners. */
@@ -157,6 +160,7 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   // Declared before the controller: its hooks fire during open(), and must
   // see an initialized (if still null) binding, never a TDZ hole.
   let status: StatusLine | null = null;
+  let annotations: AnnotationsUI | null = null;
   controller = new ReaderController(
     book,
     viewport,
@@ -167,6 +171,9 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
       onChapter: (index) => {
         el<HTMLElement>('reader-chapter-label').textContent =
           `${index + 1} of ${book.chapters.length}`;
+        // Every chapter render starts from a mark-free tree; re-apply the
+        // sidecar's highlights for it (stale ones silently don't render).
+        annotations?.applyChapter();
         status?.refresh();
       },
       onBoundary: (edge) => {
@@ -195,6 +202,27 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
     },
     metrics.chapterChars,
   );
+
+  // The annotation layer (E2, F1–F3): selection menu, notes, mark overlays.
+  // Persistence writes the whole sidecar through the same save path as
+  // position updates; no second storage route.
+  annotations = createAnnotationsUI({
+    reader: el<HTMLElement>('reader'),
+    viewport,
+    current: () => controller?.chapterView() ?? null,
+    chapterIndex: () => controller?.currentChapter() ?? 0,
+    highlights: () => openSidecar?.highlights ?? [],
+    setHighlights: (next) => {
+      if (!openSidecar) return;
+      openSidecar = { ...openSidecar, highlights: next };
+      void library.saveSidecar(openSidecar);
+    },
+    // The offline dictionary card (E1) lands with the dictionary module.
+    lookup: () => {},
+    linkFor: (hid) => `${location.origin}${location.pathname}#/book/${id}/hl/${hid}`,
+  });
+  disposeAnnotations = annotations.dispose;
+
   controller.open(sidecar.position);
 
   // The status line (B3): live values read straight off the controller and
@@ -284,18 +312,21 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
       status?.refresh(); // same-chapter turns update the strip before the debounced save
     },
     onChrome: () => chrome.toggle(),
-    // Keyboard turns pause while the Aa panel is up (its own keys still work).
-    keysEnabled: () => !el<HTMLElement>('reader').hidden && !aaPanel.isOpen(),
+    // Keyboard turns pause while the Aa panel or an annotation overlay is up.
+    keysEnabled: () =>
+      !el<HTMLElement>('reader').hidden && !aaPanel.isOpen() && !(annotations?.isOpen() ?? false),
   });
 
   // Escape only ever restores or closes (salvage §4): it closes an open
   // panel, else reveals hidden chrome; it never hides anything else.
+  // Chain order: dialogs/cards/menus first, then panels, then chrome.
   const onEscape = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape' || el<HTMLElement>('reader').hidden) return;
     if (!finishNudge.hidden) {
       closeFinish();
       return;
     }
+    if (annotations?.handleEscape()) return;
     if (aaPanel.isOpen()) {
       aaPanel.close();
       return;
@@ -335,6 +366,8 @@ export function closeReader(): void {
   detachInput = null;
   detachEscape?.();
   detachEscape = null;
+  disposeAnnotations?.();
+  disposeAnnotations = null;
   closeAaPanel?.();
   closeAaPanel = null;
   teardownSession?.(); // flush the session before the sidecar goes away

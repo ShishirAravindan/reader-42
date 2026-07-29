@@ -98,6 +98,21 @@ describe('attachReadingInput', () => {
     detach();
   });
 
+  test('clicks on highlight marks belong to the annotation layer, not the zones', () => {
+    const { viewport, events, detach } = harness();
+    const mark = document.createElement('mark');
+    mark.className = 'hl hl-yellow';
+    viewport.appendChild(mark);
+    mark.dispatchEvent(new MouseEvent('click', { clientX: 850, bubbles: true }));
+    expect(events).toEqual([]);
+    // A plain <mark> without the hl class is ordinary book text: zones apply.
+    const plain = document.createElement('mark');
+    viewport.appendChild(plain);
+    plain.dispatchEvent(new MouseEvent('click', { clientX: 850, bubbles: true }));
+    expect(events).toEqual(['forward']);
+    detach();
+  });
+
   test('document keys turn pages while attached, not after detach', () => {
     const { events, detach } = harness();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true }));
