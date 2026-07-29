@@ -25,6 +25,8 @@ export interface OpfData {
   manifest: Map<string, ManifestItem>;
   /** Ordered manifest ids; linear="no" items already skipped. */
   spine: string[];
+  /** Spine page-progression-direction; null when absent or "default". */
+  pageProgression: 'ltr' | 'rtl' | null;
   navId: string | null;
   ncxId: string | null;
 }
@@ -79,6 +81,8 @@ export function parseOpf(xml: string, opfPath: string): OpfData {
   }
 
   const spine: string[] = [];
+  const progression = spineEl.getAttribute('page-progression-direction');
+  const pageProgression = progression === 'ltr' || progression === 'rtl' ? progression : null;
   let ncxId: string | null = spineEl.getAttribute('toc');
   for (const ref of childrenNS(spineEl, NS_OPF, 'itemref')) {
     const idref = ref.getAttribute('idref');
@@ -88,7 +92,7 @@ export function parseOpf(xml: string, opfPath: string): OpfData {
   }
   if (ncxId && !manifest.has(ncxId)) ncxId = null;
 
-  return { opfPath, metadata, manifest, spine, navId, ncxId };
+  return { opfPath, metadata, manifest, spine, pageProgression, navId, ncxId };
 }
 
 export function buildChapters(opf: OpfData): Chapter[] {

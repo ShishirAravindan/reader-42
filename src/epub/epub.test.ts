@@ -80,4 +80,40 @@ describe('Book', () => {
     expect(book.chapterIndexByPath('OEBPS/ch2.xhtml')).toBe(1);
     expect(book.chapterIndexByPath('OEBPS/nav.xhtml')).toBe(-1);
   });
+
+  test('reads spine page-progression-direction, defaulting to ltr', async () => {
+    expect((await Book.open(buildFixtureEpub())).direction).toBe('ltr');
+    expect((await Book.open(rtlEpub('rtl'))).direction).toBe('rtl');
+    // "default" and junk both degrade to ltr rather than propagating.
+    expect((await Book.open(rtlEpub('default'))).direction).toBe('ltr');
+    expect((await Book.open(rtlEpub('sideways'))).direction).toBe('ltr');
+  });
 });
+
+function rtlEpub(progression: string): Uint8Array {
+  return buildZip([
+    ['mimetype', 'application/epub+zip'],
+    [
+      'META-INF/container.xml',
+      `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`,
+    ],
+    [
+      'content.opf',
+      `<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">rtl-1</dc:identifier><dc:title>RTL</dc:title>
+  </metadata>
+  <manifest><item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/></manifest>
+  <spine page-progression-direction="${progression}"><itemref idref="ch1"/></spine>
+</package>`,
+    ],
+    [
+      'ch1.xhtml',
+      '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>1</title></head><body><p>x</p></body></html>',
+    ],
+  ]);
+}
