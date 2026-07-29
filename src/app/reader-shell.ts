@@ -9,6 +9,7 @@ import type { Library } from '../library/store.ts';
 import type { BookSidecar } from '../library/types.ts';
 import { ReaderController } from '../reader/controller.ts';
 import { attachReadingInput } from '../reader/input.ts';
+import { bookMetrics } from '../reader/metrics.ts';
 import type { DisplayMode } from '../reader/mode.ts';
 import { createChrome } from './chrome.ts';
 import { el } from './dom.ts';
@@ -45,6 +46,9 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   }
   const book = await Book.open(bytes);
   openSidecar = sidecar;
+  // Character counts, once per open (milliseconds): the substrate for honest
+  // progress weights, the location index, and time-left (parity B1/B4/B5).
+  const metrics = bookMetrics(book);
 
   deps.showReader();
   el<HTMLElement>('reader-book-title').textContent = sidecar.title;
@@ -78,6 +82,7 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
         void library.saveSidecar(openSidecar);
       },
     },
+    metrics.chapterChars,
   );
   controller.open(sidecar.position);
   el<HTMLElement>('progress-label').textContent = `${Math.round(sidecar.progress * 100)}%`;

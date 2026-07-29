@@ -42,6 +42,9 @@ export class ReaderController {
     mount: HTMLElement,
     view: ReaderView,
     hooks: ControllerHooks = {},
+    // Character counts when the caller has them (honest progress, parity B4);
+    // decompressed-byte approximation otherwise.
+    weights?: number[],
     now: () => string = () => new Date().toISOString(),
   ) {
     this.book = book;
@@ -49,7 +52,7 @@ export class ReaderController {
     this.view = view;
     this.hooks = hooks;
     this.now = now;
-    this.weights = book.chapterWeights();
+    this.weights = weights ?? book.chapterWeights();
     this.totalWeight = this.weights.reduce((a, b) => a + b, 0) || 1;
     this.mount.addEventListener('scroll', this.onScroll, { passive: true });
   }
@@ -73,6 +76,11 @@ export class ReaderController {
 
   currentChapter(): number {
     return this.chapterIndex;
+  }
+
+  /** How far through the current chapter the viewport start sits, 0..1. */
+  currentFraction(): number {
+    return this.rendered?.chapterFraction() ?? 0;
   }
 
   chapterCount(): number {
@@ -185,9 +193,10 @@ export class ReaderController {
   /**
    * Length-weighted progress: chapters are weighted by their content size, so
    * a book with a huge final chapter doesn't claim 90% done at its halfway
-   * point. The end of the last chapter reports exactly 1.
+   * point. The end of the last chapter reports exactly 1. Public so the
+   * status line can render immediately, without waiting for a debounced save.
    */
-  private progress(): number {
+  progress(): number {
     if (!this.rendered) return 0;
     if (this.chapterIndex === this.book.chapters.length - 1 && this.rendered.atEnd()) return 1;
     let before = 0;
