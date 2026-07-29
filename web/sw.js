@@ -13,7 +13,7 @@
 //
 // Plain JS on purpose: the worker ships as-is, outside the bundle.
 
-const VERSION = 'shell-v2';
+const VERSION = 'shell-v3';
 const SHELL = [
   '/',
   '/app.js',
@@ -23,6 +23,14 @@ const SHELL = [
   '/icon-192.png',
   '/icon-512.png',
   '/apple-touch-icon.png',
+  '/fonts/Literata-var.woff2',
+  '/fonts/Literata-Italic-var.woff2',
+  '/fonts/AtkinsonHyperlegible-Regular.woff2',
+  '/fonts/AtkinsonHyperlegible-Bold.woff2',
+  '/fonts/AtkinsonHyperlegible-Italic.woff2',
+  '/fonts/AtkinsonHyperlegible-BoldItalic.woff2',
+  '/fonts/OpenDyslexic-Regular.woff2',
+  '/fonts/OpenDyslexic-Bold.woff2',
 ];
 
 self.addEventListener('install', (event) => {
