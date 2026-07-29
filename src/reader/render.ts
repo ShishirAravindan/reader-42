@@ -441,6 +441,7 @@ function rewriteUrls(root: Element, chapterPath: string, book: Book, blobUrls: s
   for (const source of Array.from(root.querySelectorAll('source'))) rewriteAttr(source, 'src');
   for (const media of Array.from(root.querySelectorAll('audio, video'))) rewriteAttr(media, 'src');
   sanitizeContent(root);
+  markNoteBlocks(root);
   // External links leave the app in a new tab; a dangerous scheme is stripped
   // outright. Internal links are intercepted by the shell at the document level.
   for (const a of Array.from(root.querySelectorAll('a[href]'))) {
@@ -462,6 +463,24 @@ function rewriteUrls(root: Element, chapterPath: string, book: Book, blobUrls: s
 // credentials. So the reader renders text + media only, never active content.
 const ACTIVE_TAGS = new Set(['script', 'iframe', 'frame', 'object', 'embed']);
 const SAFE_LINK_SCHEMES = new Set(['http', 'https', 'mailto']);
+
+/**
+ * Tag note blocks (H2) so the shadow CSS can set them like real footnotes:
+ * present at the foot of the chapter, quiet enough to skip. A class, never a
+ * move or a removal — the structure locators address must stay exactly as it
+ * was, and "Go to note" needs somewhere to land.
+ */
+function markNoteBlocks(root: Element): void {
+  for (const el of Array.from(root.querySelectorAll('aside, div, section, p'))) {
+    const type = el.getAttributeNS(NS_EPUB_OPS, 'type') ?? el.getAttribute('epub:type') ?? '';
+    if (type.split(/\s+/).some((t) => NOTE_TYPES.has(t.toLowerCase()))) {
+      el.classList.add('note-block');
+    }
+  }
+}
+
+const NS_EPUB_OPS = 'http://www.idpf.org/2007/ops';
+const NOTE_TYPES = new Set(['footnote', 'endnote', 'rearnote', 'note']);
 
 export function sanitizeContent(root: Element): void {
   const walk = (el: Element): void => {
@@ -626,6 +645,16 @@ const SHADOW_BASE_CSS = `
   @keyframes hl-flash {
     0% { outline: 3px solid var(--link, #33518a); outline-offset: 1px; }
     100% { outline: 3px solid transparent; outline-offset: 1px; }
+  }
+  /* Note blocks (H2): kept in the flow where the publisher put them — the
+     popover is the shortcut, not a replacement — but set like footnotes so
+     they read as apparatus rather than as text. */
+  .chapter .note-block {
+    font-size: 0.85em;
+    color: var(--muted, #6e6759);
+    border-top: 1px solid var(--line, #ddd8cc);
+    margin-top: 1.6em;
+    padding-top: 0.6em;
   }
   .chapter img, .chapter svg, .chapter image { max-width: 100%; height: auto; }
   /* Dark theme dims images (Kindle-style), never inverts; other themes set none. */

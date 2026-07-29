@@ -843,6 +843,58 @@ button:hover {
   white-space: nowrap;
 }
 
+/* The footnote popover (H2): the note floats over the page near its marker,
+   clamped inside the reader; a bottom sheet on phones. The page beneath does
+   not move — reading the note is not leaving the page. */
+#footnote-popover {
+  position: absolute;
+  left: var(--fn-x, 50%);
+  top: var(--fn-y, 30%);
+  z-index: 7;
+  width: min(28rem, calc(100% - 2rem));
+  max-height: 60%;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.2);
+  padding: 0.9rem 1rem 0.7rem;
+}
+#footnote-body {
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+#footnote-body p {
+  margin: 0 0 0.5rem;
+}
+#footnote-body p:last-child {
+  margin-bottom: 0;
+}
+.fn-actions {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+  margin-top: 0.6rem;
+  padding-top: 0.55rem;
+}
+#footnote-goto {
+  font-size: 0.85rem;
+}
+@media (max-width: 40rem) {
+  #footnote-popover {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    border-radius: 12px 12px 0 0;
+    border-bottom: none;
+    padding-left: calc(1rem + env(safe-area-inset-left));
+    padding-right: calc(1rem + env(safe-area-inset-right));
+    padding-bottom: calc(0.7rem + env(safe-area-inset-bottom));
+  }
+}
+
 /* The note editor (F2): a small sheet, chrome-independent, thumb-friendly. */
 #note-editor {
   position: absolute;
