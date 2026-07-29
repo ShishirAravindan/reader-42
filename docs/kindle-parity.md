@@ -170,6 +170,27 @@ The ⚠︎ flags above, gathered as the batched question set:
 5. **H4 Rendering unit** one-chapter-at-a-time (simple) vs continuous/book-wide (needed for Page Flip thumbnails and book-wide page numbers). *This is the load-bearing architecture call; decide before building A/H.*
 6. **J2 Cross-device conflict** silent latest-wins vs a resume prompt. *Recommend silent by default, prompt optional later.*
 
+### Kickoff resolutions (Epic 0)
+
+Resolved for this build at the owner's direction to proceed from this doc's
+recommendations; any of these can be overturned by a `decisions.md` entry.
+Collisions 1–4 and 6 adopt the recommendation above as written.
+
+Collision 5, the rendering unit, is resolved as **one chapter at a time**:
+
+- Salvage §7 rates it simple and robust; every rendering trap we know is
+  already solved against it.
+- The linear location index (B1) is derived from character counts, not from
+  layout, so book-wide "Location X of Y" and progress do not need book-wide
+  rendering. Print page numbers (B2) come from the EPUB page-list, likewise
+  layout-free.
+- The one casualty is Page Flip's 3×3 pixel-thumbnail grid. The peek adapts:
+  a location slider across the whole book, chapter-skip arrows, and a live
+  text excerpt of the slider position, all without moving the reading
+  position, with the "back to location" stack intact. The peek UI does not
+  bake in the rendering unit, so a continuous renderer can upgrade it later
+  without a redesign.
+
 ## Non-core appendix
 
 Kindle behaviors deliberately excluded from the parity floor, each with a verdict.
