@@ -48,6 +48,17 @@
         <button id="toc-toggle" type="button" aria-label="Table of contents">Contents</button>
       </header>
       <nav id="toc" hidden></nav>
+      <div id="finish-nudge" hidden>
+        <div class="finish-card">
+          <p class="finish-heading">The End</p>
+          <p id="finish-book-title" class="muted"></p>
+          <div id="finish-actions" class="finish-actions">
+            <button id="finish-yes" type="button">Mark as finished</button>
+            <button id="finish-not-yet" type="button">Not yet</button>
+          </div>
+          <p id="finish-confirm" class="muted" hidden>Marked as finished.</p>
+        </div>
+      </div>
       <footer id="bottom-bar" class="chrome-bar">
         <button id="mode-toggle" type="button" aria-label="Display mode">Paged</button>
         <span id="reader-chapter-label" class="muted"></span>

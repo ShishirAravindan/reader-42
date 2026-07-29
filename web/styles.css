@@ -207,6 +207,43 @@ button:hover {
 #reader:not(.chrome-hidden) #status-line {
   visibility: hidden;
 }
+
+/* End-of-book nudge (B6): a quiet centered card in the app's paper tones.
+   It is a panel: Escape closes it before touching anything else. */
+#finish-nudge {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(36, 33, 27, 0.16);
+}
+.finish-card {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 40px rgba(36, 33, 27, 0.16);
+  padding: 1.8rem 2.2rem;
+  text-align: center;
+  max-width: min(22rem, 85vw);
+}
+.finish-heading {
+  font-size: 1.35rem;
+  margin: 0 0 0.35rem;
+}
+#finish-book-title {
+  margin: 0 0 1.2rem;
+  font-style: italic;
+}
+.finish-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+#finish-confirm {
+  margin: 0;
+}
 #reader-chapter-label,
 #progress-label {
   font-size: 0.85rem;
