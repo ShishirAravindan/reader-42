@@ -118,6 +118,36 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   chrome.hide();
   displayMode = getDisplayMode();
 
+  // End-of-book nudge (B6): one more forward turn on the last page offers
+  // the finished state. Never re-nudges a finished book; never forces an
+  // exit — the reader stays in the book either way.
+  const finishNudge = el<HTMLElement>('finish-nudge');
+  finishNudge.hidden = true; // a previous open may have left it up
+  const closeFinish = (): void => {
+    finishNudge.hidden = true;
+  };
+  const showFinish = (): void => {
+    if (!openSidecar || openSidecar.state === 'finished') return;
+    el<HTMLElement>('finish-book-title').textContent = openSidecar.title;
+    el<HTMLElement>('finish-actions').hidden = false;
+    el<HTMLElement>('finish-confirm').hidden = true;
+    finishNudge.hidden = false;
+  };
+  el<HTMLButtonElement>('finish-not-yet').onclick = closeFinish;
+  el<HTMLButtonElement>('finish-yes').onclick = () => {
+    if (!openSidecar) return;
+    openSidecar = {
+      ...openSidecar,
+      state: 'finished',
+      stateChangedAt: new Date().toISOString(),
+    };
+    void library.saveSidecar(openSidecar);
+    // A quiet confirmation, then the card slips away.
+    el<HTMLElement>('finish-actions').hidden = true;
+    el<HTMLElement>('finish-confirm').hidden = false;
+    setTimeout(closeFinish, 1400);
+  };
+
   const viewport = el<HTMLElement>('viewport');
   // Declared before the controller: its hooks fire during open(), and must
   // see an initialized (if still null) binding, never a TDZ hole.
@@ -131,6 +161,9 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
         el<HTMLElement>('reader-chapter-label').textContent =
           `${index + 1} of ${book.chapters.length}`;
         status?.refresh();
+      },
+      onBoundary: (edge) => {
+        if (edge === 'end') showFinish();
       },
       onPosition: ({ position, progress }) => {
         if (!openSidecar) return;
@@ -238,6 +271,10 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   // panel, else reveals hidden chrome; it never hides anything else.
   const onEscape = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape' || el<HTMLElement>('reader').hidden) return;
+    if (!finishNudge.hidden) {
+      closeFinish();
+      return;
+    }
     if (!toc.hidden) {
       toc.hidden = true;
       return;

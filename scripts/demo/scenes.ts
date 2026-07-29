@@ -352,3 +352,60 @@ scene('status-cycle', async ({ page, base, capture }) => {
   expect((pages[pages.length - 1] ?? 0) >= 5, `reaches the back pages (${pages.join(' -> ')})`);
   await capture('status-page-numbers');
 });
+
+scene('finish-the-book', async ({ page, base, capture }) => {
+  await tocNav(page, 'Three: An End');
+  await centerTap(page); // tocNav left chrome open; drop back to pure text
+  expectEq(await chapterLabel(page), '3 of 3', 'in the last chapter');
+
+  // The fixture's last chapter is a single page, so the reader already sits
+  // at the book's end: progress reports complete before any nudge.
+  for (let i = 0; i < 7; i++) {
+    if (/^Loc [\d,]+ of [\d,]+$/.test(await statusLeft(page))) break;
+    await statusTap(page);
+  }
+  const endLoc = (await statusLeft(page)).match(/^Loc ([\d,]+) of ([\d,]+)$/);
+  expect(endLoc, `status cycled to the location state (got "${await statusLeft(page)}")`);
+  expectEq(endLoc[1], endLoc[2], 'the last page reads Loc Y of Y');
+  expectEq(await statusRight(page), '100%', 'the last page reads 100%');
+
+  const nudge = page.locator('#finish-nudge');
+  expect(await nudge.isHidden(), 'no nudge before the boundary turn');
+
+  // One more forward turn at the last page raises the nudge.
+  await zoneClick(page, 'forward');
+  expect(await nudge.isVisible(), 'forward at the book end nudges the finished state');
+  expectEq(await chapterLabel(page), '3 of 3', 'gentle stop: still on the last page');
+  await capture('finish-nudge');
+
+  // It is a panel: Escape closes it before anything else.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(80);
+  expect(await nudge.isHidden(), 'Escape closes the nudge');
+  expect(await chromeHidden(page), 'Escape spent itself on the panel, chrome stays hidden');
+
+  await zoneClick(page, 'forward');
+  expect(await nudge.isVisible(), 'the nudge returns while the book is unfinished');
+  await page.locator('#finish-not-yet').click();
+  await page.waitForTimeout(80);
+  expect(await nudge.isHidden(), '"Not yet" just closes the card');
+
+  await zoneClick(page, 'forward');
+  await page.locator('#finish-yes').click();
+  await page.waitForTimeout(200);
+  expect(
+    await page.locator('#finish-confirm').isVisible(),
+    'a quiet confirmation replaces the buttons',
+  );
+  await capture('finish-confirmed');
+  await page.waitForTimeout(1600); // the card slips away on its own
+  expect(await nudge.isHidden(), 'the card closes after confirming; the reader stays in the book');
+
+  const sidecar = await fetchSidecar(base);
+  expectEq(sidecar.state, 'finished', 'the synced sidecar records the finished state');
+  expectEq(sidecar.progress, 1, 'the sidecar records progress 1 at the end');
+
+  await zoneClick(page, 'forward');
+  expect(await nudge.isHidden(), 'a finished book is never re-nudged');
+  await capture('finished-book');
+});
