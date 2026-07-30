@@ -149,7 +149,13 @@ body {
   height: 100%;
   background: var(--bg);
   color: var(--fg);
-  font-family: "Charter", "Iowan Old Style", Georgia, serif;
+  /* Literata first, and not only for one voice across the chrome and the page:
+     the oldstyle figures the hairline asks for exist only in a face that
+     carries them, and a system Charter or the generic serif quietly ignores
+     `onum`. Bundling the face is what makes that rule true rather than
+     decorative. (The Aa panel's "Publisher default" row keeps the system
+     stack, because that row is a preview of exactly that.) */
+  font-family: "Literata", "Charter", "Iowan Old Style", Georgia, serif;
   /* Phones: no auto-inflated text, no gray tap flash. */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
