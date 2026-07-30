@@ -1480,3 +1480,162 @@ scene('footnotes', async ({ page, capture }) => {
     'the pill returns to the page the note was referenced from',
   );
 });
+
+interface SearchRow {
+  index: number;
+  before: string;
+  match: string;
+  after: string;
+}
+
+function searchRows(page: Page): Promise<SearchRow[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>('#search-results .search-hit')).map(
+      (row) => ({
+        index: Number(row.dataset.hit ?? -1),
+        before: row.children[0]?.textContent ?? '',
+        match: row.querySelector('strong')?.textContent ?? '',
+        after: row.children[2]?.textContent ?? '',
+      }),
+    ),
+  );
+}
+
+/** The chapter headings the result list groups hits under, in order. */
+function searchChapters(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>('#search-results .search-chapter')).map(
+      (h) => h.textContent ?? '',
+    ),
+  );
+}
+
+/** Every find mark on the rendered page, with its result index. */
+function findHits(page: Page): Promise<{ index: number; text: string }[]> {
+  return page.evaluate(() => {
+    const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
+    if (!shadow) return [];
+    return Array.from(shadow.querySelectorAll<HTMLElement>('mark.find-hit')).map((m) => ({
+      index: Number(m.dataset.find ?? -1),
+      text: m.textContent ?? '',
+    }));
+  });
+}
+
+async function runSearch(page: Page, query: string): Promise<void> {
+  if (await chromeHidden(page)) await centerTap(page);
+  if (await page.locator('#search-panel').isHidden()) {
+    await page.locator('#search-toggle').click();
+    await page.locator('#search-panel').waitFor({ state: 'visible' });
+  }
+  await page.locator('#search-input').fill(query);
+  await page.locator('#search-input').press('Enter');
+  await page.waitForTimeout(150);
+}
+
+scene('search', async ({ page, capture }) => {
+  await tocNav(page, 'One: A Beginning');
+  await centerTap(page);
+
+  // LOAD-BEARING (salvage §7, first half): the phrase crosses an <em>, which
+  // the v1 finder could not see because it matched inside single text nodes.
+  await runSearch(page, 'chapters do, quietly');
+  const spanning = await searchRows(page);
+  expectEq(spanning.length, 1, 'a phrase spanning an inline tag is found');
+  expectEq(spanning[0]?.match, 'chapters do, quietly', 'and the match is the whole phrase');
+  expectEq(
+    (await searchChapters(page)).join(' | '),
+    'Three: An End',
+    'results are grouped under human chapter titles, never spine indices',
+  );
+
+  // A query across the whole book: every chapter that holds it, every hit.
+  await runSearch(page, 'chapter');
+  const chapters = await searchChapters(page);
+  expect(chapters.length >= 3, `the query spans the book (grouped under ${chapters.length})`);
+  const rows = await searchRows(page);
+  expect(rows.length > 60, `every occurrence is listed, not one per chapter (${rows.length})`);
+  expect(
+    (await page.locator('#search-summary').textContent())?.includes(String(rows.length)),
+    'the panel says how many matches there are',
+  );
+  expect((rows[0]?.after ?? '').length > 0, 'each row shows the words around its hit');
+  await capture('search-results');
+
+  // Tapping a result lands on its page with the hit lit and pulsed.
+  const inMiddle = rows.find((r) => r.before.includes('so that this'));
+  expect(inMiddle, 'a hit inside the long chapter to jump to');
+  await page.locator(`.search-hit[data-hit="${inMiddle.index}"]`).click();
+  await page.waitForTimeout(300);
+  expect(await page.locator('#search-panel').isHidden(), 'the panel steps aside for the page');
+  expectEq(await chapterLabel(page), '2 of 3', 'the jump landed in the hit’s chapter');
+
+  // LOAD-BEARING (salvage §7, second half): ALL occurrences on the page are
+  // marked, and the one that was chosen is on screen.
+  const hits = await findHits(page);
+  expect(hits.length > 1, `every occurrence on the page is marked (${hits.length})`);
+  expect(
+    hits.some((h) => h.index === inMiddle.index),
+    'including the one that was tapped',
+  );
+  const onScreen = await page.evaluate((index: number) => {
+    const v = document.getElementById('viewport') as HTMLElement;
+    const mark = v
+      .querySelector('.chapter-host')
+      ?.shadowRoot?.querySelector<HTMLElement>(`mark.find-hit[data-find="${index}"]`);
+    if (!mark) return false;
+    const r = mark.getBoundingClientRect();
+    const vr = v.getBoundingClientRect();
+    return r.right > vr.left && r.left < vr.right;
+  }, inMiddle.index);
+  expect(onScreen, 'the chosen hit is on the visible page');
+  await capture('search-hit-marked');
+
+  // Find marks are overlay marks, so locators are blind to them: the position
+  // saved while the page is lit restores identically once they are gone.
+  const litParagraph = await firstVisibleParagraph(page);
+  await page.waitForTimeout(1200); // debounced position save (800ms) + write
+  // The hash still names the book, so the reload re-enters the reader itself.
+  await page.reload();
+  await page.getByRole('heading', { name: 'Two: The Long Middle' }).waitFor();
+  await page.waitForTimeout(250);
+  expectEq(
+    await firstVisibleParagraph(page),
+    litParagraph,
+    'a position saved under find marks restores to the same paragraph',
+  );
+  expectEq((await findHits(page)).length, 0, 'and the marks themselves did not persist');
+
+  // Escape closes the panel and takes the marks with it.
+  await runSearch(page, 'quick brown');
+  expect((await findHits(page)).length === 0, 'searching alone does not mark the current page');
+  const firstHit = (await searchRows(page))[0];
+  expect(firstHit, 'a hit to jump to');
+  await page.locator(`.search-hit[data-hit="${firstHit.index}"]`).click();
+  await page.waitForTimeout(250);
+  expect((await findHits(page)).length > 0, 'the jump lit the page');
+  if (await chromeHidden(page)) await centerTap(page);
+  await page.locator('#search-toggle').click(); // reopen
+  await page.waitForTimeout(80);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(120);
+  expect(await page.locator('#search-panel').isHidden(), 'Escape closes the search panel');
+  expectEq((await findHits(page)).length, 0, 'and clears the find marks with it');
+
+  // Selecting text and choosing Search prefills the query (parity E2).
+  await centerTap(page);
+  await selectTextIn(page, 'p1', 'lazy dog');
+  await page.locator('#sel-search').click();
+  await page.waitForTimeout(300);
+  expect(await page.locator('#search-panel').isVisible(), 'the selection opened search');
+  expectEq(
+    await page.locator('#search-input').inputValue(),
+    'lazy dog',
+    'with the selected text as the query',
+  );
+  expect((await searchRows(page)).length > 0, 'and the results are already there');
+  await capture('search-from-selection');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(100);
+  await centerTap(page);
+});

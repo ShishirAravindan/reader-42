@@ -641,7 +641,17 @@ const SHADOW_BASE_CSS = `
     margin-left: 0.12em;
     color: var(--muted, #6e6759);
   }
-  mark.hl.hl-flash { animation: hl-flash 0.9s ease-out; }
+  /* Find hits (H5): a temporary overlay, cleared when search closes. Also
+     locator-invisible (mark.find-hit in locator.ts), so a position saved
+     while hits are marked restores identically once they are gone. */
+  mark.find-hit {
+    color: inherit;
+    background: var(--find-hit, #cfe3b0);
+    border-radius: 2px;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+  mark.hl.hl-flash, mark.find-hit.hl-flash { animation: hl-flash 0.9s ease-out; }
   @keyframes hl-flash {
     0% { outline: 3px solid var(--link, #33518a); outline-offset: 1px; }
     100% { outline: 3px solid transparent; outline-offset: 1px; }
