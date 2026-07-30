@@ -23,6 +23,13 @@ import {
 } from '../reader/metrics.ts';
 import type { DisplayMode } from '../reader/mode.ts';
 import { MAX_SAMPLE_SEC, createPace } from '../reader/pace.ts';
+import {
+  applyFindMarks,
+  clearFindMarks,
+  createBookSearch,
+  findMarks,
+  flashFindMark,
+} from '../reader/search.ts';
 import { readerSelection, wordFromSelection } from '../reader/selection.ts';
 import { createAaPanel } from './aa-panel.ts';
 import { type AnnotationsUI, createAnnotationsUI } from './annotations-ui.ts';
@@ -43,6 +50,7 @@ import {
   setPace,
   setStatusMode,
 } from './prefs.ts';
+import { type SearchPanel, createSearchPanel } from './search-panel.ts';
 import { type StatusLine, createStatusLine, pageAt } from './status.ts';
 import { currentTypography } from './typography.ts';
 
@@ -67,6 +75,8 @@ let closeNotebook: (() => void) | null = null;
 let closeGoTo: (() => void) | null = null;
 /** Closes the footnote popover and detaches its outside-click listener. */
 let disposeFootnotes: (() => void) | null = null;
+/** Closes the search panel and clears its find marks on teardown. */
+let closeSearch: (() => void) | null = null;
 
 // One dictionary for the app's lifetime: the 5 MB artifact is fetched on the
 // FIRST lookup only (never at book open) and the parsed map stays resident,
@@ -206,6 +216,32 @@ export async function openReader(
   let status: StatusLine | null = null;
   let annotations: AnnotationsUI | null = null;
   let ribbon: Ribbon | null = null;
+  let searchPanel: SearchPanel | null = null;
+
+  // Find marks (H5) live on whichever chapter is rendered, addressed by their
+  // index in the active result list. They are overlay marks, so locators are
+  // blind to them: a position saved while the page is lit restores identically
+  // once they are gone (salvage §1).
+  const findOverlay = {
+    applyChapter(): void {
+      const view = controller?.chapterView();
+      if (!view) return;
+      clearFindMarks(view.wrapper);
+      const hits = searchPanel?.hits() ?? [];
+      if (hits.length > 0) applyFindMarks(view.wrapper, hits, controller?.currentChapter() ?? 0);
+    },
+    clear(): void {
+      const view = controller?.chapterView();
+      if (view) clearFindMarks(view.wrapper);
+    },
+    reveal(index: number): void {
+      const view = controller?.chapterView();
+      const mark = view ? findMarks(view.wrapper, index)[0] : undefined;
+      if (!view || !mark) return;
+      view.revealElement(mark);
+      flashFindMark(view.wrapper, index);
+    },
+  };
   controller = new ReaderController(
     book,
     viewport,
@@ -217,8 +253,10 @@ export async function openReader(
         el<HTMLElement>('reader-chapter-label').textContent =
           `${index + 1} of ${book.chapters.length}`;
         // Every chapter render starts from a mark-free tree; re-apply the
-        // sidecar's highlights for it (stale ones silently don't render).
+        // sidecar's highlights for it (stale ones silently don't render), and
+        // the active query's hits for this chapter.
         annotations?.applyChapter();
+        findOverlay.applyChapter();
         status?.refresh();
         ribbon?.refresh();
       },
@@ -284,6 +322,7 @@ export async function openReader(
       void library.saveSidecar(openSidecar);
     },
     lookup: (text) => dictCard.show(text),
+    searchInBook: (text) => searchPanel?.open(text),
     linkFor,
   });
   disposeAnnotations = annotations.dispose;
@@ -467,6 +506,7 @@ export async function openReader(
       onOpen: () => {
         notebook.close();
         aaPanel.close();
+        searchPanel?.close();
       },
     },
   );
@@ -501,6 +541,7 @@ export async function openReader(
       onOpen: () => {
         gotoPanel.close();
         aaPanel.close();
+        searchPanel?.close();
       },
     },
   );
@@ -516,9 +557,39 @@ export async function openReader(
     onOpen: () => {
       gotoPanel.close();
       notebook.close();
+      searchPanel?.close();
     },
   });
   closeAaPanel = aaPanel.close;
+
+  // In-book search (H5). The book's text comes from metrics, which parses and
+  // sanitizes each chapter exactly as the renderer does — so a hit's offsets
+  // address the very text nodes the marks will wrap.
+  const bookSearch = createBookSearch(book.chapters.length, metrics.chapterText);
+  searchPanel = createSearchPanel(
+    el<HTMLElement>('search-panel'),
+    el<HTMLButtonElement>('search-toggle'),
+    {
+      search: bookSearch.search,
+      chapterTitle: chapterTitleFor,
+      jumpTo: (hit, index) => {
+        jumpFrom(() => {
+          // goToChapter renders, which re-applies this chapter's marks; then
+          // the geometry is live and the hit can be revealed and flashed.
+          controller?.goToChapter(hit.chapter);
+          findOverlay.applyChapter();
+          findOverlay.reveal(index);
+        });
+      },
+      onCleared: () => findOverlay.clear(),
+      onOpen: () => {
+        gotoPanel.close();
+        notebook.close();
+        aaPanel.close();
+      },
+    },
+  );
+  closeSearch = () => searchPanel?.close();
 
   // The footnote popover (H2): a transient overlay, so it closes ahead of
   // every panel in the Escape chain and steps aside for a page turn.
@@ -537,6 +608,9 @@ export async function openReader(
       footnotes.close();
       gotoPanel.close();
       notebook.close();
+      // The panel steps aside; the hits stay lit, so a turn can walk between
+      // occurrences on the page you searched for.
+      searchPanel?.close({ keepMarks: true });
       chrome.hide();
       if (d === 'forward') controller?.turnForward();
       else controller?.turnBack();
@@ -551,6 +625,7 @@ export async function openReader(
     keysEnabled: () =>
       !el<HTMLElement>('reader').hidden &&
       !aaPanel.isOpen() &&
+      !(searchPanel?.isOpen() ?? false) &&
       !dictCard.isOpen() &&
       !(annotations?.isOpen() ?? false),
   });
@@ -573,6 +648,10 @@ export async function openReader(
       return;
     }
     if (annotations?.handleEscape()) return;
+    if (searchPanel?.isOpen()) {
+      searchPanel.close();
+      return;
+    }
     if (notebook.isOpen()) {
       notebook.close();
       return;
@@ -647,6 +726,8 @@ export function closeReader(): void {
   closeGoTo = null;
   disposeFootnotes?.();
   disposeFootnotes = null;
+  closeSearch?.();
+  closeSearch = null;
   const pill = document.getElementById('jump-back');
   if (pill) pill.hidden = true;
   closeAaPanel?.();

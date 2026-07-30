@@ -84,6 +84,8 @@
   --hl-pink: #f4bccb;
   --hl-blue: #b1d4f2;
   --hl-orange: #f5c491;
+  /* Find hits (H5): a distinct, quieter tint than any highlight color. */
+  --find-hit: #cfe3b0;
 }
 [data-theme="white"] {
   --bg: #ffffff;
@@ -98,6 +100,7 @@
   --hl-pink: #f8c5d3;
   --hl-blue: #b8daf8;
   --hl-orange: #f9cb97;
+  --find-hit: #d3e8b4;
 }
 [data-theme="sepia"] {
   --bg: #f3e7d0;
@@ -112,6 +115,7 @@
   --hl-pink: #ecb6bd;
   --hl-blue: #b3cde2;
   --hl-orange: #eebe85;
+  --find-hit: #d6dda2;
 }
 [data-theme="dark"] {
   --bg: #121212;
@@ -128,6 +132,7 @@
   --hl-pink: #5c2f3d;
   --hl-blue: #23405e;
   --hl-orange: #5c3d1e;
+  --find-hit: #384a24;
 }
 
 * {
@@ -992,4 +997,73 @@ button:hover {
   padding-left: calc(1.5rem + env(safe-area-inset-left));
   padding-right: calc(1.5rem + env(safe-area-inset-right));
   padding-bottom: calc(2rem + env(safe-area-inset-bottom));
+}
+
+/* Search panel (H5): the notebook's shape, a query box instead of chips. */
+#search-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: min(24rem, 100%);
+  z-index: 2;
+  overflow-y: auto;
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+  padding: calc(3.4rem + env(safe-area-inset-top)) 1rem calc(1rem + env(safe-area-inset-bottom))
+    1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.search-form {
+  display: flex;
+}
+#search-input {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  width: 100%;
+  min-height: 44px;
+}
+#search-input:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 1px;
+}
+.search-summary {
+  margin: 0;
+  font-size: 0.8rem;
+}
+.search-results {
+  display: flex;
+  flex-direction: column;
+}
+.search-chapter {
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0.7rem 0 0.3rem;
+}
+.search-hit {
+  text-align: left;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.6rem 0.25rem;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  /* Long books have long snippets; the row wraps rather than truncating the
+     match out of view. */
+  white-space: normal;
+}
+.search-hit:hover {
+  background: var(--hover);
+}
+.search-hit strong {
+  background: var(--find-hit);
+  font-weight: 600;
 }
