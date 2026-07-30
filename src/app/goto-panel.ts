@@ -10,6 +10,7 @@
 // jump-back stack. The pure resolution (what does "42" mean?) lives at the
 // top and is unit-tested.
 
+import type { TocEntry } from '../epub/types.ts';
 import type { Bookmark } from '../library/types.ts';
 import type { PageAnchor } from '../reader/metrics.ts';
 import { bookmarkDate, sortBookmarks } from './bookmarks.ts';
@@ -44,8 +45,12 @@ export function resolveGoTo(
 // --- the panel ---
 
 export interface GoToDeps {
-  /** The book's TOC, already rendered by the shell into this element. */
+  /** The element the book's own TOC is rendered into. */
   contents: HTMLElement;
+  /** The book's TOC, rendered as the Contents section. */
+  toc: TocEntry[];
+  /** Take the reader to a TOC entry (the shell records the way back). */
+  goToTocEntry(entry: TocEntry): void;
   bookmarks(): Bookmark[];
   chapterTitle(chapter: number): string;
   /** A short excerpt of what sits at a bookmark, for its row. */
@@ -192,6 +197,32 @@ export function createGoToPanel(
     }
   }
 
+  // The Contents section is the book's own TOC, nested exactly as the file
+  // nests it; labels are the book's words, never spine indices.
+  function renderToc(root: HTMLElement, entries: TocEntry[]): void {
+    root.replaceChildren();
+    root.appendChild(tocList(entries));
+  }
+
+  function tocList(entries: TocEntry[]): HTMLOListElement {
+    const ol = document.createElement('ol');
+    for (const entry of entries) {
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.textContent = entry.label || '(untitled)';
+      a.href = '#';
+      a.addEventListener('click', (event) => {
+        event.preventDefault();
+        close();
+        deps.goToTocEntry(entry);
+      });
+      li.appendChild(a);
+      if (entry.children.length > 0) li.appendChild(tocList(entry.children));
+      ol.appendChild(li);
+    }
+    return ol;
+  }
+
   const open = (): void => {
     if (!panel.hidden) return;
     deps.onOpen?.();
@@ -217,6 +248,8 @@ export function createGoToPanel(
     if (panel.hidden) open();
     else close();
   };
+
+  renderToc(deps.contents, deps.toc);
 
   return {
     isOpen: (): boolean => !panel.hidden,
