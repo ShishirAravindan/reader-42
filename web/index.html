@@ -45,15 +45,30 @@
         <span id="status-percent"></span>
       </div>
       <header id="top-bar" class="chrome-bar">
+        <!-- Drawn marks, not words. The SVG is inline and static so the chrome
+             is complete before the bundle runs; every mark keeps its name in
+             aria-label AND title, because an icon for "highlights" is an
+             inference, not a convention, and a forgotten one must be
+             recoverable by hover or long-press. -->
         <div class="bar-group">
-          <button id="back-to-shelf" type="button" aria-label="Back to library">‹<span class="bar-word"> Library</span></button>
-          <button id="toc-toggle" type="button" aria-label="Go to a place in the book" aria-expanded="false">Go To</button>
-          <button id="search-toggle" type="button" aria-label="Search in book" aria-expanded="false">Search</button>
+          <button id="back-to-shelf" class="btn-icon" type="button" aria-label="Back to library" title="Back to library">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg>
+          </button>
+          <button id="toc-toggle" class="btn-icon" type="button" aria-label="Go to a place in the book" title="Go to a place in the book" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 7h11"/><path d="M4.5 12h15"/><path d="M4.5 17h8.5"/></svg>
+          </button>
+          <button id="search-toggle" class="btn-icon" type="button" aria-label="Search in book" title="Search in book" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l4.5 4.5"/></svg>
+          </button>
         </div>
         <span id="reader-book-title"></span>
         <div class="bar-group">
-          <button id="aa-toggle" type="button" aria-label="Typography and themes" aria-expanded="false">Aa</button>
-          <button id="notebook-toggle" type="button" aria-label="Highlights and notes" aria-expanded="false">Notes</button>
+          <!-- Aa stays type: it is the typographic convention for this control
+               and no drawn glyph beats it. -->
+          <button id="aa-toggle" class="btn-icon" type="button" aria-label="Typography and themes" title="Typography and themes" aria-expanded="false">Aa</button>
+          <button id="notebook-toggle" class="btn-icon" type="button" aria-label="Highlights and notes" title="Highlights and notes" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19l1-3.6L16.4 5a1.8 1.8 0 0 1 2.6 2.6L8.6 18 5 19z"/><path d="M15 6.4l2.6 2.6"/></svg>
+          </button>
         </div>
       </header>
       <nav id="goto-panel" hidden>
