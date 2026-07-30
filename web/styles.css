@@ -284,15 +284,34 @@ button:hover {
 #reader.chrome-hidden #bottom-bar {
   transform: translateY(35%);
 }
+/* Final bar layout (I2): navigation left, the book's name in the middle,
+   annotation and taste right — each side a group so the title keeps the
+   centre no matter how wide the labels are. */
+.bar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
 #reader-book-title {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  text-align: center;
 }
-/* Aa, Notebook and Contents cluster right; the title keeps the middle. */
-#aa-toggle {
-  margin-left: auto;
+
+/* Phones: the title steps aside rather than being squeezed to an ellipsis —
+   the reader knows which book they are in — and Back keeps its chevron only.
+   Five real fingertip targets fit across 390px this way. */
+@media (max-width: 40rem) {
+  #reader-book-title,
+  .bar-word {
+    display: none;
+  }
+  .chrome-bar {
+    gap: 0.4rem;
+    justify-content: space-between;
+  }
 }
 
 /* Always-visible reading status (parity B3): a slim strip over the page
@@ -315,13 +334,20 @@ button:hover {
   font-size: 0.8rem;
   color: var(--muted);
 }
+/* The cycle target is a 44px fingertip area (product law 5) that does NOT
+   push the strip taller: the button grows upward into the page margin and its
+   text stays pinned to the bottom, exactly where the strip draws it. */
 #status-cycle {
   pointer-events: auto;
   border: none;
   background: none;
-  padding: 0.15rem 0;
+  padding: 0;
   min-width: 3rem;
-  min-height: 1.2rem;
+  min-height: 44px;
+  height: 44px;
+  margin-top: -44px;
+  display: flex;
+  align-items: flex-end;
   text-align: left;
   color: inherit;
   font-size: inherit;

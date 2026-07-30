@@ -1786,3 +1786,118 @@ scene('page-flip', async ({ page, base, capture }) => {
   );
   await centerTap(page);
 });
+
+scene('phone', async ({ base, onPhone }) => {
+  // Product law 5: the phone is a first-class reading surface, so the phone
+  // ergonomics are an acceptance test on every run, not a one-off audit.
+  await onPhone(async ({ page, capture }) => {
+    const noOverflow = (): Promise<boolean> =>
+      page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+    /** Every visible control smaller than a fingertip (44px), by label. */
+    const undersized = (): Promise<string[]> =>
+      page.evaluate(() =>
+        Array.from(document.querySelectorAll<HTMLElement>('button, .import-label'))
+          .filter((node) => {
+            const r = node.getBoundingClientRect();
+            return r.width > 0 && r.height > 0; // visible only
+          })
+          .filter((node) => {
+            const r = node.getBoundingClientRect();
+            return r.height < 44 || r.width < 44;
+          })
+          .map(
+            (node) =>
+              `${node.id || node.tagName}:${Math.round(node.getBoundingClientRect().height)}px`,
+          ),
+      );
+
+    await page.goto(`${base}/?lib=dev`);
+    await page.locator('.book-title').first().waitFor();
+    expect(await noOverflow(), 'shelf: nothing overflows 390px');
+    expectEq((await undersized()).join(', '), '', 'shelf: every control is a fingertip target');
+    await capture('phone-shelf');
+
+    // Straight into the text: chrome hidden, paged by default (product law 2).
+    // The library is shared with the earlier scenes, so this opens wherever
+    // the book was left — which is the point of resume, and why the assertion
+    // is "the text is rendered", not "chapter one".
+    await page.locator('#book-list li').first().tap();
+    await page.locator('#viewport .chapter-host').waitFor();
+    await page.waitForTimeout(500);
+    expect(
+      await page.evaluate(() =>
+        document.getElementById('reader')?.classList.contains('chrome-hidden'),
+      ),
+      'reader: a book opens straight into its text',
+    );
+    expect(await noOverflow(), 'reader: nothing overflows 390px');
+    await capture('phone-reading');
+
+    // A real touch tap in the forward zone turns the page.
+    const box = await page.locator('#viewport').boundingBox();
+    expect(box, 'the viewport has a box to tap');
+    const before = await page.evaluate(() => document.getElementById('viewport')?.scrollLeft ?? 0);
+    await page.touchscreen.tap(box.x + box.width * 0.85, box.y + box.height / 2);
+    await page.waitForTimeout(300);
+    const after = await page.evaluate(() => document.getElementById('viewport')?.scrollLeft ?? 0);
+    expect(after > before, `a touch tap in the forward zone turns the page (${before} → ${after})`);
+
+    // The corner gesture works with no chrome on screen at all.
+    await page.touchscreen.tap(box.x + box.width - 20, box.y + 20);
+    await page.waitForTimeout(200);
+    expect(
+      await page.evaluate(
+        () => !(document.getElementById('bookmark-ribbon') as HTMLElement).hidden,
+      ),
+      'the corner tap bookmarks the page with chrome hidden',
+    );
+
+    // The status strip sits above the home-bar area, and its cycle target is a
+    // real fingertip even though the text it shows is small.
+    const strip = await page.evaluate(() => {
+      const line = document.getElementById('status-line') as HTMLElement;
+      const cycle = document.getElementById('status-cycle') as HTMLElement;
+      const lineRect = line.getBoundingClientRect();
+      const cycleRect = cycle.getBoundingClientRect();
+      return {
+        visible: getComputedStyle(line).visibility === 'visible',
+        bottomGap: window.innerHeight - lineRect.bottom,
+        cycleHeight: cycleRect.height,
+        text: cycle.textContent ?? '',
+      };
+    });
+    expect(strip.visible, 'the status strip shows while reading');
+    expect(strip.bottomGap >= 0, 'and stays inside the screen');
+    expect(strip.cycleHeight >= 44, `its cycle target is ${Math.round(strip.cycleHeight)}px tall`);
+
+    // Chrome open: five controls, the two bars, and no overflow.
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(250);
+    expect(await noOverflow(), 'chrome open: the bars still fit 390px');
+    expectEq(
+      (await undersized()).join(', '),
+      '',
+      'chrome open: every control is a fingertip target',
+    );
+    const bars = await page.evaluate(() => {
+      const top = document.getElementById('top-bar') as HTMLElement;
+      const bottom = document.getElementById('bottom-bar') as HTMLElement;
+      const widest = (bar: HTMLElement): number =>
+        Array.from(bar.children).reduce(
+          (sum, child) => sum + child.getBoundingClientRect().width,
+          0,
+        );
+      return {
+        topFits: widest(top) <= top.getBoundingClientRect().width,
+        bottomFits: widest(bottom) <= bottom.getBoundingClientRect().width,
+        titleHidden:
+          getComputedStyle(document.getElementById('reader-book-title') as HTMLElement).display ===
+          'none',
+      };
+    });
+    expect(bars.topFits, 'the top bar’s controls fit its width');
+    expect(bars.bottomFits, 'the bottom bar’s controls fit its width');
+    expect(bars.titleHidden, 'the title steps aside rather than being squeezed');
+    await capture('phone-chrome');
+  });
+});
