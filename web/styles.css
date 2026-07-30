@@ -1067,3 +1067,65 @@ button:hover {
   background: var(--find-hit);
   font-weight: 600;
 }
+
+/* Page Flip peek (H4): a sheet over the page, which stays exactly where it is.
+   The scrim dims the text so the preview reads as a place you are NOT yet. */
+#peek-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -8px 24px var(--scrim);
+  padding: 0.9rem 1rem calc(0.9rem + env(safe-area-inset-bottom));
+  padding-left: calc(1rem + env(safe-area-inset-left));
+  padding-right: calc(1rem + env(safe-area-inset-right));
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.peek-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-height: 5.2rem;
+}
+.peek-loc {
+  font-size: 0.9rem;
+}
+.peek-chapter {
+  font-size: 0.8rem;
+}
+.peek-excerpt {
+  margin: 0.3rem 0 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  /* Three lines, so the sheet never jumps height as you scrub. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.peek-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+#peek-slider {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--link);
+  /* A thumb a thumb can actually hit. */
+  height: 44px;
+}
+.peek-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+#peek-go {
+  border-color: var(--fg);
+}

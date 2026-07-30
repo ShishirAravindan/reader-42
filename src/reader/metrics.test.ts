@@ -8,6 +8,7 @@ import {
   excerptAt,
   flattenText,
   pageAnchors,
+  rawOffsetForFlat,
   rawOffsetOfElement,
 } from './metrics.ts';
 
@@ -240,5 +241,40 @@ describe('pageAnchors', () => {
   test('a book without a page-list yields no anchors', async () => {
     const book = await Book.open(knownEpub(['<p>text</p>']));
     expect(pageAnchors(book, bookMetrics(book))).toEqual([]);
+  });
+});
+
+describe('rawOffsetForFlat', () => {
+  test('maps flattened offsets onto the raw text that holds them', () => {
+    //             raw: "  the\n   quick   fox"
+    // flattened:       "the quick fox"
+    const raw = '  the\n   quick   fox';
+    expect(rawOffsetForFlat(raw, 0)).toBe(0);
+    // Flattened offset 4 is the "q" of quick; in the raw text that is index 9.
+    expect(raw.slice(rawOffsetForFlat(raw, 4))).toStartWith('quick');
+    const flat = flattenText(raw);
+    const foxAt = flat.indexOf('fox');
+    expect(raw.slice(rawOffsetForFlat(raw, foxAt))).toStartWith('fox');
+  });
+
+  test('an offset past the end lands at the end, never out of range', () => {
+    expect(rawOffsetForFlat('short', 9000)).toBe(5);
+    expect(rawOffsetForFlat('', 5)).toBe(0);
+  });
+
+  test('an excerpt taken through it starts on the intended word', () => {
+    const raw = 'Alpha beta.\n   Gamma delta epsilon zeta eta theta iota kappa lambda mu.';
+    const flat = flattenText(raw);
+    const gammaAt = flat.indexOf('Gamma');
+    expect(excerptAt(raw, rawOffsetForFlat(raw, gammaAt), 24)).toStartWith('Gamma delta');
+  });
+
+  test('an offset inside a word drops that partial word', () => {
+    // A location is a character count, so it lands wherever it lands; the
+    // excerpt should still start on a real word.
+    expect(excerptAt('single viewport and position', 3, 40)).toBe('viewport and position');
+    // An offset at a word start keeps that word.
+    expect(excerptAt('single viewport', 7, 40)).toBe('viewport');
+    expect(excerptAt('single viewport', 0, 40)).toBe('single viewport');
   });
 });

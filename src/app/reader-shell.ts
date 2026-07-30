@@ -19,6 +19,7 @@ import {
   excerptAt,
   flattenText,
   pageAnchors,
+  rawOffsetForFlat,
   rawOffsetOfElement,
 } from '../reader/metrics.ts';
 import type { DisplayMode } from '../reader/mode.ts';
@@ -41,6 +42,7 @@ import { createFootnotePopover } from './footnote-popover.ts';
 import { createGoToPanel } from './goto-panel.ts';
 import { createJumpBack, jumpBackLabel } from './jumpback.ts';
 import { chapterTitles, createNotebook, logseqOutline, sortHighlights } from './notebook.ts';
+import { type Peek, createPeek } from './peek.ts';
 import {
   getDisplayMode,
   getMeasureRem,
@@ -77,6 +79,8 @@ let closeGoTo: (() => void) | null = null;
 let disposeFootnotes: (() => void) | null = null;
 /** Closes the search panel and clears its find marks on teardown. */
 let closeSearch: (() => void) | null = null;
+/** Closes the Page Flip peek on teardown. */
+let closePeek: (() => void) | null = null;
 
 // One dictionary for the app's lifetime: the 5 MB artifact is fetched on the
 // FIRST lookup only (never at book open) and the parsed map stays resident,
@@ -591,6 +595,43 @@ export async function openReader(
   );
   closeSearch = () => searchPanel?.close();
 
+  // The Page Flip peek (H4). Everything it shows is derived from character
+  // metrics, so scrubbing renders nothing and moves nothing: the reading
+  // position only changes when the reader confirms with Go.
+  const peek: Peek = createPeek(el<HTMLElement>('peek-sheet'), {
+    currentLocation: () =>
+      metrics.locationOf(controller?.currentChapter() ?? 0, controller?.currentFraction() ?? 0),
+    totalLocations: () => metrics.totalLocations,
+    chapterChars: () => metrics.chapterChars,
+    preview: (location) => {
+      const place = metrics.placeAtLocation(location);
+      const raw = metrics.chapterText(place.chapter);
+      const flatInto = place.fraction * (metrics.chapterChars[place.chapter] ?? 0);
+      return {
+        location,
+        chapterTitle: chapterTitleFor(place.chapter),
+        excerpt: excerptAt(raw, rawOffsetForFlat(raw, flatInto), PEEK_EXCERPT_CHARS),
+      };
+    },
+    goTo: (location) => {
+      const place = metrics.placeAtLocation(location);
+      jumpFrom(() => controller?.goToFraction(place.chapter, place.fraction));
+    },
+    onOpen: () => {
+      gotoPanel.close();
+      notebook.close();
+      aaPanel.close();
+      searchPanel?.close({ keepMarks: true });
+      chrome.hide();
+    },
+  });
+  closePeek = peek.close;
+  el<HTMLButtonElement>('peek-toggle').onclick = (event): void => {
+    event.stopPropagation(); // the bar is chrome, not a tap zone
+    if (peek.isOpen()) peek.close();
+    else peek.open();
+  };
+
   // The footnote popover (H2): a transient overlay, so it closes ahead of
   // every panel in the Escape chain and steps aside for a page turn.
   const footnotes = createFootnotePopover(
@@ -611,6 +652,7 @@ export async function openReader(
       // The panel steps aside; the hits stay lit, so a turn can walk between
       // occurrences on the page you searched for.
       searchPanel?.close({ keepMarks: true });
+      peek.close();
       chrome.hide();
       if (d === 'forward') controller?.turnForward();
       else controller?.turnBack();
@@ -621,11 +663,15 @@ export async function openReader(
     },
     onChrome: () => chrome.toggle(),
     onCorner: toggleBookmarkHere,
+    onPeek: () => peek.open(),
+    // In scroll mode a vertical swipe is a scroll; the gesture stands down.
+    peekEnabled: () => displayMode === 'paged',
     // Keyboard turns pause while the Aa panel or an annotation overlay is up.
     keysEnabled: () =>
       !el<HTMLElement>('reader').hidden &&
       !aaPanel.isOpen() &&
       !(searchPanel?.isOpen() ?? false) &&
+      !peek.isOpen() &&
       !dictCard.isOpen() &&
       !(annotations?.isOpen() ?? false),
   });
@@ -637,6 +683,10 @@ export async function openReader(
     if (event.key !== 'Escape' || el<HTMLElement>('reader').hidden) return;
     if (!finishNudge.hidden) {
       closeFinish();
+      return;
+    }
+    if (peek.isOpen()) {
+      peek.close(); // closing a peek costs nothing: the position never moved
       return;
     }
     if (footnotes.isOpen()) {
@@ -728,6 +778,8 @@ export function closeReader(): void {
   disposeFootnotes = null;
   closeSearch?.();
   closeSearch = null;
+  closePeek?.();
+  closePeek = null;
   const pill = document.getElementById('jump-back');
   if (pill) pill.hidden = true;
   closeAaPanel?.();
@@ -789,6 +841,8 @@ function bookmarkSnippet(metrics: BookMetrics, bookmark: Bookmark): string {
 }
 
 const BOOKMARK_SNIPPET_CHARS = 90;
+/** Three lines of preview: enough to recognize a place, not enough to read. */
+const PEEK_EXCERPT_CHARS = 180;
 
 function resolveHref(basePath: string, href: string): string {
   const base = basePath.split('/').slice(0, -1);
