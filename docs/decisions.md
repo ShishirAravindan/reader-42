@@ -53,3 +53,32 @@ With the architecture decided and the salvage audit written, the previous implem
 ## 2026-07-12 — Docs diet, and `dev` as the integration branch
 
 Three docs total: `vision.md` (thesis, product laws, and a now/next/later section that absorbed the separate pipeline and roadmap files), `non-goals.md`, and this log. The orchestration diary, the handoff doc, and the milestone evidence captures were deleted; history lives in git, and the one pattern worth carrying (the demo/capture script *is* the acceptance test) moved into `.claude/CLAUDE.md`. Docs are written timeless: no version framing, no competitor naming; commit history is the historical record. Development targets `dev`; `main` stays the stable reference until the rewrite earns the merge. **The existing code stays until after the architecture decisions.** It is the reference implementation and the salvage audit's source; deleting it is a deliberate follow-up, not part of this reset.
+
+## 2026-07-30 — Chrome: drawn icons, and the bottom bar dissolves
+
+The reader worked but read as software: five bordered words in a row is a
+toolbar, and a toolbar is not a book. So the controls become drawn icons — ink
+lines, no borders, stroke weight tuned to the text. Standard, and I'm fine with
+standard here; it stays inside paper-and-ink and it is a lot quieter than what
+it replaces. `Aa` stays type, because that is the typographic convention for
+that control and no drawn glyph beats it. Every icon keeps its name available
+to a pointer and to a screen reader, since a drawn mark for "highlights" is an
+inference, not a convention.
+
+The bottom bar held three unrelated things — a way to look elsewhere in the
+book, a taste toggle, and a chapter count — so it goes. Paged/scroll moves into
+the type panel, next to margins and spacing, where taste already lives. The
+chapter count goes away; the contents panel and the peek preview both name
+chapters properly, and while reading it earned nothing. What remains is *where
+am I, and let me look elsewhere*, and that fits in a hairline at the very
+bottom edge: the rule opens the peek, the readout beside it keeps its cycle,
+and the cycle ends in nothing. Tapping through to a completely clean page is
+how focus works — no separate mode, no new state to explain.
+
+Typography follows the same instinct. The measure is capped in characters
+rather than pixels, so a line holds the same number of words at every size step
+instead of starving as the type grows. Numbers are oldstyle: they sit inside
+text instead of standing up like signage. Chapter openings get air and small
+caps on the first line — the bundled face carries real small caps, so this
+costs one rule and buys the strongest "this is a book" cue there is. No drop
+caps: they fight too many books and read wrong outside fiction.
