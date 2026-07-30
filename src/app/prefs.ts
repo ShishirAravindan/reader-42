@@ -41,15 +41,15 @@ export type Leading = (typeof LEADING_STEPS)[number];
  * instead of the measure starving as the type grows. Margins are the inverse —
  * a bigger measure means narrower margins.
  */
-export const MEASURE_STEPS_CH = [60, 66, 74] as const;
-export type MeasureCh = (typeof MEASURE_STEPS_CH)[number];
+export const MEASURE_STEPS_CHARS = [60, 66, 74] as const;
+export type MeasureChars = (typeof MEASURE_STEPS_CHARS)[number];
 
 /**
  * The measure used to be capped in rem. A stored rem preset keeps the reader's
  * STEP (wide stays wide), which is what they actually chose; the pixel width it
  * used to mean is not worth preserving.
  */
-const LEGACY_MEASURE_REM: Record<number, MeasureCh> = { 34: 60, 38: 66, 44: 74 };
+const LEGACY_MEASURE_REM: Record<number, MeasureChars> = { 34: 60, 38: 66, 44: 74 };
 
 export function getFontFamily(): FontFamily {
   const raw = readPrefs().fontFamily;
@@ -88,16 +88,16 @@ export function setLeading(leading: Leading): void {
   writePrefs({ ...readPrefs(), leading });
 }
 
-export function getMeasureCh(): MeasureCh {
+export function getMeasureChars(): MeasureChars {
   const prefs = readPrefs();
-  const raw = prefs.measureCh;
-  if (MEASURE_STEPS_CH.includes(raw as MeasureCh)) return raw as MeasureCh;
+  const raw = prefs.measureChars;
+  if (MEASURE_STEPS_CHARS.includes(raw as MeasureChars)) return raw as MeasureChars;
   const legacy = prefs.measureRem;
   return (typeof legacy === 'number' ? LEGACY_MEASURE_REM[legacy] : undefined) ?? 66;
 }
 
-export function setMeasureCh(measureCh: MeasureCh): void {
-  writePrefs({ ...readPrefs(), measureCh });
+export function setMeasureChars(measureChars: MeasureChars): void {
+  writePrefs({ ...readPrefs(), measureChars });
 }
 
 export function getAlign(): TextAlign {

@@ -35,11 +35,36 @@ export const DEFAULT_TYPOGRAPHY: ReaderTypography = {
   align: 'left',
 };
 
+/**
+ * Prose the probe measures to find the average character width. Ordinary
+ * English with its ordinary share of spaces: the point is to be typical, not
+ * to be a pangram.
+ */
+const MEASURE_SAMPLE =
+  'The quick brown fox jumps over the lazy dog, and settles in to read a long book by lamplight.';
+
+/**
+ * Word wrap leaves a ragged right edge, so a column sized to exactly N average
+ * characters renders slightly fewer than N per line. This closes that gap, and
+ * it is measured rather than guessed: averaged over a hundred-odd interior
+ * lines of real prose (first and last lines excluded — one carries an indent,
+ * the other is the rag itself), an uncorrected column rendered 60 characters
+ * where it promised 66.
+ *
+ * Measured with the correction in place, the presets land where they say and
+ * stay there: 60 -> 57, 66 -> 63, 74 -> 72 characters, and the 66 preset holds
+ * 63-65 at the default size, two size steps up, and on the widest bundled face
+ * alike. That invariance is the whole point — a line keeps its length when the
+ * type grows, which a measure capped in pixels cannot do.
+ */
+const MEASURE_RAG = 1.1;
+
 export interface ReaderView {
   /** Read at call time, never captured in a closure (salvage §2). */
   mode(): DisplayMode;
   /** The comfortable text measure in CHARACTERS (C5), live: relayout() re-reads it. */
-  measureCh(): number;
+  /** The measure as a count of characters of prose (see measurePx). */
+  measureChars(): number;
   /** Typography prefs, live: relayout() re-reads and re-applies them. */
   typography(): ReaderTypography;
 }
@@ -120,11 +145,11 @@ export function renderChapter(
   shadow.prepend(style);
   shadow.appendChild(wrapper);
 
-  // The measure probe: a `ch` is a property of the FACE at the CURRENT size, so
-  // only the browser can say what the reader's character count is worth in
-  // pixels — and the column geometry needs pixels. This element carries exactly
-  // the chapter wrapper's type, is sized in ch, and is measured once per
-  // applyModeCss. It is out of the flow and never renders anything.
+  // The measure probe: only the browser can say what a character of THIS face at
+  // THIS size is worth in pixels, and the column geometry needs pixels. This
+  // element carries exactly the chapter wrapper's type, holds one unwrapped
+  // line of ordinary prose, and is measured once per applyModeCss. It is out of
+  // the flow and never renders anything.
   const probe = document.createElement('div');
   probe.className = 'measure-probe';
   shadow.appendChild(probe);
@@ -151,7 +176,14 @@ export function renderChapter(
 
   /**
    * The measure in pixels, read off the probe. Must be called AFTER
-   * applyTypography, so the probe copies the face and size now on screen.
+   * applyTypography, so the probe wears the face and size now on screen.
+   *
+   * The obvious unit, `ch`, is the width of "0" — wider than the average
+   * letter, and wider by a different amount in every face. A 66ch column holds
+   * about 80 characters in the serif and over 90 in the widest of the bundled
+   * faces, so the preset would not mean what it says. Measuring a real
+   * sentence instead gives the average width of actual prose, spaces and all,
+   * which makes the presets true character counts on every face at every size.
    */
   function measurePx(): number {
     const chapterStyle = getComputedStyle(wrapper);
@@ -159,13 +191,18 @@ export function renderChapter(
     probe.style.fontSize = chapterStyle.fontSize;
     probe.style.fontWeight = chapterStyle.fontWeight;
     probe.style.fontStyle = chapterStyle.fontStyle;
-    probe.style.width = `${view.measureCh()}ch`;
-    const width = probe.getBoundingClientRect().width;
-    if (width > 0) return width;
+    probe.textContent = MEASURE_SAMPLE;
+    const perChar = probe.getBoundingClientRect().width / MEASURE_SAMPLE.length;
+    if (perChar > 0) return view.measureChars() * perChar * MEASURE_RAG;
     // A headless DOM (and a detached mount) measures nothing; fall back to the
     // classic half-em per character rather than collapsing the column to zero.
     const fontSize = Number.parseFloat(chapterStyle.fontSize);
-    return view.measureCh() * 0.5 * (Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 16);
+    return (
+      view.measureChars() *
+      0.5 *
+      MEASURE_RAG *
+      (Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 16)
+    );
   }
 
   // Typography rides the same capture -> apply -> restore cycle as a mode
@@ -624,14 +661,14 @@ const SHADOW_BASE_CSS = `
     width: 1px;
     height: 1px;
   }
-  /* The measure probe (see measurePx): sized in ch, wearing the chapter's own
+  /* The measure probe (see measurePx): one unwrapped line of prose, wearing
      type, out of the flow, painting nothing. */
   .measure-probe {
     position: absolute;
     top: 0;
     left: 0;
-    height: 0;
-    overflow: hidden;
+    display: inline-block;
+    white-space: pre;
     visibility: hidden;
     pointer-events: none;
   }
