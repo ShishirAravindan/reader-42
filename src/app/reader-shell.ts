@@ -44,7 +44,7 @@ import { chapterTitles, createNotebook, logseqOutline, sortHighlights } from './
 import { type Peek, createPeek } from './peek.ts';
 import {
   getDisplayMode,
-  getMeasureCh,
+  getMeasureChars,
   getPace,
   getStatusMode,
   setDisplayMode,
@@ -169,7 +169,7 @@ export async function openReader(
     viewport,
     // Taste read at call time (C8): the Aa panel writes a pref, then calls
     // controller.relayout(), and the renderer re-reads these accessors.
-    { mode: () => displayMode, measureCh: getMeasureCh, typography: currentTypography },
+    { mode: () => displayMode, measureChars: getMeasureChars, typography: currentTypography },
     {
       onChapter: (index) => {
         // The chapter number is no longer chrome (the contents panel and the

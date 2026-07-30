@@ -14,21 +14,21 @@ import {
   FONT_FAMILIES,
   FONT_SIZE_STEPS_REM,
   LEADING_STEPS,
-  MEASURE_STEPS_CH,
+  MEASURE_STEPS_CHARS,
   THEMES,
   getAlign,
   getBoldness,
   getFontFamily,
   getFontSizeIndex,
   getLeading,
-  getMeasureCh,
+  getMeasureChars,
   getTheme,
   setAlign,
   setBoldness,
   setFontFamily,
   setFontSizeIndex,
   setLeading,
-  setMeasureCh,
+  setMeasureChars,
   setTheme,
 } from './prefs.ts';
 import { applyTheme } from './theme.ts';
@@ -74,7 +74,7 @@ const LEADING_LABELS: Record<(typeof LEADING_STEPS)[number], string> = {
 };
 
 /** Labeled by MARGINS, Kindle-style: the biggest measure is the narrowest margin. */
-const MARGIN_LABELS: Record<(typeof MEASURE_STEPS_CH)[number], string> = {
+const MARGIN_LABELS: Record<(typeof MEASURE_STEPS_CHARS)[number], string> = {
   60: 'Wide',
   66: 'Medium',
   74: 'Narrow',
@@ -239,10 +239,10 @@ export function createAaPanel(
   });
 
   const marginButtons = choices({
-    values: MEASURE_STEPS_CH,
+    values: MEASURE_STEPS_CHARS,
     label: (m) => MARGIN_LABELS[m],
-    current: getMeasureCh,
-    apply: (m) => reflow(() => setMeasureCh(m)),
+    current: getMeasureChars,
+    apply: (m) => reflow(() => setMeasureChars(m)),
     decorate: (m, b) => {
       b.id = `aa-margins-${MARGIN_LABELS[m].toLowerCase()}`;
     },

@@ -6,7 +6,7 @@ import {
   getFontFamily,
   getFontSizeIndex,
   getLeading,
-  getMeasureCh,
+  getMeasureChars,
   getPace,
   getStatusMode,
   getTheme,
@@ -16,7 +16,7 @@ import {
   setFontFamily,
   setFontSizeIndex,
   setLeading,
-  setMeasureCh,
+  setMeasureChars,
   setPace,
   setStatusMode,
   setTheme,
@@ -78,7 +78,7 @@ describe('typography prefs (parity C1-C6, device-local taste)', () => {
     expect(getFontSizeIndex()).toBe(2);
     expect(getBoldness()).toBe(400);
     expect(getLeading()).toBe(1.65);
-    expect(getMeasureCh()).toBe(66);
+    expect(getMeasureChars()).toBe(66);
     expect(getAlign()).toBe('left');
   });
 
@@ -87,13 +87,13 @@ describe('typography prefs (parity C1-C6, device-local taste)', () => {
     setFontSizeIndex(7);
     setBoldness(575);
     setLeading(1.45);
-    setMeasureCh(74);
+    setMeasureChars(74);
     setAlign('justify');
     expect(getFontFamily()).toBe('opendyslexic');
     expect(getFontSizeIndex()).toBe(7);
     expect(getBoldness()).toBe(575);
     expect(getLeading()).toBe(1.45);
-    expect(getMeasureCh()).toBe(74);
+    expect(getMeasureChars()).toBe(74);
     expect(getAlign()).toBe('justify');
   });
 
@@ -113,14 +113,14 @@ describe('typography prefs (parity C1-C6, device-local taste)', () => {
         fontFamily: 'papyrus',
         boldness: 401,
         leading: 2.4,
-        measureCh: 10,
+        measureChars: 10,
         align: 'center',
       }),
     );
     expect(getFontFamily()).toBe('literata');
     expect(getBoldness()).toBe(400);
     expect(getLeading()).toBe(1.65);
-    expect(getMeasureCh()).toBe(66);
+    expect(getMeasureChars()).toBe(66);
     expect(getAlign()).toBe('left');
   });
 
@@ -131,11 +131,11 @@ describe('typography prefs (parity C1-C6, device-local taste)', () => {
       [44, 74],
     ] as const) {
       localStorage.setItem(KEY, JSON.stringify({ measureRem: rem }));
-      expect(getMeasureCh()).toBe(ch);
+      expect(getMeasureChars()).toBe(ch);
     }
     // A character measure of its own always wins over the legacy key.
-    localStorage.setItem(KEY, JSON.stringify({ measureRem: 34, measureCh: 74 }));
-    expect(getMeasureCh()).toBe(74);
+    localStorage.setItem(KEY, JSON.stringify({ measureRem: 34, measureChars: 74 }));
+    expect(getMeasureChars()).toBe(74);
   });
 });
 
