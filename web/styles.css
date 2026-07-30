@@ -369,6 +369,16 @@ button:hover {
   font-size: 0.8rem;
   color: var(--muted);
 }
+/* Oldstyle figures wherever the app states a number in running text: they sit
+   inside the line instead of standing up like signage. Only faces that carry
+   text figures can honour this — the reading faces do; a substituted system
+   serif silently keeps its lining figures. */
+#status-cycle,
+#status-percent,
+.peek-loc,
+.peek-excerpt {
+  font-feature-settings: "onum" 1;
+}
 #status-cycle {
   pointer-events: auto;
   align-self: stretch;
@@ -535,6 +545,8 @@ button:hover {
   flex: 1;
   min-width: 0;
   font: inherit;
+  /* Tabular, not oldstyle: typed digits must line up in the box. */
+  font-feature-settings: "tnum" 1;
   font-size: 0.9rem;
   color: var(--fg);
   background: none;

@@ -14,21 +14,21 @@ import {
   FONT_FAMILIES,
   FONT_SIZE_STEPS_REM,
   LEADING_STEPS,
-  MEASURE_STEPS_REM,
+  MEASURE_STEPS_CH,
   THEMES,
   getAlign,
   getBoldness,
   getFontFamily,
   getFontSizeIndex,
   getLeading,
-  getMeasureRem,
+  getMeasureCh,
   getTheme,
   setAlign,
   setBoldness,
   setFontFamily,
   setFontSizeIndex,
   setLeading,
-  setMeasureRem,
+  setMeasureCh,
   setTheme,
 } from './prefs.ts';
 import { applyTheme } from './theme.ts';
@@ -74,10 +74,10 @@ const LEADING_LABELS: Record<(typeof LEADING_STEPS)[number], string> = {
 };
 
 /** Labeled by MARGINS, Kindle-style: the biggest measure is the narrowest margin. */
-const MARGIN_LABELS: Record<(typeof MEASURE_STEPS_REM)[number], string> = {
-  34: 'Wide',
-  38: 'Medium',
-  44: 'Narrow',
+const MARGIN_LABELS: Record<(typeof MEASURE_STEPS_CH)[number], string> = {
+  60: 'Wide',
+  66: 'Medium',
+  74: 'Narrow',
 };
 
 const ALIGN_LABELS: Record<TextAlign, string> = { left: 'Left', justify: 'Justified' };
@@ -239,10 +239,10 @@ export function createAaPanel(
   });
 
   const marginButtons = choices({
-    values: MEASURE_STEPS_REM,
+    values: MEASURE_STEPS_CH,
     label: (m) => MARGIN_LABELS[m],
-    current: getMeasureRem,
-    apply: (m) => reflow(() => setMeasureRem(m)),
+    current: getMeasureCh,
+    apply: (m) => reflow(() => setMeasureCh(m)),
     decorate: (m, b) => {
       b.id = `aa-margins-${MARGIN_LABELS[m].toLowerCase()}`;
     },

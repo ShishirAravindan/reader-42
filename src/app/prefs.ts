@@ -35,9 +35,21 @@ export type Boldness = (typeof BOLDNESS_STEPS)[number];
 export const LEADING_STEPS = [1.45, 1.65, 1.9] as const;
 export type Leading = (typeof LEADING_STEPS)[number];
 
-/** Measure presets (C5); margins are the inverse — bigger measure, less margin. */
-export const MEASURE_STEPS_REM = [34, 38, 44] as const;
-export type MeasureRem = (typeof MEASURE_STEPS_REM)[number];
+/**
+ * Measure presets in CHARACTERS (C5): capping the line in characters rather
+ * than pixels keeps the same number of words on a line at every size step,
+ * instead of the measure starving as the type grows. Margins are the inverse —
+ * a bigger measure means narrower margins.
+ */
+export const MEASURE_STEPS_CH = [60, 66, 74] as const;
+export type MeasureCh = (typeof MEASURE_STEPS_CH)[number];
+
+/**
+ * The measure used to be capped in rem. A stored rem preset keeps the reader's
+ * STEP (wide stays wide), which is what they actually chose; the pixel width it
+ * used to mean is not worth preserving.
+ */
+const LEGACY_MEASURE_REM: Record<number, MeasureCh> = { 34: 60, 38: 66, 44: 74 };
 
 export function getFontFamily(): FontFamily {
   const raw = readPrefs().fontFamily;
@@ -76,13 +88,16 @@ export function setLeading(leading: Leading): void {
   writePrefs({ ...readPrefs(), leading });
 }
 
-export function getMeasureRem(): MeasureRem {
-  const raw = readPrefs().measureRem;
-  return MEASURE_STEPS_REM.includes(raw as MeasureRem) ? (raw as MeasureRem) : 38;
+export function getMeasureCh(): MeasureCh {
+  const prefs = readPrefs();
+  const raw = prefs.measureCh;
+  if (MEASURE_STEPS_CH.includes(raw as MeasureCh)) return raw as MeasureCh;
+  const legacy = prefs.measureRem;
+  return (typeof legacy === 'number' ? LEGACY_MEASURE_REM[legacy] : undefined) ?? 66;
 }
 
-export function setMeasureRem(measureRem: MeasureRem): void {
-  writePrefs({ ...readPrefs(), measureRem });
+export function setMeasureCh(measureCh: MeasureCh): void {
+  writePrefs({ ...readPrefs(), measureCh });
 }
 
 export function getAlign(): TextAlign {
