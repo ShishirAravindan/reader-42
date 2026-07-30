@@ -40,8 +40,14 @@
       <div id="viewport"></div>
       <div id="bookmark-ribbon" aria-hidden="true" hidden></div>
       <button id="jump-back" type="button" hidden></button>
+      <!-- The hairline: everything that is left of the old bottom bar, which is
+           "where am I, and let me look elsewhere". The rule opens the peek; the
+           readout keeps its cycle, and the cycle ends in nothing. -->
       <div id="status-line">
-        <button id="status-cycle" type="button" aria-label="Cycle reading progress display"></button>
+        <button id="status-cycle" type="button" aria-label="Cycle reading progress display" title="Cycle reading progress display"></button>
+        <button id="status-track" type="button" aria-label="Page flip" title="Page flip: look ahead without losing your place">
+          <span id="status-progress"></span>
+        </button>
         <span id="status-percent"></span>
       </div>
       <header id="top-bar" class="chrome-bar">
@@ -112,11 +118,6 @@
           <p id="finish-confirm" class="muted" hidden>Marked as finished.</p>
         </div>
       </div>
-      <footer id="bottom-bar" class="chrome-bar">
-        <button id="peek-toggle" type="button" aria-label="Page flip: look ahead without losing your place">Peek</button>
-        <button id="mode-toggle" type="button" aria-label="Display mode">Paged</button>
-        <span id="reader-chapter-label" class="muted"></span>
-      </footer>
       <div id="peek-sheet" hidden></div>
     </section>
   </main>

@@ -1,11 +1,15 @@
-// The always-visible reading status line (parity B3): a slim strip at the
-// bottom of the reader, independent of the auto-hiding chrome. The left slot
+// The always-visible reading status line (parity B3): a strip at the bottom
+// edge of the reader, independent of the auto-hiding chrome. The left slot
 // cycles on tap through Kindle's states — time left in chapter, time left in
 // book, location, print page (only when the book has a page-list), percent,
-// off — and the right slot shows percent unless it would be redundant or the
-// strip is off. Pure formatting and cycle logic live here, unit-tested;
-// persistence of the chosen state is the caller's (prefs) via callbacks, so
-// this module owns no storage.
+// off — the middle is a progress rule, and the right slot shows percent unless
+// it would be redundant or the strip is off. Pure formatting and cycle logic
+// live here, unit-tested; persistence of the chosen state is the caller's
+// (prefs) via callbacks, so this module owns no storage.
+//
+// The rule's TAP belongs to the shell (it opens the Page Flip peek): this
+// module only paints how far along it is, from the same progress the readout
+// reads.
 
 import type { PageAnchor } from '../reader/metrics.ts';
 
@@ -55,7 +59,12 @@ export function formatPage(label: string, last: string): string {
 }
 
 export function formatPercent(progress: number): string {
-  return `${Math.round(Math.min(Math.max(progress, 0), 1) * 100)}%`;
+  return `${Math.round(clampProgress(progress) * 100)}%`;
+}
+
+/** Nothing outside 0..1 is a place in a book; the rule and the percent agree. */
+function clampProgress(progress: number): number {
+  return Math.min(Math.max(progress, 0), 1);
 }
 
 /** The print page containing a global char offset: last anchor at or before it. */
@@ -90,16 +99,26 @@ export interface StatusLine {
   mode(): StatusMode;
 }
 
+/** The strip's three parts, plus the strip itself (which carries the off state). */
+export interface StatusElements {
+  strip: HTMLElement;
+  /** The cycling readout; also the target that brings the strip back from off. */
+  cycle: HTMLButtonElement;
+  /** The filled portion of the progress rule; its width IS the progress. */
+  progress: HTMLElement;
+  /** The percent slot. */
+  percent: HTMLElement;
+}
+
 const OFF_CLASS = 'status-off';
 
 export function createStatusLine(
-  strip: HTMLElement,
-  cycleTarget: HTMLButtonElement,
-  rightSlot: HTMLElement,
+  elements: StatusElements,
   source: StatusSource,
   initialMode: StatusMode,
   onModeChange: (mode: StatusMode) => void,
 ): StatusLine {
+  const { strip, cycle: cycleTarget, progress: progressFill, percent: rightSlot } = elements;
   // A stale 'page' pref from a book with a page-list degrades gracefully.
   let mode: StatusMode = initialMode === 'page' && source.page() === null ? 'percent' : initialMode;
 
@@ -129,6 +148,11 @@ export function createStatusLine(
     cycleTarget.textContent = leftText();
     const showRight = mode !== 'off' && mode !== 'percent';
     rightSlot.textContent = showRight ? formatPercent(source.progress()) : '';
+    // Character-weighted, like every other progress number here: the rule and
+    // the percent can never disagree. Tenths of a percent — finer than a pixel
+    // on any screen this runs on, and free of binary-float dust.
+    const filled = Math.round(clampProgress(source.progress()) * 1000) / 10;
+    progressFill.style.setProperty('--progress', `${filled}%`);
   };
 
   // onclick assignment, not addEventListener: the elements are static app

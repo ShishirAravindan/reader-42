@@ -2,4 +2,5 @@
 // default) and continuous scroll; positions survive the switch because
 // locators are axis-independent.
 
-export type DisplayMode = 'paged' | 'scroll';
+export const DISPLAY_MODES = ['paged', 'scroll'] as const;
+export type DisplayMode = (typeof DISPLAY_MODES)[number];
