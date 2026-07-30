@@ -424,13 +424,21 @@ button:hover {
   height: 2px;
   margin-top: -1px;
 }
+/* A hairline, not a rule: 1px, and the ink held well back. At full strength
+   this line was the loudest thing on the page — heavier than the text it sits
+   under — which is the opposite of what it is for. It should be findable when
+   looked for and invisible when read past. */
 #status-track::before {
   right: 0;
+  height: 1px;
   background: var(--line);
+  opacity: 0.7;
 }
 #status-progress {
   width: var(--progress, 0%);
+  height: 1px;
   background: var(--muted);
+  opacity: 0.5;
 }
 /* Off: the strip paints nothing — no readout, no rule, no percent — leaving
    only the invisible cycle target, so a tap brings it all back. Tapping
