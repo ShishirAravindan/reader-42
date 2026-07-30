@@ -8,7 +8,7 @@ import { DEFAULT_TYPOGRAPHY, type ReaderView } from './render.ts';
 
 const view = (mode: DisplayMode): ReaderView => ({
   mode: () => mode,
-  measureRem: () => 38,
+  measureCh: () => 66,
   typography: () => DEFAULT_TYPOGRAPHY,
 });
 

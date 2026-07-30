@@ -524,6 +524,45 @@ async function columnWidth(page: Page): Promise<number> {
   });
 }
 
+/**
+ * The measure as the reader actually gets it: the paged column in pixels, and
+ * the characters the browser really fits on a line of the book's prose. The
+ * character count comes from where the text WRAPS — walking a range through a
+ * paragraph and watching for a new line box — not from the ch unit the
+ * renderer asked for, so it can disagree with the intent. Complete lines only,
+ * pooled over several paragraphs, since the last line of each is a partial.
+ */
+async function lineMeasure(page: Page): Promise<{ px: number; chars: number }> {
+  return await page.evaluate(() => {
+    const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
+    const wrapper = shadow?.querySelector('.chapter') as HTMLElement | null;
+    if (!shadow || !wrapper) throw new Error('no chapter wrapper');
+    const px = Number.parseFloat(wrapper.style.getPropertyValue('--column-width'));
+    const lengths: number[] = [];
+    const paragraphs = Array.from(wrapper.querySelectorAll('p[id]')).slice(0, 6);
+    for (const p of paragraphs) {
+      const node = p.firstChild;
+      if (!node || node.nodeType !== 3) continue;
+      const text = (node as Text).data;
+      const range = document.createRange();
+      range.setStart(node, 0);
+      let lines = 1;
+      let lineStart = 0;
+      for (let i = 1; i <= text.length; i++) {
+        range.setEnd(node, i);
+        const rects = range.getClientRects().length;
+        if (rects > lines) {
+          lengths.push(i - 1 - lineStart);
+          lineStart = i - 1;
+          lines = rects;
+        }
+      }
+    }
+    if (lengths.length === 0) throw new Error('no wrapped lines to measure');
+    return { px, chars: lengths.reduce((a, b) => a + b, 0) / lengths.length };
+  });
+}
+
 scene('typography', async ({ page, capture }) => {
   // Deep into the long chapter so reflows have real position work to do.
   await tocNav(page, 'Deep in the middle');
@@ -663,10 +702,35 @@ scene('typography', async ({ page, capture }) => {
   expectEq(style.fontSizePx, 20.48, 'reload restores the size step (1.28rem)');
   await capture('typography-restored');
 
-  // Back to the stock look so later scenes (and the next run) start clean.
   await centerTap(page);
   await page.locator('#aa-toggle').click();
   await page.locator('#aa-panel').waitFor({ state: 'visible' });
+
+  // THE POINT OF A CHARACTER MEASURE: growing the type widens the line by the
+  // same amount, so a line keeps holding the same number of words instead of
+  // starving. Two size steps, and the character count barely moves while the
+  // pixel width climbs. (Restored afterwards: the defaults below step down
+  // from 1.28rem.)
+  await page.locator('#aa-margins-medium').click();
+  await page.waitForTimeout(150);
+  const small = await lineMeasure(page);
+  await page.locator('#aa-size-up').click();
+  await page.locator('#aa-size-up').click();
+  await page.waitForTimeout(200);
+  const large = await lineMeasure(page);
+  expect(
+    large.px > small.px + 8,
+    `the measure grows in pixels with the type (${small.px.toFixed(0)}px -> ${large.px.toFixed(0)}px)`,
+  );
+  expect(
+    Math.abs(large.chars - small.chars) <= 3,
+    `and holds its character count across two size steps (${small.chars.toFixed(1)} -> ${large.chars.toFixed(1)} chars)`,
+  );
+  await page.locator('#aa-size-down').click();
+  await page.locator('#aa-size-down').click();
+  await page.waitForTimeout(150);
+
+  // Back to the stock look so later scenes (and the next run) start clean.
   await page.locator('#aa-panel [data-theme="paper"]').click();
   await page.locator('.aa-font-literata').click();
   await page.locator('#aa-size-down').click();
@@ -692,6 +756,42 @@ scene('typography', async ({ page, capture }) => {
     'paper',
     'defaults restored: paper theme',
   );
+
+  // Numbers the app states in running text ask for oldstyle figures. This
+  // proves the rule reaches the readout; whether the glyphs are substituted is
+  // the resolved face's business (the reading faces carry text figures, a
+  // substituted system serif may not).
+  const figures = await page.evaluate(() => ({
+    readout: getComputedStyle(document.getElementById('status-cycle') as HTMLElement)
+      .fontFeatureSettings,
+    percent: getComputedStyle(document.getElementById('status-percent') as HTMLElement)
+      .fontFeatureSettings,
+  }));
+  expectEq(figures.readout, '"onum"', 'the status readout asks for oldstyle figures');
+  expectEq(figures.percent, '"onum"', 'and so does the percent');
+
+  // Chapter openings: air above the heading, and real small caps on the first
+  // line of the paragraph that follows it — and ONLY that paragraph.
+  const opening = await page.evaluate(() => {
+    const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
+    const heading = shadow?.querySelector('h1') as HTMLElement | null;
+    const first = shadow?.querySelector('h1 + p') as HTMLElement | null;
+    const later = shadow?.querySelector('h1 + p + p') as HTMLElement | null;
+    if (!heading || !first || !later) throw new Error('no chapter opening in the shadow');
+    return {
+      headingAir: Number.parseFloat(getComputedStyle(heading).marginTop),
+      headingSize: Number.parseFloat(getComputedStyle(heading).fontSize),
+      firstLineCaps: getComputedStyle(first, '::first-line').fontVariantCaps,
+      laterLineCaps: getComputedStyle(later, '::first-line').fontVariantCaps,
+    };
+  });
+  expect(
+    opening.headingAir > 2 * opening.headingSize,
+    `a chapter heading gets real air above it (${opening.headingAir.toFixed(0)}px over ${opening.headingSize.toFixed(0)}px type)`,
+  );
+  expectEq(opening.firstLineCaps, 'small-caps', 'the opening line is set in small caps');
+  expectEq(opening.laterLineCaps, 'normal', 'and no other paragraph is');
+
   await centerTap(page); // back to pure text
   await capture('typography-defaults');
 });
@@ -1321,6 +1421,16 @@ scene('go-to', async ({ page, capture }) => {
   expect(
     await page.locator('#toc a', { hasText: 'Two: The Long Middle' }).isVisible(),
     'the contents still live in the panel, unchanged',
+  );
+  // Typed digits line up: the entry box is tabular, not oldstyle.
+  expectEq(
+    await page.evaluate(
+      () =>
+        getComputedStyle(document.getElementById('goto-location') as HTMLElement)
+          .fontFeatureSettings,
+    ),
+    '"tnum"',
+    'the location box sets its digits tabular',
   );
   await capture('go-to-panel');
 

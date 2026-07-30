@@ -38,8 +38,8 @@ export const DEFAULT_TYPOGRAPHY: ReaderTypography = {
 export interface ReaderView {
   /** Read at call time, never captured in a closure (salvage §2). */
   mode(): DisplayMode;
-  /** The comfortable text measure (C5), live: relayout() re-reads it. */
-  measureRem(): number;
+  /** The comfortable text measure in CHARACTERS (C5), live: relayout() re-reads it. */
+  measureCh(): number;
   /** Typography prefs, live: relayout() re-reads and re-applies them. */
   typography(): ReaderTypography;
 }
@@ -120,6 +120,15 @@ export function renderChapter(
   shadow.prepend(style);
   shadow.appendChild(wrapper);
 
+  // The measure probe: a `ch` is a property of the FACE at the CURRENT size, so
+  // only the browser can say what the reader's character count is worth in
+  // pixels — and the column geometry needs pixels. This element carries exactly
+  // the chapter wrapper's type, is sized in ch, and is measured once per
+  // applyModeCss. It is out of the flow and never renders anything.
+  const probe = document.createElement('div');
+  probe.className = 'measure-probe';
+  shadow.appendChild(probe);
+
   // Guarantees the paged scroll range covers whole pages: column overflow
   // ends at the last column's right edge, without the trailing side pad, so
   // the last page's stride-aligned offset would otherwise be unreachable
@@ -140,9 +149,23 @@ export function renderChapter(
   const pages = (): number => pageCount(mount.scrollWidth, mount.clientWidth, gap);
   const currentPage = (): number => pageIndexFor(mount.scrollLeft, stride());
 
-  function remPx(): number {
-    const size = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
-    return Number.isFinite(size) && size > 0 ? size : 16;
+  /**
+   * The measure in pixels, read off the probe. Must be called AFTER
+   * applyTypography, so the probe copies the face and size now on screen.
+   */
+  function measurePx(): number {
+    const chapterStyle = getComputedStyle(wrapper);
+    probe.style.fontFamily = chapterStyle.fontFamily;
+    probe.style.fontSize = chapterStyle.fontSize;
+    probe.style.fontWeight = chapterStyle.fontWeight;
+    probe.style.fontStyle = chapterStyle.fontStyle;
+    probe.style.width = `${view.measureCh()}ch`;
+    const width = probe.getBoundingClientRect().width;
+    if (width > 0) return width;
+    // A headless DOM (and a detached mount) measures nothing; fall back to the
+    // classic half-em per character rather than collapsing the column to zero.
+    const fontSize = Number.parseFloat(chapterStyle.fontSize);
+    return view.measureCh() * 0.5 * (Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 16);
   }
 
   // Typography rides the same capture -> apply -> restore cycle as a mode
@@ -152,7 +175,6 @@ export function renderChapter(
   // reading position.
   function applyTypography(): void {
     const typo = view.typography();
-    host.style.setProperty('--reader-measure', `${view.measureRem()}rem`);
     host.style.setProperty('--reader-font-size', `${typo.fontSizeRem}rem`);
     host.style.setProperty('--reader-leading', String(typo.leading));
     host.style.setProperty('--reader-weight', String(typo.weight));
@@ -168,8 +190,12 @@ export function renderChapter(
   function applyModeCss(): void {
     applied = view.mode();
     applyTypography();
+    // One measurement per layout, after the type is applied: both modes cap the
+    // line at the same pixel width, so a mode switch never changes the measure.
+    const measure = measurePx();
+    host.style.setProperty('--reader-measure', `${measure}px`);
     if (applied === 'paged') {
-      const geom = columnGeometry(mount.clientWidth, view.measureRem() * remPx());
+      const geom = columnGeometry(mount.clientWidth, measure);
       gap = geom.gap;
       // The mount never scrolls vertically in paged mode; chrome bars overlay
       // the viewport, so showing them must not change this geometry.
@@ -598,12 +624,33 @@ const SHADOW_BASE_CSS = `
     width: 1px;
     height: 1px;
   }
+  /* The measure probe (see measurePx): sized in ch, wearing the chapter's own
+     type, out of the flow, painting nothing. */
+  .measure-probe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 0;
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
+  }
   .chapter p { margin: 0 0 1em; }
   .chapter h1, .chapter h2, .chapter h3, .chapter h4 {
     font-family: inherit;
     line-height: 1.25;
     margin: 1.6em 0 0.6em;
     text-wrap: balance;
+  }
+  /* Chapter openings: real air above the heading, and small caps on the FIRST
+     LINE of the paragraph that follows it — the bundled faces carry true small
+     caps, so the strongest "this is a book" cue costs one rule. Scoped to the
+     immediately-following paragraph, so it can only ever hit an opening. No
+     drop caps: they fight too many books and read wrong outside fiction. */
+  .chapter :is(h1, h2, h3) { margin-top: 2.6em; }
+  .chapter :is(h1, h2, h3) + p::first-line {
+    font-variant-caps: small-caps;
+    font-feature-settings: "smcp" 1;
   }
   /* em, not rem: headings scale with the reader's font-size steps. */
   .chapter h1 { font-size: 1.6em; }
