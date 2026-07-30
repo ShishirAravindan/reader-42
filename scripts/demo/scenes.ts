@@ -1639,3 +1639,150 @@ scene('search', async ({ page, capture }) => {
   await page.waitForTimeout(100);
   await centerTap(page);
 });
+
+interface PeekState {
+  open: boolean;
+  loc: string;
+  chapter: string;
+  excerpt: string;
+  value: number;
+  max: number;
+  back: string;
+  prevDisabled: boolean;
+  nextDisabled: boolean;
+}
+
+function peekState(page: Page): Promise<PeekState> {
+  return page.evaluate(() => {
+    const sheet = document.getElementById('peek-sheet') as HTMLElement;
+    const slider = document.getElementById('peek-slider') as HTMLInputElement | null;
+    return {
+      open: !sheet.hidden,
+      loc: document.getElementById('peek-loc')?.textContent ?? '',
+      chapter: document.getElementById('peek-chapter')?.textContent ?? '',
+      excerpt: document.getElementById('peek-excerpt')?.textContent ?? '',
+      value: Number(slider?.value ?? 0),
+      max: Number(slider?.max ?? 0),
+      back: document.getElementById('peek-back')?.textContent ?? '',
+      prevDisabled: !!(document.getElementById('peek-prev') as HTMLButtonElement | null)?.disabled,
+      nextDisabled: !!(document.getElementById('peek-next') as HTMLButtonElement | null)?.disabled,
+    };
+  });
+}
+
+/** Scrub the slider the way a drag does: set the value and fire input. */
+async function scrubPeek(page: Page, fraction: number): Promise<void> {
+  await page.evaluate((f: number) => {
+    const slider = document.getElementById('peek-slider') as HTMLInputElement;
+    const max = Number(slider.max);
+    slider.value = String(Math.max(1, Math.round(max * f)));
+    slider.dispatchEvent(new Event('input', { bubbles: true }));
+  }, fraction);
+  await page.waitForTimeout(80);
+}
+
+async function openPeek(page: Page): Promise<void> {
+  if (await chromeHidden(page)) await centerTap(page);
+  await page.locator('#peek-toggle').click();
+  await page.locator('#peek-sheet').waitFor({ state: 'visible' });
+}
+
+scene('page-flip', async ({ page, base, capture }) => {
+  await tocNav(page, 'Two: The Long Middle');
+  for (let i = 0; i < 3; i++) await zoneClick(page, 'forward');
+  await page.waitForTimeout(1200); // let the position save settle
+  const before = await metrics(page);
+  const originLoc = await statusLocation(page);
+  const savedBefore = (await fetchSidecar(base)).position;
+
+  await openPeek(page);
+  const opened = await peekState(page);
+  expect(opened.open, 'the peek sheet is up');
+  expectEq(opened.value, originLoc, 'the slider starts at the reader’s own location');
+  // The slider spans the whole book: its maximum is the book's last location,
+  // the same total the status line reports.
+  const totalLocations = await page.evaluate(() => {
+    const text = document.getElementById('status-cycle')?.textContent ?? '';
+    const match = text.match(/of ([\d,]+)$/);
+    return match ? Number(match[1]?.replace(/,/g, '')) : 0;
+  });
+  expectEq(opened.max, totalLocations, 'the slider spans the whole book');
+  expectEq(
+    opened.back,
+    `Back to Loc ${originLoc.toLocaleString('en-US')}`,
+    'and the chip names the place being left behind',
+  );
+  await capture('peek-open');
+
+  // Scrubbing previews a place: its location, its chapter, and the words that
+  // are actually there — with the page underneath completely still.
+  await scrubPeek(page, 0.72);
+  const scrubbed = await peekState(page);
+  expect(scrubbed.value > originLoc, 'the slider moved forward');
+  expect(scrubbed.excerpt.length > 20, `the preview shows the text there: "${scrubbed.excerpt}"`);
+  expect(scrubbed.chapter.length > 0, 'and names the chapter it belongs to');
+  expectEq(
+    (await metrics(page)).scrollLeft,
+    before.scrollLeft,
+    'LOAD-BEARING: the page underneath has not moved',
+  );
+  await capture('peek-preview');
+
+  // Chapter-skip arrows walk chapter starts.
+  await page.locator('#peek-prev').click();
+  await page.waitForTimeout(80);
+  const skipped = await peekState(page);
+  expect(skipped.value < scrubbed.value, 'the arrow snapped back to a chapter start');
+  await page.locator('#peek-next').click();
+  await page.waitForTimeout(80);
+  expect((await peekState(page)).value > skipped.value, 'and forward again to the next one');
+
+  // Previewing never writes: the saved position is byte-identical.
+  const savedDuring = (await fetchSidecar(base)).position;
+  expectEq(
+    JSON.stringify(savedDuring),
+    JSON.stringify(savedBefore),
+    'LOAD-BEARING: peeking saved no position at all',
+  );
+
+  // Closing without confirming leaves the reader exactly where they were.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(120);
+  expect(!(await peekState(page)).open, 'Escape closes the peek');
+  expectEq(
+    (await metrics(page)).scrollLeft,
+    before.scrollLeft,
+    'and the reader never left their page',
+  );
+
+  // Confirming is the only thing that moves you — and it leaves a way back.
+  await openPeek(page);
+  await scrubPeek(page, 0.85);
+  const target = (await peekState(page)).value;
+  await page.locator('#peek-go').click();
+  await page.waitForTimeout(300);
+  expect(!(await peekState(page)).open, 'the sheet closes behind the jump');
+  // A page spans many locations, so "lands at 77" means lands on the page
+  // HOLDING 77: the status reads at or before it, one more turn reads past it.
+  const landed = await statusLocation(page);
+  await zoneClick(page, 'forward');
+  const afterTurn = await statusLocation(page);
+  await zoneClick(page, 'back');
+  expect(
+    landed <= target && afterTurn > target,
+    `Go lands on the page holding location ${target} (${landed} ≤ ${target} < ${afterTurn})`,
+  );
+  expectEq(
+    await page.locator('#jump-back').textContent(),
+    `Back to Loc ${originLoc.toLocaleString('en-US')}`,
+    'and the pill offers the way back to where reading was',
+  );
+  await capture('peek-jumped');
+  await page.locator('#jump-back').click();
+  await page.waitForTimeout(250);
+  expect(
+    Math.abs((await statusLocation(page)) - originLoc) <= 1,
+    'which really does return the reader',
+  );
+  await centerTap(page);
+});

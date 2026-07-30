@@ -60,12 +60,30 @@ export function swipeTurn(dx: number, dy: number, dir: ReadingDirection): TurnDi
   return left === (dir === 'ltr') ? 'forward' : 'back';
 }
 
+/**
+ * The Page Flip gesture (parity H4): a swipe up that STARTS near the bottom
+ * edge. Anchoring it to the edge is what keeps it from competing with reading
+ * — a swipe anywhere else is a page turn or, in scroll mode, a scroll.
+ */
+export const PEEK_EDGE_FRACTION = 0.1;
+export const PEEK_MIN_PX = 60;
+
+export function isPeekSwipe(dx: number, dy: number, startY: number, height: number): boolean {
+  if (height <= 0) return false;
+  if (startY < height * (1 - PEEK_EDGE_FRACTION)) return false;
+  return -dy >= PEEK_MIN_PX && Math.abs(dy) > Math.abs(dx);
+}
+
 export interface ReadingInputOptions {
   dir(): ReadingDirection;
   onTurn(d: TurnDirection): void;
   onChrome(): void;
   /** Top-right corner tap: toggles the page's bookmark, chrome or not. */
   onCorner?(): void;
+  /** Swipe up from the bottom edge: the Page Flip peek. */
+  onPeek?(): void;
+  /** False when the peek gesture does not apply (scroll mode scrolls instead). */
+  peekEnabled?(): boolean;
   /** Gate for document-level keys (e.g. false while the reader is hidden). */
   keysEnabled?(): boolean;
 }
@@ -115,8 +133,19 @@ export function attachReadingInput(viewport: HTMLElement, opts: ReadingInputOpti
   const onTouchEnd = (event: TouchEvent): void => {
     const touch = event.changedTouches[0];
     if (!touchStart || !touch) return;
-    const turn = swipeTurn(touch.clientX - touchStart.x, touch.clientY - touchStart.y, opts.dir());
+    const dx = touch.clientX - touchStart.x;
+    const dy = touch.clientY - touchStart.y;
+    const rect = viewport.getBoundingClientRect();
+    const startY = touchStart.y - rect.top;
     touchStart = null;
+    // The peek is checked first: it is the more specific gesture, and a
+    // near-vertical swipe is never a page turn anyway.
+    if (opts.onPeek && (opts.peekEnabled?.() ?? true) && isPeekSwipe(dx, dy, startY, rect.height)) {
+      suppressClick = true;
+      opts.onPeek();
+      return;
+    }
+    const turn = swipeTurn(dx, dy, opts.dir());
     if (!turn) return;
     suppressClick = true;
     opts.onTurn(turn);

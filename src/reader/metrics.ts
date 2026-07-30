@@ -175,13 +175,53 @@ export function flattenText(text: string): string {
 }
 
 /**
+ * The raw offset that holds a given FLATTENED offset. Locations, progress, and
+ * time-left all count flattened characters, while `chapterText` (and so
+ * `excerptAt`) speaks raw text-node data; XHTML source is full of indentation
+ * that flattening drops, so the two drift apart over a chapter. This walks the
+ * raw text counting only the characters flattening keeps, which is what lets a
+ * location number resolve to the words actually at it.
+ */
+export function rawOffsetForFlat(raw: string, flatOffset: number): number {
+  if (flatOffset <= 0) return 0;
+  let flat = 0;
+  let inRun = false;
+  // Leading whitespace is trimmed away by flattenText, so it counts for
+  // nothing until the first real character.
+  let started = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ws = /\s/.test(raw[i] as string);
+    if (ws) {
+      if (started && !inRun) {
+        flat += 1; // the single space a whitespace run collapses to
+        inRun = true;
+      }
+    } else {
+      started = true;
+      inRun = false;
+      flat += 1;
+    }
+    if (flat > flatOffset) return i;
+  }
+  return raw.length;
+}
+
+/**
  * A readable excerpt of `text` starting at a raw offset: whitespace-collapsed,
  * cut at a word boundary, with an ellipsis when the text runs on. Used by the
  * bookmark rows and the Page Flip preview — both need to show WHERE a place is
  * without rendering the chapter it lives in.
  */
 export function excerptAt(text: string, offset: number, maxChars: number): string {
-  const from = Math.min(Math.max(offset, 0), text.length);
+  let from = Math.min(Math.max(offset, 0), text.length);
+  // An offset can land mid-word (a location is a character count, not a word
+  // boundary). Starting an excerpt with "ingle viewport" reads like a glitch,
+  // so drop the partial word — but only when there really is one: an offset at
+  // a word start, or at 0, keeps its first word.
+  const precededByText = from > 0 && !/\s/.test(text[from - 1] as string);
+  if (precededByText && !/\s/.test(text[from] ?? ' ')) {
+    while (from < text.length && !/\s/.test(text[from] as string)) from += 1;
+  }
   // Collapse first, then cut: collapsing after would leave a ragged tail.
   const rest = flattenText(text.slice(from, from + maxChars * 2 + 1));
   if (rest.length <= maxChars) return rest;
