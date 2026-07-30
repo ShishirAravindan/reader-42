@@ -466,9 +466,12 @@ try {
   await page.waitForTimeout(400);
   await hush(page);
 
-  // 12. Page Flip.
-  await openPanel(page, '#peek-toggle', '#peek-sheet');
-  await say(page, 'Page Flip: look anywhere in the book…', 2200);
+  // 12. Page Flip, opened from the hairline's progress rule.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(250);
+  await tapSelector(page, '#status-track', 400);
+  await page.locator('#peek-sheet').waitFor({ state: 'visible', timeout: 5000 });
+  await say(page, 'Tap the progress rule to look anywhere in the book…', 2200);
   await scrub(page, 0.45);
   await scrub(page, 0.7);
   await say(page, '…while the page you are on never moves.', 2600);
@@ -477,15 +480,19 @@ try {
   await tapSelector(page, '#jump-back', 1400);
   await hush(page);
 
-  // 13. Scroll mode.
-  await showChrome(page);
-  await tapSelector(page, '#mode-toggle', 1200);
+  // 13. Scroll mode, which lives in the type panel with the rest of taste.
+  await openPanel(page, '#aa-toggle', '#aa-panel');
+  await tapSelector(page, '#aa-layout-scroll', 1200);
   await say(page, 'Or read as one continuous scroll.', 2200);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
   await page.mouse.wheel(0, 600);
   await page.waitForTimeout(1000);
   await say(page, 'Positions are structural, so your place survives the switch.', 2800);
-  await showChrome(page);
-  await tapSelector(page, '#mode-toggle', 1400);
+  await openPanel(page, '#aa-toggle', '#aa-panel');
+  await tapSelector(page, '#aa-layout-paged', 1400);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
   await hush(page);
 
   await hideChrome(page);

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import type { PageAnchor } from '../reader/metrics.ts';
 import {
+  type StatusElements,
   type StatusMode,
   type StatusSource,
   createStatusLine,
@@ -84,13 +85,17 @@ describe('pageAt', () => {
 describe('createStatusLine', () => {
   let strip: HTMLElement;
   let button: HTMLButtonElement;
+  let fill: HTMLElement;
   let right: HTMLElement;
+  let elements: StatusElements;
 
   beforeEach(() => {
     strip = document.createElement('div');
     button = document.createElement('button');
+    fill = document.createElement('span');
     right = document.createElement('span');
-    strip.append(button, right);
+    strip.append(button, fill, right);
+    elements = { strip, cycle: button, progress: fill, percent: right };
   });
 
   const source = (overrides: Partial<StatusSource> = {}): StatusSource => ({
@@ -103,7 +108,7 @@ describe('createStatusLine', () => {
 
   test('renders immediately and cycles through the states on click', () => {
     const modes: StatusMode[] = [];
-    const line = createStatusLine(strip, button, right, source(), 'time-left-chapter', (m) =>
+    const line = createStatusLine(elements, source(), 'time-left-chapter', (m: StatusMode) =>
       modes.push(m),
     );
     expect(button.textContent).toBe('Learning reading speed…');
@@ -134,21 +139,29 @@ describe('createStatusLine', () => {
     ]);
   });
 
-  test('a stale page mode for a page-less book degrades to percent', () => {
+  test('the rule is filled to the same progress the percent reports', () => {
+    let progress = 0.34;
     const line = createStatusLine(
-      strip,
-      button,
-      right,
-      source({ page: () => null }),
-      'page',
+      elements,
+      source({ progress: () => progress }),
+      'location',
       () => {},
     );
+    expect(fill.style.getPropertyValue('--progress')).toBe('34%');
+    progress = 1.4; // nothing paints past the end of the book
+    line.refresh();
+    expect(fill.style.getPropertyValue('--progress')).toBe('100%');
+    expect(right.textContent).toBe('100%');
+  });
+
+  test('a stale page mode for a page-less book degrades to percent', () => {
+    const line = createStatusLine(elements, source({ page: () => null }), 'page', () => {});
     expect(line.mode()).toBe('percent');
     expect(button.textContent).toBe('34%');
   });
 
   test('status clicks do not bubble to the page-turn layer', () => {
-    createStatusLine(strip, button, right, source(), 'time-left-chapter', () => {});
+    createStatusLine(elements, source(), 'time-left-chapter', () => {});
     let reached = false;
     strip.addEventListener('click', () => {
       reached = true;

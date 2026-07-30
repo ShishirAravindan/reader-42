@@ -13,7 +13,7 @@
 //
 // Plain JS on purpose: the worker ships as-is, outside the bundle.
 
-const VERSION = 'shell-v8';
+const VERSION = 'shell-v9';
 // The 5 MB dictionary is a RUNTIME cache, deliberately not precached: it must
 // never bloat install, and it becomes offline-available after the first
 // lookup fetches it. Named separately so shell version bumps don't evict it.

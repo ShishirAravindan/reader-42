@@ -78,8 +78,24 @@ async function tocNav(page: Page, label: string): Promise<void> {
   await page.waitForTimeout(80);
 }
 
-async function chapterLabel(page: Page): Promise<string> {
-  return (await page.locator('#reader-chapter-label').textContent()) ?? '';
+/**
+ * Which chapter is on screen, 1-based, read off the reader section's
+ * data-chapter. The chapter count left the chrome with the bottom bar; the
+ * attribute is where that reader state lives now.
+ */
+async function chapterNumber(page: Page): Promise<string> {
+  return (await page.locator('#reader').getAttribute('data-chapter')) ?? '';
+}
+
+/** Set the display mode, which now lives in the Aa panel with the rest of taste. */
+async function setLayout(page: Page, mode: 'paged' | 'scroll'): Promise<void> {
+  if (await chromeHidden(page)) await centerTap(page);
+  if (await page.locator('#aa-panel').isHidden()) {
+    await page.locator('#aa-toggle').click();
+    await page.locator('#aa-panel').waitFor({ state: 'visible' });
+  }
+  await page.locator(`#aa-layout-${mode}`).click();
+  await page.waitForTimeout(150);
 }
 
 scene('import-and-open', async ({ page, base, capture }) => {
@@ -102,7 +118,7 @@ scene('import-and-open', async ({ page, base, capture }) => {
   // at one page and this assertion is the only thing that notices.
   await tocNav(page, 'Two: The Long Middle');
   m = await metrics(page);
-  expectEq(await chapterLabel(page), '2 of 3', 'toc jump landed in chapter 2');
+  expectEq(await chapterNumber(page), '2', 'toc jump landed in chapter 2');
   expect(
     m.scrollWidth >= 2 * m.clientWidth,
     `chapter 2 paginates to multiple pages (scrollWidth ${m.scrollWidth} vs page ${m.clientWidth})`,
@@ -114,15 +130,15 @@ scene('import-and-open', async ({ page, base, capture }) => {
 scene('page-turns', async ({ page, capture }) => {
   // Book start: turning back on page 0 of chapter 1 is a gentle stop.
   await tocNav(page, 'One: A Beginning');
-  expectEq(await chapterLabel(page), '1 of 3', 'back at chapter 1');
+  expectEq(await chapterNumber(page), '1', 'back at chapter 1');
   await zoneClick(page, 'back');
   let m = await metrics(page);
   expectEq(m.scrollLeft, 0, 'gentle stop at the book start: no move');
-  expectEq(await chapterLabel(page), '1 of 3', 'gentle stop at the book start: no wrap');
+  expectEq(await chapterNumber(page), '1', 'gentle stop at the book start: no wrap');
 
   // Forward past the last page of a chapter crosses into the next chapter.
   await zoneClick(page, 'forward');
-  expectEq(await chapterLabel(page), '2 of 3', 'forward past the chapter end enters chapter 2');
+  expectEq(await chapterNumber(page), '2', 'forward past the chapter end enters chapter 2');
   m = await metrics(page);
   expectEq(m.scrollLeft, 0, 'entering forward lands on the first page');
 
@@ -157,11 +173,11 @@ scene('mode-invariance', async ({ page, capture }) => {
   const anchorId = await firstVisibleParagraph(page);
   expect(anchorId, 'a paragraph is visible at the page start');
 
-  if (await chromeHidden(page)) await centerTap(page);
-  await page.locator('#mode-toggle').click();
-  await page.waitForTimeout(120);
+  await setLayout(page, 'scroll');
+  await page.keyboard.press('Escape'); // the panel steps aside for the evidence
+  await page.waitForTimeout(80);
   let m = await metrics(page);
-  expectEq(m.overflowY, 'auto', 'toggle entered scroll mode');
+  expectEq(m.overflowY, 'auto', 'the Layout choice entered scroll mode');
   expect(m.scrollHeight > m.clientHeight, 'scroll mode has vertical extent');
   expectEq(
     await firstVisibleParagraph(page),
@@ -179,10 +195,11 @@ scene('mode-invariance', async ({ page, capture }) => {
   expect(scrolled, 'vertical scrolling works in scroll mode');
   await capture('scroll-mode');
 
-  await page.locator('#mode-toggle').click();
-  await page.waitForTimeout(120);
+  await setLayout(page, 'paged');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(80);
   m = await metrics(page);
-  expectEq(m.overflowY, 'hidden', 'toggle returned to paged mode');
+  expectEq(m.overflowY, 'hidden', 'the Layout choice returned to paged mode');
   expectEq(m.scrollLeft % m.clientWidth, 0, 'restore snapped to a page boundary');
   expectEq(
     await firstVisibleParagraph(page),
@@ -220,6 +237,21 @@ async function statusRight(page: Page): Promise<string> {
 async function statusTap(page: Page): Promise<void> {
   await page.locator('#status-cycle').click();
   await page.waitForTimeout(60);
+}
+
+/** Is the hairline's progress rule painting at all? (the off state hides it) */
+function trackVisible(page: Page): Promise<boolean> {
+  return page.locator('#status-track').isVisible();
+}
+
+/** Cycle the readout until it reaches a state, or give up after a full lap. */
+async function statusCycleTo(page: Page, want: RegExp): Promise<string> {
+  for (let i = 0; i < 7; i++) {
+    const text = await statusLeft(page);
+    if (want.test(text)) return text;
+    await statusTap(page);
+  }
+  throw new Error(`status never reached ${want}`);
 }
 
 interface SyncedSidecar {
@@ -267,10 +299,13 @@ scene('chrome-rules', async ({ page, capture }) => {
 });
 
 scene('status-cycle', async ({ page, base, capture }) => {
-  // Chrome is open after the previous scene; the status strip shows only in
-  // pure-text reading, so hide it first.
+  // The hairline defers to nothing: the bottom bar it used to step aside for
+  // is gone, so it shows with the chrome open as well as in pure text.
+  expect(!(await chromeHidden(page)), 'chrome is still open from the previous scene');
+  expect(await trackVisible(page), 'the hairline shows with the chrome open too');
   await centerTap(page);
-  expect(await chromeHidden(page), 'chrome hidden: the status strip is visible');
+  expect(await chromeHidden(page), 'and keeps showing in pure text');
+  expect(await trackVisible(page), 'the progress rule is up');
 
   // Initial state: time-left-chapter, still learning (no pace evidence yet).
   expectEq(
@@ -323,6 +358,9 @@ scene('status-cycle', async ({ page, base, capture }) => {
   );
   expectEq(await statusLeft(page), '', 'off state shows no text');
   expectEq(await statusRight(page), '', 'off state shows no percent');
+  // The cycle really does end in nothing: the rule goes too, so the page is
+  // completely clean. Only the invisible hit target survives.
+  expect(!(await trackVisible(page)), 'off state hides the progress rule as well');
 
   await statusTap(page); // one more tap brings it back
   expectEq(
@@ -330,22 +368,38 @@ scene('status-cycle', async ({ page, base, capture }) => {
     'Learning reading speed…',
     'a tap on the invisible target cycles back on',
   );
+  expect(await trackVisible(page), 'and the rule comes back with it');
 
   const after = await metrics(page);
   expectEq(after.scrollLeft, before.scrollLeft, 'status taps never turn the page');
   expectEq(after.scrollTop, before.scrollTop, 'status taps never scroll');
 
+  // The two halves of the hairline own separate taps: the rule looks
+  // elsewhere, the readout cycles, and neither does the other's job.
+  // (From the location state, so a cycle step is visible in the text: the two
+  // time-left states read the same while pace is still being learned.)
+  const readout = await statusCycleTo(page, /^Loc /);
+  await page.locator('#status-track').click();
+  await page.locator('#peek-sheet').waitFor({ state: 'visible' });
+  expectEq(await statusLeft(page), readout, 'tapping the rule opens the peek and cycles nothing');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(120);
+  expect(await page.locator('#peek-sheet').isHidden(), 'Escape closes the peek again');
+  await statusTap(page);
+  expect(await page.locator('#peek-sheet').isHidden(), 'tapping the readout opens no peek');
+  expect((await statusLeft(page)) !== readout, 'the readout tap did cycle the readout');
+
   // Print page numbers march monotonically while reading through the book.
   await tocNav(page, 'Two: The Long Middle');
   await centerTap(page); // tocNav left chrome open; back to pure text
-  for (let i = 0; i < 3; i++) await statusTap(page); // t-l-chapter -> ... -> page
+  await statusCycleTo(page, /^Page \d+ of 6$/);
   const pages: number[] = [];
   for (let i = 0; i < 15; i++) {
     const text = await statusLeft(page);
     const n = Number(text.match(/^Page (\d+) of 6$/)?.[1]);
     expect(Number.isFinite(n), `page state stays sane while turning (got "${text}")`);
     pages.push(n);
-    if ((await chapterLabel(page)) === '3 of 3') break;
+    if ((await chapterNumber(page)) === '3') break;
     await zoneClick(page, 'forward');
   }
   for (let i = 1; i < pages.length; i++) {
@@ -361,7 +415,7 @@ scene('status-cycle', async ({ page, base, capture }) => {
 scene('finish-the-book', async ({ page, base, capture }) => {
   await tocNav(page, 'Three: An End');
   await centerTap(page); // tocNav left chrome open; drop back to pure text
-  expectEq(await chapterLabel(page), '3 of 3', 'in the last chapter');
+  expectEq(await chapterNumber(page), '3', 'in the last chapter');
 
   // The fixture's last chapter is a single page, so the reader already sits
   // at the book's end: progress reports complete before any nudge.
@@ -380,7 +434,7 @@ scene('finish-the-book', async ({ page, base, capture }) => {
   // One more forward turn at the last page raises the nudge.
   await zoneClick(page, 'forward');
   expect(await nudge.isVisible(), 'forward at the book end nudges the finished state');
-  expectEq(await chapterLabel(page), '3 of 3', 'gentle stop: still on the last page');
+  expectEq(await chapterNumber(page), '3', 'gentle stop: still on the last page');
   await capture('finish-nudge');
 
   // It is a panel: Escape closes it before anything else.
@@ -739,7 +793,7 @@ function probeMarks(page: Page): Promise<{ count: number; sameNodes: boolean }> 
 scene('highlight-persistence', async ({ page, capture }) => {
   await tocNav(page, 'Two: The Long Middle');
   await centerTap(page); // toc navigation leaves chrome open; back to text
-  expectEq(await chapterLabel(page), '2 of 3', 'in chapter 2');
+  expectEq(await chapterNumber(page), '2', 'in chapter 2');
 
   // First highlight: yellow, mid-paragraph.
   await selectTextIn(page, 'p2', 'The quick brown fox');
@@ -811,17 +865,16 @@ scene('highlight-persistence', async ({ page, capture }) => {
       (m as HTMLElement & { __probe?: boolean }).__probe = true;
     }
   });
-  await centerTap(page);
-  await page.locator('#mode-toggle').click(); // paged -> scroll
-  await page.waitForTimeout(150);
+  await setLayout(page, 'scroll');
   let probes = await probeMarks(page);
   expectEq(probes.count, 2, 'both marks present in scroll mode');
   expect(probes.sameNodes, 'paged -> scroll kept the same mark nodes (no re-application)');
-  await page.locator('#mode-toggle').click(); // scroll -> paged
-  await page.waitForTimeout(150);
+  await setLayout(page, 'paged');
   probes = await probeMarks(page);
   expectEq(probes.count, 2, 'both marks present back in paged mode');
   expect(probes.sameNodes, 'scroll -> paged kept the same mark nodes');
+  await page.keyboard.press('Escape'); // close the Aa panel
+  await page.waitForTimeout(80);
   await centerTap(page); // hide chrome again
 
   // Delete: a throwaway blue highlight is removed and the paragraph's DOM
@@ -1011,7 +1064,7 @@ scene('notebook-and-links', async ({ page, capture }) => {
   // chapter from the toc, and a jump has to really cross chapters.
   await tocNav(page, 'Three: An End');
   await centerTap(page);
-  expectEq(await chapterLabel(page), '3 of 3', 'in chapter 3');
+  expectEq(await chapterNumber(page), '3', 'in chapter 3');
   await selectTextIn(page, 'c3', 'An End');
   await page.locator('#selection-menu [data-color="orange"]').click();
   await page.waitForTimeout(200);
@@ -1107,7 +1160,7 @@ scene('notebook-and-links', async ({ page, capture }) => {
   await openNotebook(page);
   await page.locator(`#notebook .nb-row[data-hl="${yellowId}"]`).click();
   await page.waitForTimeout(200);
-  expectEq(await chapterLabel(page), '2 of 3', 'the row jumped to the highlight’s chapter');
+  expectEq(await chapterNumber(page), '2', 'the row jumped to the highlight’s chapter');
   expect(await page.locator('#notebook').isHidden(), 'the notebook closes behind the jump');
   let state = await markState(page, yellowId);
   expect(state.inViewport, 'the jump brought the highlight on screen');
@@ -1137,11 +1190,7 @@ scene('notebook-and-links', async ({ page, capture }) => {
     const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
     return !!shadow?.querySelector('mark.hl.hl-flash');
   });
-  expectEq(
-    await chapterLabel(fresh),
-    '3 of 3',
-    'a cold-opened deep link lands in the right chapter',
-  );
+  expectEq(await chapterNumber(fresh), '3', 'a cold-opened deep link lands in the right chapter');
   state = await markState(fresh, orangeId);
   expect(state.inViewport, 'the deep-linked highlight is on screen, flashed');
   expectEq(
@@ -1366,7 +1415,7 @@ scene('go-to', async ({ page, capture }) => {
   await openGoTo(page);
   await page.locator('#goto-cover').click();
   await page.waitForTimeout(250);
-  expectEq(await chapterLabel(page), '1 of 3', 'Cover goes to the first spine chapter');
+  expectEq(await chapterNumber(page), '1', 'Cover goes to the first spine chapter');
   const m = await metrics(page);
   expectEq(m.scrollLeft, 0, 'and to its first page');
 
@@ -1375,11 +1424,7 @@ scene('go-to', async ({ page, capture }) => {
   await openGoTo(page);
   await page.locator('#goto-beginning').click();
   await page.waitForTimeout(250);
-  expectEq(
-    await chapterLabel(page),
-    '1 of 3',
-    'Beginning falls back to chapter 1 with no landmark',
-  );
+  expectEq(await chapterNumber(page), '1', 'Beginning falls back to chapter 1 with no landmark');
 
   // A location the book does not have is refused in place, with the panel open.
   await openGoTo(page);
@@ -1413,7 +1458,7 @@ async function clickNoteref(page: Page): Promise<void> {
 scene('footnotes', async ({ page, capture }) => {
   await tocNav(page, 'One: A Beginning');
   await centerTap(page);
-  expectEq(await chapterLabel(page), '1 of 3', 'in the chapter that carries the note');
+  expectEq(await chapterNumber(page), '1', 'in the chapter that carries the note');
 
   // LOAD-BEARING: the note appears without the page moving under the reader.
   const before = await metrics(page);
@@ -1426,7 +1471,7 @@ scene('footnotes', async ({ page, capture }) => {
   );
   const after = await metrics(page);
   expectEq(after.scrollLeft, before.scrollLeft, 'reading the note turned no page');
-  expectEq(await chapterLabel(page), '1 of 3', 'and changed no chapter');
+  expectEq(await chapterNumber(page), '1', 'and changed no chapter');
   expect(await chromeHidden(page), 'and left the chrome alone');
   await capture('footnote-popover');
 
@@ -1568,7 +1613,7 @@ scene('search', async ({ page, capture }) => {
   await page.locator(`.search-hit[data-hit="${inMiddle.index}"]`).click();
   await page.waitForTimeout(300);
   expect(await page.locator('#search-panel').isHidden(), 'the panel steps aside for the page');
-  expectEq(await chapterLabel(page), '2 of 3', 'the jump landed in the hit’s chapter');
+  expectEq(await chapterNumber(page), '2', 'the jump landed in the hit’s chapter');
 
   // LOAD-BEARING (salvage §7, second half): ALL occurrences on the page are
   // marked, and the one that was chosen is on screen.
@@ -1681,9 +1726,9 @@ async function scrubPeek(page: Page, fraction: number): Promise<void> {
   await page.waitForTimeout(80);
 }
 
+/** The hairline's rule is the way to look elsewhere; no chrome needed. */
 async function openPeek(page: Page): Promise<void> {
-  if (await chromeHidden(page)) await centerTap(page);
-  await page.locator('#peek-toggle').click();
+  await page.locator('#status-track').click();
   await page.locator('#peek-sheet').waitFor({ state: 'visible' });
 }
 
@@ -1852,28 +1897,43 @@ scene('phone', async ({ base, onPhone }) => {
       'the corner tap bookmarks the page with chrome hidden',
     );
 
-    // The status strip sits above the home-bar area, and its cycle target is a
-    // real fingertip even though the text it shows is small.
+    // The hairline sits above the home-bar area, and BOTH its targets are real
+    // fingertips even though the readout is small type and the rule is 2px.
     const strip = await page.evaluate(() => {
       const line = document.getElementById('status-line') as HTMLElement;
       const cycle = document.getElementById('status-cycle') as HTMLElement;
+      const track = document.getElementById('status-track') as HTMLElement;
       const lineRect = line.getBoundingClientRect();
-      const cycleRect = cycle.getBoundingClientRect();
       return {
         visible: getComputedStyle(line).visibility === 'visible',
         bottomGap: window.innerHeight - lineRect.bottom,
-        cycleHeight: cycleRect.height,
+        cycleHeight: cycle.getBoundingClientRect().height,
+        trackHeight: track.getBoundingClientRect().height,
         text: cycle.textContent ?? '',
       };
     });
     expect(strip.visible, 'the status strip shows while reading');
     expect(strip.bottomGap >= 0, 'and stays inside the screen');
     expect(strip.cycleHeight >= 44, `its cycle target is ${Math.round(strip.cycleHeight)}px tall`);
+    expect(
+      strip.trackHeight >= 44,
+      `its page-flip rule is ${Math.round(strip.trackHeight)}px tall to the thumb`,
+    );
 
-    // Chrome open: five controls, the two bars, and no overflow.
+    // A thumb on the rule opens the Page Flip peek, with no chrome involved.
+    const screenHeight = await page.evaluate(() => window.innerHeight);
+    await page.touchscreen.tap(box.x + box.width / 2, screenHeight - 22);
+    await page.waitForTimeout(250);
+    expect(await page.locator('#peek-sheet').isVisible(), 'a thumb on the hairline opens the peek');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+    expect(await page.locator('#peek-sheet').isHidden(), 'and it closes without moving anything');
+
+    // Chrome open: five marks in one bar (there is no second bar any more),
+    // the hairline still up beneath them, and no overflow.
     await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
     await page.waitForTimeout(250);
-    expect(await noOverflow(), 'chrome open: the bars still fit 390px');
+    expect(await noOverflow(), 'chrome open: the bar still fits 390px');
     expectEq(
       (await undersized()).join(', '),
       '',
@@ -1881,7 +1941,6 @@ scene('phone', async ({ base, onPhone }) => {
     );
     const bars = await page.evaluate(() => {
       const top = document.getElementById('top-bar') as HTMLElement;
-      const bottom = document.getElementById('bottom-bar') as HTMLElement;
       const widest = (bar: HTMLElement): number =>
         Array.from(bar.children).reduce(
           (sum, child) => sum + child.getBoundingClientRect().width,
@@ -1889,14 +1948,19 @@ scene('phone', async ({ base, onPhone }) => {
         );
       return {
         topFits: widest(top) <= top.getBoundingClientRect().width,
-        bottomFits: widest(bottom) <= bottom.getBoundingClientRect().width,
+        marks: top.querySelectorAll('button').length,
+        bottomBar: document.getElementById('bottom-bar') !== null,
+        stripVisible: getComputedStyle(document.getElementById('status-line') as HTMLElement)
+          .visibility,
         titleHidden:
           getComputedStyle(document.getElementById('reader-book-title') as HTMLElement).display ===
           'none',
       };
     });
     expect(bars.topFits, 'the top bar’s controls fit its width');
-    expect(bars.bottomFits, 'the bottom bar’s controls fit its width');
+    expectEq(bars.marks, 5, 'five controls, all of them marks');
+    expect(!bars.bottomBar, 'there is no bottom bar left to hold anything');
+    expectEq(bars.stripVisible, 'visible', 'the hairline stays up with the chrome open');
     expect(bars.titleHidden, 'the title steps aside rather than being squeezed');
     await capture('phone-chrome');
   });

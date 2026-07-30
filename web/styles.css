@@ -309,20 +309,12 @@ button:hover {
   border-bottom: 1px solid var(--line);
   box-shadow: 0 1px 10px rgba(36, 33, 27, 0.07);
 }
-#bottom-bar {
-  bottom: 0;
-  border-top: 1px solid var(--line);
-  box-shadow: 0 -1px 10px rgba(36, 33, 27, 0.07);
-}
 #reader.chrome-hidden .chrome-bar {
   opacity: 0;
   pointer-events: none;
 }
 #reader.chrome-hidden #top-bar {
   transform: translateY(-35%);
-}
-#reader.chrome-hidden #bottom-bar {
-  transform: translateY(35%);
 }
 /* Final bar layout (I2): navigation left, the book's name in the middle,
    annotation and taste right — each side a group so the title keeps the
@@ -353,53 +345,85 @@ button:hover {
   }
 }
 
-/* Always-visible reading status (parity B3): a slim strip over the page
-   bottom, independent of the chrome bars. The strip itself lets taps pass
-   through to the page; only the small cycle target is interactive. Hidden
-   while chrome is open — the bottom bar takes that space. */
+/* The progress hairline: what is left after the bottom bar dissolved. A strip
+   one fingertip tall (product law 5) pinned to the very bottom edge, carrying
+   the cycling readout, a 2px rule, and the percent — "where am I, and let me
+   look elsewhere", and nothing else. It stays up with the chrome too: there is
+   no bar below it to defer to any more. The strip itself lets taps through to
+   the page; only the readout and the rule are interactive. */
 #status-line {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 2;
+  /* Above the peek sheet: the rule is what opened it, and it stays put at the
+     bottom edge instead of vanishing under the thing it summoned. */
+  z-index: 5;
+  height: calc(44px + env(safe-area-inset-bottom));
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: center;
   gap: 1rem;
   pointer-events: none;
-  padding: 0.15rem calc(1rem + env(safe-area-inset-right))
-    calc(0.35rem + env(safe-area-inset-bottom)) calc(1rem + env(safe-area-inset-left));
+  padding: 0 calc(1rem + env(safe-area-inset-right)) env(safe-area-inset-bottom)
+    calc(1rem + env(safe-area-inset-left));
   font-size: 0.8rem;
   color: var(--muted);
 }
-/* The cycle target is a 44px fingertip area (product law 5) that does NOT
-   push the strip taller: the button grows upward into the page margin and its
-   text stays pinned to the bottom, exactly where the strip draws it. */
 #status-cycle {
   pointer-events: auto;
+  align-self: stretch;
   border: none;
   background: none;
   padding: 0;
   min-width: 3rem;
-  min-height: 44px;
-  height: 44px;
-  margin-top: -44px;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   text-align: left;
+  white-space: nowrap;
   color: inherit;
   font-size: inherit;
 }
 #status-cycle:hover {
-  border: none;
   color: var(--fg);
 }
-/* Off: the strip disappears, but the invisible hit target still cycles back on. */
+/* The rule: 2px of ink, a faint full-width base (::before, so the fill paints
+   over it) and the read portion filled in. Tapping it opens the Page Flip
+   peek, so the hit area is the whole strip height even though it draws 2px. */
+#status-track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  pointer-events: auto;
+  border: none;
+  background: none;
+  padding: 0;
+}
+#status-track::before,
+#status-progress {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 2px;
+  margin-top: -1px;
+}
+#status-track::before {
+  right: 0;
+  background: var(--line);
+}
+#status-progress {
+  width: var(--progress, 0%);
+  background: var(--muted);
+}
+/* Off: the strip paints nothing — no readout, no rule, no percent — leaving
+   only the invisible cycle target, so a tap brings it all back. Tapping
+   through to a completely clean page is how focus works here: no separate
+   mode, no new state to explain. */
 #status-line.status-off #status-cycle {
   color: transparent;
 }
-#reader:not(.chrome-hidden) #status-line {
+#status-line.status-off #status-track {
   visibility: hidden;
 }
 
@@ -425,23 +449,20 @@ button:hover {
   opacity: 0;
 }
 
-/* The jump-back pill (H3): a small offer, bottom-left, just above the status
-   strip. It appears on any in-book jump and settles away once the reader has
-   turned a few pages — the way back stays, the nagging does not. */
+/* The jump-back pill (H3): a small offer, bottom-left, clear of the hairline
+   strip (which is 44px tall and always up now, chrome or no chrome). It
+   appears on any in-book jump and settles away once the reader has turned a
+   few pages — the way back stays, the nagging does not. */
 #jump-back {
   position: absolute;
   left: calc(1rem + env(safe-area-inset-left));
-  bottom: calc(2rem + env(safe-area-inset-bottom));
+  bottom: calc(44px + 0.5rem + env(safe-area-inset-bottom));
   z-index: 4;
   font-size: 0.82rem;
   padding: 0.35rem 0.8rem;
   border-radius: 999px;
   background: var(--bg);
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.14);
-}
-#reader:not(.chrome-hidden) #jump-back {
-  /* The bottom bar owns that band while chrome is open. */
-  bottom: calc(3.6rem + env(safe-area-inset-bottom));
 }
 
 /* End-of-book nudge (B6): a quiet centered card in the app's paper tones.
@@ -479,11 +500,6 @@ button:hover {
 }
 #finish-confirm {
   margin: 0;
-}
-#reader-chapter-label,
-#progress-label {
-  font-size: 0.85rem;
-  white-space: nowrap;
 }
 /* The Go To panel (H1): Cover/Beginning, a page-or-location box, the book's
    contents, and every bookmarked page — one panel that answers "take me
@@ -994,7 +1010,8 @@ button:hover {
   z-index: 6;
   display: flex;
   justify-content: center;
-  padding: 0 1rem calc(1rem + env(safe-area-inset-bottom));
+  /* Clear of the hairline strip, which is always up now. */
+  padding: 0 1rem calc(44px + 0.5rem + env(safe-area-inset-bottom));
 }
 .note-card {
   width: min(30rem, 100%);
@@ -1051,11 +1068,6 @@ button:hover {
    reading column never hides under it. */
 #top-bar {
   padding-top: calc(0.5rem + env(safe-area-inset-top));
-  padding-left: calc(1rem + env(safe-area-inset-left));
-  padding-right: calc(1rem + env(safe-area-inset-right));
-}
-#bottom-bar {
-  padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
   padding-left: calc(1rem + env(safe-area-inset-left));
   padding-right: calc(1rem + env(safe-area-inset-right));
 }
@@ -1154,7 +1166,9 @@ button:hover {
   background: var(--bg);
   border-top: 1px solid var(--line);
   box-shadow: 0 -8px 24px var(--scrim);
-  padding: 0.9rem 1rem calc(0.9rem + env(safe-area-inset-bottom));
+  /* Its bottom padding is the hairline's band: the sheet opens ABOVE the rule
+     that summoned it, and the rule keeps drawing at the very bottom edge. */
+  padding: 0.9rem 1rem calc(44px + env(safe-area-inset-bottom));
   padding-left: calc(1rem + env(safe-area-inset-left));
   padding-right: calc(1rem + env(safe-area-inset-right));
   display: flex;

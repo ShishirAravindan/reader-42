@@ -7,6 +7,7 @@
 // stays open underneath. Pure step logic lives at the top, unit-tested; the
 // DOM wiring below stays thin and is proven by the demo scene.
 
+import { DISPLAY_MODES, type DisplayMode } from '../reader/mode.ts';
 import type { TextAlign } from '../reader/render.ts';
 import {
   BOLDNESS_STEPS,
@@ -81,11 +82,21 @@ const MARGIN_LABELS: Record<(typeof MEASURE_STEPS_REM)[number], string> = {
 
 const ALIGN_LABELS: Record<TextAlign, string> = { left: 'Left', justify: 'Justified' };
 
+const LAYOUT_LABELS: Record<DisplayMode, string> = { paged: 'Paged', scroll: 'Scroll' };
+
 // --- the panel ---
 
 export interface AaPanelDeps {
   /** Reflow the open book; the renderer preserves the reading position. */
   relayout(): void;
+  /** Paged or scroll: taste, so it lives here with margins and spacing. */
+  displayMode(): DisplayMode;
+  /**
+   * Switch layout. The shell owns the whole switch — it reflows AND re-judges
+   * the bookmark ribbon against the new geometry, in that order — so this one
+   * is NOT wrapped in the panel's reflow helper.
+   */
+  setDisplayMode(mode: DisplayMode): void;
   /** Called when the panel opens (the shell closes the TOC here). */
   onOpen?(): void;
 }
@@ -247,6 +258,16 @@ export function createAaPanel(
     },
   });
 
+  const layoutButtons = choices({
+    values: DISPLAY_MODES,
+    label: (m) => LAYOUT_LABELS[m],
+    current: deps.displayMode,
+    apply: (m) => deps.setDisplayMode(m),
+    decorate: (m, b) => {
+      b.id = `aa-layout-${m}`;
+    },
+  });
+
   panel.replaceChildren(
     group('Theme', row(...themeButtons)),
     group('Font', ...fontButtons.map((b) => row(b))),
@@ -255,6 +276,9 @@ export function createAaPanel(
     group('Spacing', row(...spacingButtons)),
     group('Margins', row(...marginButtons)),
     group('Alignment', row(...alignButtons)),
+    // Last, because it is the coarsest choice on the sheet: paged or scroll is
+    // the shape of the page, not a property of the type.
+    group('Layout', row(...layoutButtons)),
   );
 
   // Outside click closes and is swallowed: it must never also turn the page
