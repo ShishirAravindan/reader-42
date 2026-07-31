@@ -1,0 +1,30 @@
+# The definition of done, enforced rather than attested.
+#
+# .claude/CLAUDE.md lists six things a change must satisfy; four of them are
+# mechanical, so they belong here and not in a pull request description. The
+# acceptance scenes are the interesting half: jsdom cannot do layout, so every
+# geometry-dependent invariant in this reader is proven only by driving a real
+# browser. If that job does not run on every pull request, those invariants are
+# claims.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+
+jobs:
+  checks:
+    name: typecheck · lint · unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun test
+
