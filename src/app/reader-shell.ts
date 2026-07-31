@@ -33,7 +33,7 @@ import { type Ribbon, bookmarkOnPage, createRibbon, newBookmarkId } from './book
 import { createChrome } from './chrome.ts';
 import { createDictionaryCard } from './dictionary-card.ts';
 import { el } from './dom.ts';
-import { type Dismissible, handleEscape } from './escape-chain.ts';
+import { type Dismissible, firstOpen, handleEscape } from './escape-chain.ts';
 import { createFindOverlay } from './find-overlay.ts';
 import { createFinishNudge } from './finish-nudge.ts';
 import { createFootnotePopover } from './footnote-popover.ts';
@@ -66,6 +66,15 @@ export interface ReaderDeps {
 let controller: ReaderController | null = null;
 let openSidecar: BookSidecar | null = null;
 /**
+ * Which open is current. Reading a book suspends twice (fetching the bytes,
+ * then parsing them), and on a slow transport the reader can navigate away —
+ * or into another book — while those awaits are outstanding. Every open takes
+ * a generation and anything that ends an open bumps it, so a stale open finds
+ * out and stops instead of raising a book the reader already left, over a
+ * shelf that has already been drawn.
+ */
+let openGeneration = 0;
+/**
  * How one open book comes apart: closeReader() drains this in order. The shell
  * owns the lifecycle, so every listener, overlay and clock that openReader
  * brings up registers its undo here and nowhere else.
@@ -96,7 +105,8 @@ export async function openReader(
   highlightId: string | null = null,
 ): Promise<void> {
   const { library, deviceCache } = deps;
-  closeReader();
+  closeReader(); // cancels any open still in flight; this one now owns the shell
+  const generation = openGeneration;
 
   // Pin before reading: the pinned dir joins the cache's desired set
   // synchronously, so these very reads make the book fully local.
@@ -104,11 +114,13 @@ export async function openReader(
   if (entry && deviceCache) void deviceCache.pin(entry.dir);
 
   const [bytes, sidecar] = await Promise.all([library.readEpub(id), library.readSidecar(id)]);
+  if (generation !== openGeneration) return; // navigated away while loading
   if (!bytes || !sidecar) {
     location.hash = '';
     return;
   }
   const book = await Book.open(bytes);
+  if (generation !== openGeneration) return;
   openSidecar = sidecar;
   // Character counts, once per open (milliseconds): the substrate for honest
   // progress weights, the location index, and time-left (parity B1/B4/B5).
@@ -555,40 +567,6 @@ export async function openReader(
     el<HTMLElement>('reader'),
   );
 
-  const detachInput = attachReadingInput(viewport, {
-    dir: () => book.direction,
-    onTurn: (d) => {
-      // A page turn drops you back into pure text (parity I1).
-      footnotes.close();
-      gotoPanel.close();
-      notebook.close();
-      // The panel steps aside; the hits stay lit, so a turn can walk between
-      // occurrences on the page you searched for.
-      searchPanel?.close({ keepMarks: true });
-      peek.close();
-      chrome.hide();
-      if (d === 'forward') controller?.turnForward();
-      else controller?.turnBack();
-      status?.refresh(); // same-chapter turns update the strip before the debounced save
-      ribbon?.refresh(); // ...and so does the dog-ear
-      backStack.turn(); // three turns and the pill settles away
-      renderPill();
-    },
-    onChrome: () => chrome.toggle(),
-    onCorner: toggleBookmarkHere,
-    onPeek: () => peek.open(),
-    // In scroll mode a vertical swipe is a scroll; the gesture stands down.
-    peekEnabled: () => displayMode === 'paged',
-    // Keyboard turns pause while the Aa panel or an annotation overlay is up.
-    keysEnabled: () =>
-      !el<HTMLElement>('reader').hidden &&
-      !aaPanel.isOpen() &&
-      !(searchPanel?.isOpen() ?? false) &&
-      !peek.isOpen() &&
-      !dictCard.isOpen() &&
-      !(annotations?.isOpen() ?? false),
-  });
-
   // The Escape chain, declared once, in priority order: transient overlays
   // first, then panels, then (with nothing open) the hidden chrome.
   const escapeChain: Dismissible[] = [
@@ -619,6 +597,38 @@ export async function openReader(
       if (!chrome.isOpen()) chrome.reveal();
     });
   };
+  const detachInput = attachReadingInput(viewport, {
+    dir: () => book.direction,
+    onTurn: (d) => {
+      // A page turn drops you back into pure text (parity I1).
+      footnotes.close();
+      gotoPanel.close();
+      notebook.close();
+      // The panel steps aside; the hits stay lit, so a turn can walk between
+      // occurrences on the page you searched for.
+      searchPanel?.close({ keepMarks: true });
+      peek.close();
+      chrome.hide();
+      if (d === 'forward') controller?.turnForward();
+      else controller?.turnBack();
+      status?.refresh(); // same-chapter turns update the strip before the debounced save
+      ribbon?.refresh(); // ...and so does the dog-ear
+      backStack.turn(); // three turns and the pill settles away
+      renderPill();
+    },
+    onChrome: () => chrome.toggle(),
+    onCorner: toggleBookmarkHere,
+    onPeek: () => peek.open(),
+    // In scroll mode a vertical swipe is a scroll; the gesture stands down.
+    peekEnabled: () => displayMode === 'paged',
+    // Keyboard turns pause while ANYTHING is open, and "anything" means the
+    // Escape chain — the one registry of what is on screen. Maintaining a
+    // second list by hand is what let Space turn the page underneath an open
+    // Go To panel: the chain knew the panel was up and the keyboard gate did
+    // not (salvage §7, "state ownership is split without a rule").
+    keysEnabled: () => !el<HTMLElement>('reader').hidden && firstOpen(escapeChain) === null,
+  });
+
   document.addEventListener('keydown', onEscape);
 
   const detachLinks = attachInBookLinks(viewport, {
@@ -655,6 +665,7 @@ export async function openReader(
 }
 
 export function closeReader(): void {
+  openGeneration += 1; // whatever open is in flight is now stale
   for (const undo of teardown.splice(0)) undo();
   // Unconditional, so the chrome that overlays the page is down even when the
   // router closes a reader that was never opened.
