@@ -6,7 +6,7 @@
 //
 //   bun scripts/demo/run.ts [--video] [--headed]
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { type Browser, type Page, chromium } from 'playwright';
@@ -77,8 +77,13 @@ export async function runScenes(): Promise<void> {
 
   try {
     await waitForServer(`${base}/`);
+    // Which Chromium: an explicit PW_CHROMIUM wins, then the sandbox's pinned
+    // browser, then Playwright's own install (which is what CI has). Falling
+    // through rather than hard-coding is what lets these scenes run both here
+    // and on a runner that never heard of /opt/pw-browsers.
+    const pinned = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium';
     browser = await chromium.launch({
-      executablePath: process.env.PW_CHROMIUM ?? '/opt/pw-browsers/chromium',
+      ...(existsSync(pinned) ? { executablePath: pinned } : {}),
       headless: !flags.has('--headed'),
     });
     const context = await browser.newContext({

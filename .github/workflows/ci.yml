@@ -28,3 +28,25 @@ jobs:
       - run: bun run lint
       - run: bun test
 
+  acceptance:
+    name: acceptance scenes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      # The harness launches Chromium itself; PW_CHROMIUM lets it use the one
+      # Playwright installs here instead of a hard-coded path.
+      - run: bunx playwright install --with-deps chromium
+      - name: Run the acceptance scenes
+        run: bun run demo
+      # Evidence is the point of the scenes: keep the frames (and any FAIL-*
+      # screenshot) so a red build can be looked at rather than guessed about.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: acceptance-evidence
+          path: scripts/demo/out/*.png
+          if-no-files-found: warn
