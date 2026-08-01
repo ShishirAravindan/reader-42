@@ -15,7 +15,6 @@ const validSidecar = {
   position: {
     chapter: 3,
     anchor: { path: [12, 1], ratio: 0.3 },
-    scroll: 1234,
     updatedAt: '2026-07-03T10:00:00.000Z',
   },
   highlights: [
@@ -54,6 +53,25 @@ describe('parseSidecar', () => {
     );
     expect(parsed?.position?.chapter).toBe(3);
     expect(parsed?.position?.anchor).toBeUndefined();
+  });
+
+  // Positions are structural and mode-independent. A pixel offset from an
+  // older sidecar means a different place in the other display mode and at
+  // every other type size, so it is read and thrown away, never restored.
+  test('a legacy pixel scroll is dropped, not carried forward', () => {
+    const parsed = parseSidecar(
+      {
+        ...validSidecar,
+        position: { chapter: 3, anchor: { path: [12], ratio: 0.3 }, scroll: 2400, updatedAt: NOW },
+      },
+      NOW,
+    );
+    expect(parsed?.position).toEqual({
+      chapter: 3,
+      anchor: { path: [12], ratio: 0.3 },
+      updatedAt: NOW,
+    });
+    expect(parsed?.position).not.toHaveProperty('scroll');
   });
 
   test('position without a clock is dropped (merge needs updatedAt)', () => {

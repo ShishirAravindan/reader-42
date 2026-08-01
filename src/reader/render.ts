@@ -80,8 +80,6 @@ export interface RenderedChapter {
   scrollToFragment(id: string): void;
   /** Bring an element's page (paged) or offset (scroll) into view. */
   revealElement(el: Element): void;
-  getScroll(): number;
-  setScroll(offset: number): void;
   /** Structural locator for the current viewport start (top or left edge). */
   getAnchor(): PositionAnchor | null;
   scrollToAnchor(anchor: PositionAnchor): void;
@@ -299,11 +297,6 @@ export function renderChapter(
       // land between pages.
       if (applied === 'paged') mount.scrollLeft = pageStartFor(absoluteStart(target, mount, 'h'));
       else target.scrollIntoView({ block: 'start' });
-    },
-    getScroll: (): number => (applied === 'paged' ? mount.scrollLeft : mount.scrollTop),
-    setScroll(offset: number): void {
-      if (applied === 'paged') mount.scrollLeft = pageStartFor(offset);
-      else mount.scrollTop = offset;
     },
     getAnchor: (): PositionAnchor | null => anchorFor(wrapper, mount, axis()),
     scrollToAnchor(anchor: PositionAnchor): void {

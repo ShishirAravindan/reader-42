@@ -84,12 +84,20 @@ export interface ReadingSession {
   endedAt: string;
 }
 
+/**
+ * Where the reader left off. Structural only: a chapter plus an anchor, never
+ * a pixel offset. A pixel offset means something different in each display
+ * mode (a column offset paged, a scroll offset in scroll mode) and at every
+ * type size, so restoring one on a second device lands somewhere unrelated.
+ * Positions are structural and mode-independent, or they do not sync.
+ *
+ * Sidecars written before this rule may still carry a `scroll` field; it is
+ * ignored on read (see parse.ts) and never written again.
+ */
 export interface ReadingPosition {
   chapter: number;
   /** Structural locator; the thing that actually restores the place. */
   anchor?: PositionAnchor;
-  /** Raw pixel offset, fallback for when the anchor no longer resolves. */
-  scroll?: number;
   /** Latest-wins clock for cross-device merge. */
   updatedAt: string;
 }

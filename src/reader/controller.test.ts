@@ -15,15 +15,14 @@ const view = (mode: DisplayMode): ReaderView => ({
 const at = (chapter: number, path: number[], ratio: number): ReadingPosition => ({
   chapter,
   anchor: { path, ratio },
-  scroll: 0,
   updatedAt: '2026-07-14T00:00:00.000Z',
 });
 
 describe('positionKey', () => {
-  test('ignores scroll pixels and the timestamp', () => {
-    const a = { ...at(1, [39], 0.6), scroll: 100, updatedAt: 'a' };
-    const b = { ...at(1, [39], 0.6), scroll: 999, updatedAt: 'b' };
-    expect(positionKey(a)).toBe(positionKey(b));
+  test('ignores the timestamp', () => {
+    expect(positionKey({ ...at(1, [39], 0.6), updatedAt: 'a' })).toBe(
+      positionKey({ ...at(1, [39], 0.6), updatedAt: 'b' }),
+    );
   });
 
   test('distinguishes chapter, path, and ratio moves', () => {
@@ -34,8 +33,8 @@ describe('positionKey', () => {
   });
 
   test('anchor-less positions collapse to a stable top key', () => {
-    const top: ReadingPosition = { chapter: 0, scroll: 0, updatedAt: 'x' };
-    expect(positionKey(top)).toBe(positionKey({ ...top, scroll: 50, updatedAt: 'y' }));
+    const top: ReadingPosition = { chapter: 0, updatedAt: 'x' };
+    expect(positionKey(top)).toBe(positionKey({ ...top, updatedAt: 'y' }));
   });
 });
 
@@ -99,6 +98,42 @@ describe('turns across chapters and book boundaries', () => {
     expect(progresses).toEqual([0.75]);
     expect(controller.progress()).toBe(0.75);
     expect(controller.currentFraction()).toBe(0);
+    controller.dispose();
+  });
+
+  // The most load-bearing constraint in the project: positions are structural
+  // and mode-independent. A pixel offset captured in paged mode is a column
+  // offset; restoring it in scroll mode lands that many pixels DOWN an
+  // unrelated part of the chapter, and a type-size change moves it too.
+  test('a captured position carries no pixel offset at all', async () => {
+    const { controller } = await make('paged');
+    const position = controller.currentPosition();
+    expect(position).not.toBeNull();
+    expect(Object.keys(position as object).sort()).toEqual(['anchor', 'chapter', 'updatedAt']);
+    controller.dispose();
+  });
+
+  test('a saved position emitted to the sidecar is structural only', async () => {
+    const saved: ReadingPosition[] = [];
+    const { controller } = await make('scroll', {
+      onPosition: ({ position }) => saved.push(position),
+    });
+    controller.goToChapter(1);
+    expect(saved).toHaveLength(1);
+    for (const position of saved) {
+      expect(position).not.toHaveProperty('scroll');
+    }
+    controller.dispose();
+  });
+
+  // Old sidecars may still carry `scroll`; opening one must ignore it rather
+  // than restore a pixel offset (or crash on the unknown field).
+  test('a legacy position with a scroll field opens without using it', async () => {
+    const { controller } = await make('scroll');
+    const legacy = { chapter: 1, scroll: 2400, updatedAt: 'x' } as ReadingPosition;
+    controller.open(legacy);
+    expect(controller.currentChapter()).toBe(1);
+    expect(controller.currentPosition()).not.toHaveProperty('scroll');
     controller.dispose();
   });
 

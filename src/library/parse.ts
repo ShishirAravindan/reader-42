@@ -134,16 +134,10 @@ function parsePosition(value: unknown): ReadingPosition | null {
     return null;
   }
   const anchor = parseAnchor(value.anchor);
-  const scroll =
-    typeof value.scroll === 'number' && Number.isFinite(value.scroll) && value.scroll >= 0
-      ? value.scroll
-      : null;
-  return {
-    chapter,
-    ...(anchor ? { anchor } : {}),
-    ...(scroll !== null ? { scroll } : {}),
-    updatedAt,
-  };
+  // A `scroll` field from an older sidecar is dropped, not read: pixels are
+  // mode- and type-size-dependent, so restoring one is worse than starting the
+  // chapter at the top. Dropping it silently keeps old files readable.
+  return { chapter, ...(anchor ? { anchor } : {}), updatedAt };
 }
 
 function parseSession(value: unknown): ReadingSession | null {

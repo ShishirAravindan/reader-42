@@ -17,7 +17,7 @@ function sidecar(overrides: Partial<BookSidecar> = {}): BookSidecar {
     state: 'reading',
     stateChangedAt: T0,
     progress: 0.2,
-    position: { chapter: 1, anchor: { path: [3], ratio: 0.5 }, scroll: 100, updatedAt: T1 },
+    position: { chapter: 1, anchor: { path: [3], ratio: 0.5 }, updatedAt: T1 },
     highlights: [],
     sessions: [],
     ...overrides,
@@ -46,7 +46,7 @@ describe('mergeSidecars: position and progress', () => {
   test('the later position.updatedAt wins, and progress follows it', () => {
     const behind = sidecar({
       progress: 0.2,
-      position: { chapter: 1, scroll: 100, updatedAt: T1 },
+      position: { chapter: 1, updatedAt: T1 },
     });
     const ahead = sidecar({
       progress: 0.7,

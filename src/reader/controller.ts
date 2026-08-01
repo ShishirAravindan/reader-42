@@ -61,11 +61,11 @@ export class ReaderController {
   open(position: ReadingPosition | null): void {
     const index = clampIndex(position?.chapter ?? 0, this.book.chapters.length);
     this.renderChapterAt(index);
-    if (position && this.rendered) {
-      // Anchor first; raw scroll only as the fallback for anchor-less data.
-      if (position.anchor) this.rendered.scrollToAnchor(position.anchor);
-      else if (position.scroll !== undefined) this.rendered.setScroll(position.scroll);
-    }
+    // The anchor is the whole restore: an anchor-less position is "the top of
+    // this chapter", which renderChapterAt has already done. There is no pixel
+    // fallback — a saved pixel offset means a different place in the other
+    // display mode and at every other type size.
+    if (position?.anchor && this.rendered) this.rendered.scrollToAnchor(position.anchor);
     // Baseline the restored place so the scroll event the restore just fired
     // doesn't re-save it. Re-saving would bump `updatedAt` on a position the
     // reader never actually moved, and under latest-wins sync that stale-but-
@@ -108,7 +108,6 @@ export class ReaderController {
   goToPosition(position: ReadingPosition): boolean {
     if (!this.goToChapter(position.chapter)) return false;
     if (position.anchor) this.rendered?.scrollToAnchor(position.anchor);
-    else if (position.scroll !== undefined) this.rendered?.setScroll(position.scroll);
     this.emitPosition();
     return true;
   }
@@ -222,7 +221,6 @@ export class ReaderController {
     return {
       chapter: this.chapterIndex,
       ...(anchor ? { anchor } : {}),
-      scroll: this.rendered.getScroll(),
       updatedAt: this.now(),
     };
   }
@@ -259,9 +257,9 @@ function clampIndex(index: number, count: number): number {
 }
 
 /**
- * Structural identity of a position: chapter plus anchor, ignoring the raw
- * pixel scroll and the timestamp. Two positions with the same key describe the
- * same place, so only a real move is worth saving.
+ * Structural identity of a position: chapter plus anchor, ignoring the
+ * timestamp. Two positions with the same key describe the same place, so only
+ * a real move is worth saving.
  */
 export function positionKey(position: ReadingPosition): string {
   const anchor = position.anchor
