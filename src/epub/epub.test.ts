@@ -132,6 +132,20 @@ describe('parsePageList', () => {
     expect(parsePageList(xml, 'nav.xhtml')[0]?.label).toBe('iv');
   });
 
+  // epub:type is a space-separated token list. A nav that carries more than
+  // one role must still be found, or the book silently loses its page numbers.
+  test('finds a nav whose epub:type carries several tokens', () => {
+    const pages = parsePageList(
+      navDoc(
+        `<nav epub:type="page-list landmarks"><ol>
+           <li><a href="ch1.xhtml#pg1">1</a></li>
+         </ol></nav>`,
+      ),
+      'nav.xhtml',
+    );
+    expect(pages.map((p) => p.label)).toEqual(['1']);
+  });
+
   test('no page-list nav (toc only) yields an empty list, never a toc bleed', () => {
     const pages = parsePageList(
       navDoc('<nav epub:type="toc"><ol><li><a href="ch1.xhtml">One</a></li></ol></nav>'),
@@ -188,6 +202,18 @@ describe('parseLandmarks', () => {
       'nav.xhtml',
     );
     expect(marks).toEqual([]);
+  });
+
+  test('finds a landmarks nav that also declares another role', () => {
+    const marks = parseLandmarks(
+      navDoc(
+        `<nav epub:type="landmarks page-list"><ol>
+           <li><a epub:type="bodymatter" href="ch2.xhtml">Start</a></li>
+         </ol></nav>`,
+      ),
+      'nav.xhtml',
+    );
+    expect(marks.map((m) => m.type)).toEqual(['bodymatter']);
   });
 
   test('a book with no landmarks nav yields nothing, never a toc bleed', () => {
