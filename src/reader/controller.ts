@@ -27,8 +27,9 @@ export class ReaderController {
   private readonly mount: HTMLElement;
   private readonly view: ReaderView;
   private readonly hooks: ControllerHooks;
-  private readonly weights: number[];
-  private readonly totalWeight: number;
+  /** Flattened character count per spine chapter; the progress substrate. */
+  private readonly chapterChars: number[];
+  private readonly totalChars: number;
   private readonly now: () => string;
 
   private chapterIndex = 0;
@@ -41,10 +42,12 @@ export class ReaderController {
     book: Book,
     mount: HTMLElement,
     view: ReaderView,
+    // Required, and character counts specifically (parity B4): progress and
+    // every reported location are counted in characters of flattened chapter
+    // text. There is no byte-approximation fallback — a second progress model
+    // would disagree with the location index silently.
+    chapterChars: number[],
     hooks: ControllerHooks = {},
-    // Character counts when the caller has them (honest progress, parity B4);
-    // decompressed-byte approximation otherwise.
-    weights?: number[],
     now: () => string = () => new Date().toISOString(),
   ) {
     this.book = book;
@@ -52,8 +55,8 @@ export class ReaderController {
     this.view = view;
     this.hooks = hooks;
     this.now = now;
-    this.weights = weights ?? book.chapterWeights();
-    this.totalWeight = this.weights.reduce((a, b) => a + b, 0) || 1;
+    this.chapterChars = chapterChars;
+    this.totalChars = this.chapterChars.reduce((a, b) => a + b, 0) || 1;
     this.mount.addEventListener('scroll', this.onScroll, { passive: true });
   }
 
@@ -123,18 +126,6 @@ export class ReaderController {
     this.rendered?.scrollToFraction(fraction);
     this.emitPosition();
     return true;
-  }
-
-  chapterCount(): number {
-    return this.book.chapters.length;
-  }
-
-  nextChapter(): boolean {
-    return this.goToChapter(this.chapterIndex + 1);
-  }
-
-  prevChapter(): boolean {
-    return this.goToChapter(this.chapterIndex - 1);
   }
 
   /**
@@ -237,18 +228,19 @@ export class ReaderController {
   }
 
   /**
-   * Length-weighted progress: chapters are weighted by their content size, so
-   * a book with a huge final chapter doesn't claim 90% done at its halfway
-   * point. The end of the last chapter reports exactly 1. Public so the
-   * status line can render immediately, without waiting for a debounced save.
+   * Character-weighted progress (parity B4): chapters are weighted by how much
+   * text they hold, so a book with a huge final chapter doesn't claim 90% done
+   * at its halfway point. The end of the last chapter reports exactly 1. Public
+   * so the status line can render immediately, without waiting for a debounced
+   * save.
    */
   progress(): number {
     if (!this.rendered) return 0;
     if (this.chapterIndex === this.book.chapters.length - 1 && this.rendered.atEnd()) return 1;
     let before = 0;
-    for (let i = 0; i < this.chapterIndex; i++) before += this.weights[i] ?? 0;
-    const current = (this.weights[this.chapterIndex] ?? 0) * this.rendered.chapterFraction();
-    return Math.min((before + current) / this.totalWeight, 1);
+    for (let i = 0; i < this.chapterIndex; i++) before += this.chapterChars[i] ?? 0;
+    const current = (this.chapterChars[this.chapterIndex] ?? 0) * this.rendered.chapterFraction();
+    return Math.min((before + current) / this.totalChars, 1);
   }
 }
 

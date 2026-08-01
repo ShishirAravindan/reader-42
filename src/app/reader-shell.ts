@@ -182,6 +182,7 @@ export async function openReader(
     // Taste read at call time (C8): the Aa panel writes a pref, then calls
     // controller.relayout(), and the renderer re-reads these accessors.
     { mode: () => displayMode, measureChars: getMeasureChars, typography: currentTypography },
+    metrics.chapterChars,
     {
       onChapter: (index) => {
         // The chapter number is no longer chrome (the contents panel and the
@@ -219,7 +220,6 @@ export async function openReader(
         ribbon?.refresh();
       },
     },
-    metrics.chapterChars,
   );
 
   // Deep-link URLs keep the transport query (?lib=…) so a pasted link boots

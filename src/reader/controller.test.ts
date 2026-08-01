@@ -3,6 +3,7 @@ import { buildFixtureEpub } from '../../test/fixture-epub.ts';
 import { Book } from '../epub/book.ts';
 import type { ReadingPosition } from '../library/types.ts';
 import { type ControllerHooks, ReaderController, positionKey } from './controller.ts';
+import { bookMetrics } from './metrics.ts';
 import type { DisplayMode } from './mode.ts';
 import { DEFAULT_TYPOGRAPHY, type ReaderView } from './render.ts';
 
@@ -43,13 +44,20 @@ describe('positionKey', () => {
 // chapter-crossing and book-boundary logic testable without geometry;
 // in-chapter page math is covered by the demo scenes.
 describe('turns across chapters and book boundaries', () => {
-  async function make(mode: DisplayMode, hooks: ControllerHooks = {}) {
+  async function make(mode: DisplayMode, hooks: ControllerHooks = {}, chars?: number[]) {
     const book = await Book.open(buildFixtureEpub());
     const mount = document.createElement('div');
     document.body.appendChild(mount);
-    const controller = new ReaderController(book, mount, view(mode), hooks);
+    const metrics = bookMetrics(book);
+    const controller = new ReaderController(
+      book,
+      mount,
+      view(mode),
+      chars ?? metrics.chapterChars,
+      hooks,
+    );
     controller.open(null);
-    return { controller, mount };
+    return { controller, mount, metrics };
   }
 
   test('forward at the chapter edge crosses to the next chapter', async () => {
@@ -81,22 +89,17 @@ describe('turns across chapters and book boundaries', () => {
     controller.dispose();
   });
 
-  test('custom weights drive length-honest progress (B4)', async () => {
-    const book = await Book.open(buildFixtureEpub());
-    const mount = document.createElement('div');
-    document.body.appendChild(mount);
+  test('character counts drive length-honest progress (B4)', async () => {
     const progresses: number[] = [];
-    const controller = new ReaderController(
-      book,
-      mount,
-      view('paged'),
+    // Chapter 0 holds three quarters of the book's text.
+    const { controller } = await make(
+      'paged',
       { onPosition: ({ progress }) => progresses.push(progress) },
-      [300, 100, 0], // chapter 0 is three quarters of the book
+      [300, 100, 100],
     );
-    controller.open(null);
     controller.goToChapter(1); // in jsdom fraction is 0: progress = chars before / total
-    expect(progresses).toEqual([0.75]);
-    expect(controller.progress()).toBe(0.75);
+    expect(progresses).toEqual([0.6]);
+    expect(controller.progress()).toBe(0.6);
     expect(controller.currentFraction()).toBe(0);
     controller.dispose();
   });

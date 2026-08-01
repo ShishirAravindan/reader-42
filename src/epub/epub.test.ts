@@ -60,14 +60,10 @@ describe('Book', () => {
     expect(book.toc[1]?.children[0]?.fragment).toBe('p30');
   });
 
-  test('resolves resources synchronously and weights chapters by size', async () => {
+  test('resolves resources synchronously', async () => {
     const book = await Book.open(buildFixtureEpub());
     expect(book.resolveResource('OEBPS/style.css')?.mediaType).toBe('text/css');
     expect(book.resolveResource('OEBPS/ghost.png')).toBeNull();
-    const weights = book.chapterWeights();
-    expect(weights).toHaveLength(3);
-    // The long middle chapter dominates the fixture by construction.
-    expect(Math.max(...weights)).toBe(weights[1] as number);
   });
 
   test('readMetadata gets title/author without a full open', async () => {

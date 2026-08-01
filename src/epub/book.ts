@@ -109,11 +109,6 @@ export class Book {
   chapterIndexByPath(path: string): number {
     return this.chapters.findIndex((c) => c.path === path);
   }
-
-  /** Rough per-chapter weight (decompressed bytes) for length-honest progress. */
-  chapterWeights(): number[] {
-    return this.chapters.map((c) => this.resources.get(c.path)?.bytes.byteLength ?? 1);
-  }
 }
 
 /** Read title/author without keeping the book open; used at import time. */
