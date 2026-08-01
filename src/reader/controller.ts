@@ -3,6 +3,7 @@
 
 import type { Book } from '../epub/book.ts';
 import type { PositionAnchor, ReadingPosition } from '../library/types.ts';
+import { charsBeforeAnchor } from './metrics.ts';
 import { type ReaderView, type RenderedChapter, renderChapter } from './render.ts';
 
 export interface PositionUpdate {
@@ -37,6 +38,8 @@ export class ReaderController {
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   /** Structural signature of the last position we saved or restored. */
   private lastPositionKey: string | null = null;
+  /** Memoized character offset of the current anchor (see charsIntoChapter). */
+  private charCache: { key: string; chars: number } | null = null;
 
   constructor(
     book: Book,
@@ -86,9 +89,24 @@ export class ReaderController {
     return this.rendered;
   }
 
-  /** How far through the current chapter the viewport start sits, 0..1. */
+  /**
+   * How far through the current chapter the viewport start sits, 0..1, counted
+   * in CHARACTERS of the chapter's text (parity B1/B4). Everything the reader
+   * is told derives from this — location, print page, percent, time left — so
+   * it must not move when the layout does. A scroll-extent fraction would:
+   * raise the type size and a chapter opening with a fixed-height image gets
+   * taller in text but not in image, and the same paragraph reports a smaller
+   * fraction. Page turning and `atEnd` stay geometric, where geometry is the
+   * truth.
+   */
   currentFraction(): number {
-    return this.rendered?.chapterFraction() ?? 0;
+    const rendered = this.rendered;
+    if (!rendered) return 0;
+    const chars = this.chapterChars[this.chapterIndex] ?? 0;
+    // A chapter with no text at all (an image plate) has no character
+    // coordinates to report; geometry is the only signal left.
+    if (chars <= 0) return rendered.chapterFraction();
+    return Math.min(Math.max(this.charsIntoChapter() / chars, 0), 1);
   }
 
   /** Structural locator for the current page start; what a bookmark records. */
@@ -190,6 +208,30 @@ export class ReaderController {
     this.rendered = null;
   }
 
+  /**
+   * The reading place as a character offset into the current chapter. Walking
+   * the chapter text is cheap but not free, and the status line asks several
+   * times per refresh, so the answer is remembered until the anchor moves.
+   */
+  private charsIntoChapter(): number {
+    const rendered = this.rendered;
+    if (!rendered) return 0;
+    const anchor = rendered.getAnchor();
+    if (anchor) {
+      const key = `${this.chapterIndex}|${anchor.path.join(',')}@${anchor.ratio}`;
+      if (this.charCache?.key === key) return this.charCache.chars;
+      const chars = charsBeforeAnchor(rendered.wrapper, anchor);
+      if (chars !== null) {
+        this.charCache = { key, chars };
+        return chars;
+      }
+    }
+    // No anchor resolved (a position from a chapter whose structure changed).
+    // Geometry is worse but it is what is left; never cached, since it moves
+    // with the scroll while the anchor key would not.
+    return (this.chapterChars[this.chapterIndex] ?? 0) * rendered.chapterFraction();
+  }
+
   private renderChapterAt(index: number): void {
     const chapter = this.book.chapters[index];
     if (!chapter) return;
@@ -239,7 +281,7 @@ export class ReaderController {
     if (this.chapterIndex === this.book.chapters.length - 1 && this.rendered.atEnd()) return 1;
     let before = 0;
     for (let i = 0; i < this.chapterIndex; i++) before += this.chapterChars[i] ?? 0;
-    const current = (this.chapterChars[this.chapterIndex] ?? 0) * this.rendered.chapterFraction();
+    const current = (this.chapterChars[this.chapterIndex] ?? 0) * this.currentFraction();
     return Math.min((before + current) / this.totalChars, 1);
   }
 }

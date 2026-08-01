@@ -4,6 +4,7 @@ import { Book } from '../epub/book.ts';
 import {
   LOCATION_SPAN,
   bookMetrics,
+  charsBeforeAnchor,
   charsBeforeId,
   excerptAt,
   flattenText,
@@ -218,6 +219,49 @@ describe('charsBeforeId', () => {
     // matching how the chapter totals are counted.
     expect(charsBeforeId(body, 'mark')).toBe('TitleOne two'.length);
     expect(charsBeforeId(body, 'ghost')).toBeNull();
+  });
+});
+
+describe('charsBeforeAnchor', () => {
+  const body = (): HTMLElement => {
+    const doc = new DOMParser().parseFromString(
+      '<body><h1>Title</h1><p>One  two</p><p>three four</p></body>',
+      'text/html',
+    );
+    return doc.body;
+  };
+
+  test('an anchor becomes a character offset, layout never consulted', () => {
+    const root = body();
+    expect(charsBeforeAnchor(root, { path: [], ratio: 0 })).toBe(0); // top of chapter
+    expect(charsBeforeAnchor(root, { path: [1], ratio: 0 })).toBe('Title'.length);
+    expect(charsBeforeAnchor(root, { path: [2], ratio: 0 })).toBe('TitleOne two'.length);
+  });
+
+  test('the ratio counts proportionally into the anchored element', () => {
+    const root = body();
+    // Half way into "three four" (10 flattened chars) is 5 more characters.
+    expect(charsBeforeAnchor(root, { path: [2], ratio: 0.5 })).toBe('TitleOne two'.length + 5);
+    // Ratios captured slightly outside the element clamp, as on restore.
+    expect(charsBeforeAnchor(root, { path: [2], ratio: -1 })).toBe('TitleOne two'.length);
+    expect(charsBeforeAnchor(root, { path: [2], ratio: 2 })).toBe('TitleOne two'.length + 10);
+  });
+
+  test('an unresolvable path reports nothing rather than guessing', () => {
+    expect(charsBeforeAnchor(body(), { path: [99], ratio: 0 })).toBeNull();
+  });
+
+  test('offsets agree with the chapter totals the location index counts', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const m = bookMetrics(book);
+    const chapter = m.chapterBody(1) as Element;
+    const last = chapter.children.length - 1;
+    const end = charsBeforeAnchor(chapter, { path: [last], ratio: 1 }) ?? 0;
+    const total = m.chapterChars[1] as number;
+    // Within one character: a prefix count trims the whitespace run before the
+    // element, where the chapter total keeps it as a single space.
+    expect(Math.abs(end - total)).toBeLessThanOrEqual(1);
+    expect(charsBeforeAnchor(chapter, { path: [0], ratio: 0 })).toBe(0);
   });
 });
 

@@ -3,9 +3,9 @@ import { buildFixtureEpub } from '../../test/fixture-epub.ts';
 import { Book } from '../epub/book.ts';
 import type { ReadingPosition } from '../library/types.ts';
 import { type ControllerHooks, ReaderController, positionKey } from './controller.ts';
-import { bookMetrics } from './metrics.ts';
+import { bookMetrics, charsBeforeAnchor } from './metrics.ts';
 import type { DisplayMode } from './mode.ts';
-import { DEFAULT_TYPOGRAPHY, type ReaderView } from './render.ts';
+import { DEFAULT_TYPOGRAPHY, type ReaderView, type RenderedChapter } from './render.ts';
 
 const view = (mode: DisplayMode): ReaderView => ({
   mode: () => mode,
@@ -137,6 +137,49 @@ describe('turns across chapters and book boundaries', () => {
     controller.open(legacy);
     expect(controller.currentChapter()).toBe(1);
     expect(controller.currentPosition()).not.toHaveProperty('scroll');
+    controller.dispose();
+  });
+
+  // Parity B1: a location is a device-independent address, stable across
+  // font, size, and margin changes. jsdom does no layout, so the two sides
+  // are simulated: the anchor is what a real browser captures at the viewport
+  // start (the same paragraph before and after the type-size change), and
+  // chapterFraction() is what that place measures as in scroll extent — which
+  // really does move, e.g. when a chapter opens on a fixed-height image and
+  // the text around it doubles in height.
+  test('a font-size change moves the layout, not the reported location (B1)', async () => {
+    const { controller, metrics } = await make('scroll');
+    controller.goToChapter(1);
+    const view = controller.chapterView() as RenderedChapter;
+    view.getAnchor = () => ({ path: [30], ratio: 0 });
+
+    view.chapterFraction = () => 0.2;
+    const fraction = controller.currentFraction();
+    const location = metrics.locationOf(1, fraction);
+    const progress = controller.progress();
+
+    view.chapterFraction = () => 0.1; // two size steps up: the layout moved
+    expect(controller.currentFraction()).toBe(fraction);
+    expect(metrics.locationOf(1, controller.currentFraction())).toBe(location);
+    expect(controller.progress()).toBe(progress);
+
+    // ...and it is genuinely counted, not the geometry passed through.
+    expect(fraction).not.toBe(0.2);
+    expect(fraction).toBeGreaterThan(0);
+    expect(fraction).toBeLessThan(1);
+    controller.dispose();
+  });
+
+  test('the reported fraction is the anchor as a share of the chapter text', async () => {
+    const { controller, metrics } = await make('scroll');
+    controller.goToChapter(1);
+    const view = controller.chapterView() as RenderedChapter;
+    const wrapper = view.wrapper;
+    view.getAnchor = () => ({ path: [30], ratio: 0 });
+    const expected =
+      (charsBeforeAnchor(wrapper, { path: [30], ratio: 0 }) ?? 0) /
+      (metrics.chapterChars[1] as number);
+    expect(controller.currentFraction()).toBeCloseTo(expected, 10);
     controller.dispose();
   });
 

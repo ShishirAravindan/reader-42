@@ -9,6 +9,8 @@
 // nothing here is called per position update except the pure arithmetic.
 
 import type { Book } from '../epub/book.ts';
+import type { PositionAnchor } from '../library/types.ts';
+import { clampRatio, elementAtPath } from './locator.ts';
 import { findBody, parseChapterDoc, sanitizeContent } from './render.ts';
 
 /** One location = this many characters of flattened chapter text. */
@@ -266,16 +268,16 @@ export function pageAnchors(book: Book, metrics: BookMetrics): PageAnchor[] {
 }
 
 /**
- * Flattened-character offset of the element with `id` inside `root`, i.e.
- * the length of all flattened text strictly before it in document order.
- * Null when the id doesn't resolve.
+ * Flattened-character offset of the first node `stop` accepts, i.e. the length
+ * of all flattened text strictly before it in document order. Null when
+ * nothing in `root` matches.
  */
-export function charsBeforeId(root: Element, id: string): number | null {
+function charsBeforeMatch(root: Element, stop: (node: Node) => boolean): number | null {
   let raw = '';
   let found = false;
   const walk = (node: Node): void => {
     if (found) return;
-    if (node.nodeType === 1 /* element */ && (node as Element).getAttribute('id') === id) {
+    if (stop(node)) {
       found = true;
       return;
     }
@@ -290,4 +292,46 @@ export function charsBeforeId(root: Element, id: string): number | null {
   };
   walk(root);
   return found ? flattenText(raw).length : null;
+}
+
+/**
+ * Flattened-character offset of the element with `id` inside `root`.
+ * Null when the id doesn't resolve.
+ */
+export function charsBeforeId(root: Element, id: string): number | null {
+  return charsBeforeMatch(
+    root,
+    (node) => node.nodeType === 1 && (node as Element).getAttribute('id') === id,
+  );
+}
+
+/** Flattened-character offset of an element inside `root`; null when outside it. */
+export function charsBeforeElement(root: Element, target: Element): number | null {
+  return charsBeforeMatch(root, (node) => node === target);
+}
+
+/**
+ * Where a structural anchor sits, counted in flattened characters of the
+ * chapter's text. This is the conversion that keeps everything the reader is
+ * TOLD — location, print page, percent, time left — free of layout: the anchor
+ * says which element the viewport starts on, and a character count says how
+ * far into the chapter that element is. Raise the type size and the anchor
+ * still names the same paragraph, so the number does not move; a
+ * scroll-extent fraction would, because a fixed-height image becomes a
+ * different share of a taller chapter.
+ *
+ * Null when the anchor's path doesn't resolve against `root`; callers decide
+ * what to do without it.
+ */
+export function charsBeforeAnchor(root: Element, anchor: PositionAnchor): number | null {
+  if (anchor.path.length === 0) return 0; // "top of chapter"
+  const element = elementAtPath(root, anchor.path);
+  if (!element || element === root) return null;
+  const before = charsBeforeElement(root, element);
+  if (before === null) return null;
+  // The ratio is how far into that one element the viewport starts. Inside a
+  // single block the only honest reading of it is proportional, and a block is
+  // rarely more than a screen tall, so the error is bounded by one paragraph.
+  const own = flattenText(element.textContent ?? '').length;
+  return before + clampRatio(anchor.ratio) * own;
 }
