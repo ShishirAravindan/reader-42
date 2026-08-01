@@ -45,11 +45,29 @@ export interface BookMetrics {
   chapterText(chapter: number): string;
   /** Parsed, sanitized chapter body; structural paths resolve against it. */
   chapterBody(chapter: number): Element | null;
+  /**
+   * Flattened offset of a page-list fragment inside its chapter, resolved
+   * during the counting pass. Null when the book never named it.
+   */
+  charsBeforeFragment(chapter: number, fragment: string): number | null;
 }
 
 export function bookMetrics(book: Book): BookMetrics {
+  // The page-list's fragments, grouped by chapter, BEFORE the counting pass:
+  // resolving them inside it costs one extra walk of a document already in
+  // hand, where resolving them afterwards means parsing the whole book a
+  // second time, synchronously, at open (product law 2: resume in a second).
+  const wantedIds = new Map<string, Set<string>>();
+  for (const target of book.pageList) {
+    if (!target.fragment) continue;
+    const ids = wantedIds.get(target.path) ?? new Set<string>();
+    ids.add(target.fragment);
+    wantedIds.set(target.path, ids);
+  }
+
   const rawText: string[] = [];
-  const chapterChars = book.chapters.map((chapter) => {
+  const fragmentChars = new Map<number, Map<string, number>>();
+  const chapterChars = book.chapters.map((chapter, index) => {
     const resource = book.resolveResource(chapter.path);
     if (!resource) {
       rawText.push('');
@@ -57,6 +75,8 @@ export function bookMetrics(book: Book): BookMetrics {
     }
     const body = parseBody(new TextDecoder().decode(resource.bytes));
     rawText.push(rawTextOf(body));
+    const ids = wantedIds.get(chapter.path);
+    if (ids) fragmentChars.set(index, charsBeforeIds(body, ids));
     return flattenText(body.textContent ?? '').length;
   });
 
@@ -104,6 +124,8 @@ export function bookMetrics(book: Book): BookMetrics {
       return this.placeAtChar((loc - 1) * LOCATION_SPAN);
     },
     chapterText: (chapter: number): string => rawText[chapter] ?? '',
+    charsBeforeFragment: (chapter: number, fragment: string): number | null =>
+      fragmentChars.get(chapter)?.get(fragment) ?? null,
     chapterBody(chapter: number): Element | null {
       const cached = bodies.get(chapter);
       if (cached) return cached;
@@ -286,8 +308,7 @@ export function pageAnchors(book: Book, metrics: BookMetrics): PageAnchor[] {
     if (chapter < 0) continue;
     let offset = 0;
     if (target.fragment) {
-      const body = metrics.chapterBody(chapter);
-      const before = body ? charsBeforeId(body, target.fragment) : null;
+      const before = metrics.charsBeforeFragment(chapter, target.fragment);
       if (before === null) continue;
       offset = Math.min(before, metrics.chapterChars[chapter] ?? 0);
     }
@@ -303,7 +324,7 @@ export function pageAnchors(book: Book, metrics: BookMetrics): PageAnchor[] {
  * nothing in `root` matches.
  */
 function charsBeforeMatch(root: Element, stop: (node: Node) => boolean): number | null {
-  let raw = '';
+  const counter = flatCounter();
   let found = false;
   const walk = (node: Node): void => {
     if (found) return;
@@ -312,7 +333,7 @@ function charsBeforeMatch(root: Element, stop: (node: Node) => boolean): number 
       return;
     }
     if (node.nodeType === 3 /* text */) {
-      raw += node.nodeValue ?? '';
+      counter.push(node.nodeValue ?? '');
       return;
     }
     for (const child of Array.from(node.childNodes)) {
@@ -321,18 +342,33 @@ function charsBeforeMatch(root: Element, stop: (node: Node) => boolean): number 
     }
   };
   walk(root);
-  return found ? flattenText(raw).length : null;
+  return found ? counter.count() : null;
 }
 
 /**
- * Flattened-character offset of the element with `id` inside `root`.
- * Null when the id doesn't resolve.
+ * Flattened-character offsets of several ids at once, in ONE walk of `root`.
+ * Ids that don't resolve are simply absent from the result. One walk matters:
+ * a page-list can name hundreds of fragments in a single chapter, and asking
+ * for them one at a time re-walks the chapter once per page.
  */
-export function charsBeforeId(root: Element, id: string): number | null {
-  return charsBeforeMatch(
-    root,
-    (node) => node.nodeType === 1 && (node as Element).getAttribute('id') === id,
-  );
+export function charsBeforeIds(root: Element, ids: Set<string>): Map<string, number> {
+  const out = new Map<string, number>();
+  if (ids.size === 0) return out;
+  const counter = flatCounter();
+  const walk = (node: Node): void => {
+    if (out.size === ids.size) return;
+    if (node.nodeType === 3 /* text */) {
+      counter.push(node.nodeValue ?? '');
+      return;
+    }
+    if (node.nodeType === 1 /* element */) {
+      const id = (node as Element).getAttribute('id');
+      if (id !== null && ids.has(id) && !out.has(id)) out.set(id, counter.count());
+    }
+    for (const child of Array.from(node.childNodes)) walk(child);
+  };
+  walk(root);
+  return out;
 }
 
 /** Flattened-character offset of an element inside `root`; null when outside it. */

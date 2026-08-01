@@ -2,11 +2,12 @@ import { describe, expect, test } from 'bun:test';
 import { buildFixtureEpub, buildZip } from '../../test/fixture-epub.ts';
 import { Book } from '../epub/book.ts';
 import {
+  type BookMetrics,
   LOCATION_SPAN,
   anchorAtChars,
   bookMetrics,
   charsBeforeAnchor,
-  charsBeforeId,
+  charsBeforeIds,
   excerptAt,
   flattenText,
   pageAnchors,
@@ -208,18 +209,27 @@ describe('rawOffsetOfElement', () => {
   });
 });
 
-describe('charsBeforeId', () => {
-  test('counts flattened chars strictly before the element, in document order', () => {
-    const doc = new DOMParser().parseFromString(
+describe('charsBeforeIds', () => {
+  const body = (): HTMLElement =>
+    new DOMParser().parseFromString(
       '<body><h1 id="top">Title</h1><p>One  two</p><p id="mark">three</p></body>',
       'text/html',
-    );
-    const body = doc.body;
-    expect(charsBeforeId(body, 'top')).toBe(0);
+    ).body;
+
+  test('counts flattened chars strictly before each element, in document order', () => {
+    const at = charsBeforeIds(body(), new Set(['top', 'mark', 'ghost']));
+    expect(at.get('top')).toBe(0);
     // textContent semantics: adjacent blocks concatenate with no separator,
     // matching how the chapter totals are counted.
-    expect(charsBeforeId(body, 'mark')).toBe('TitleOne two'.length);
-    expect(charsBeforeId(body, 'ghost')).toBeNull();
+    expect(at.get('mark')).toBe('TitleOne two'.length);
+    expect(at.has('ghost')).toBe(false); // an id that doesn't resolve is absent
+  });
+
+  test('one walk answers every id, and asking nothing costs nothing', () => {
+    expect(charsBeforeIds(body(), new Set()).size).toBe(0);
+    const one = charsBeforeIds(body(), new Set(['mark']));
+    const many = charsBeforeIds(body(), new Set(['top', 'mark']));
+    expect(one.get('mark')).toBe(many.get('mark'));
   });
 });
 
@@ -318,6 +328,25 @@ describe('pageAnchors', () => {
     expect(anchors[0]?.globalChar).toBe(0);
     expect(anchors[5]?.globalChar).toBeGreaterThanOrEqual(m.charsBefore(2));
     expect(anchors[5]?.globalChar).toBeLessThanOrEqual(m.totalChars);
+  });
+
+  // Product law 2 gives resume a one-second budget. Resolving the page-list by
+  // parsing each chapter again means parsing the whole book twice at open.
+  test('resolves without parsing the book a second time', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const metrics = bookMetrics(book);
+    const guarded: BookMetrics = {
+      ...metrics,
+      chapterBody: (): Element | null => {
+        throw new Error('pageAnchors re-parsed a chapter bookMetrics had already parsed');
+      },
+    };
+    expect(pageAnchors(book, guarded).map((a) => a.label)).toEqual(['1', '2', '3', '4', '5', '6']);
+  });
+
+  test('a fragment the book never names is dropped, not guessed at', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    expect(bookMetrics(book).charsBeforeFragment(0, 'nowhere')).toBeNull();
   });
 
   test('a book without a page-list yields no anchors', async () => {
