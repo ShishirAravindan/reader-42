@@ -330,6 +330,38 @@ describe('mergeSidecars: algebra', () => {
   });
 });
 
+describe('mergeSidecars: unreadable clocks', () => {
+  // A device with a broken clock, or a hand-edited file, can carry a timestamp
+  // Date.parse cannot read. NaN loses every comparison, so an unguarded clock
+  // compare answers "the second argument" — which makes the merge depend on
+  // which device flushed first, and the two stop converging.
+  const BAD = 'not-a-date';
+
+  test('a same-id highlight with an unreadable clock merges commutatively', () => {
+    const good = hl('h1', T1, { note: 'kept' });
+    const broken = hl('h1', BAD, { color: 'pink' });
+    const a = sidecar({ highlights: [good] });
+    const b = sidecar({ highlights: [broken] });
+    expect(mergeSidecars(a, b)).toEqual(mergeSidecars(b, a));
+    // ...and the readable clock wins: a broken clock is the oldest there is.
+    expect(mergeSidecars(a, b).highlights[0]?.note).toBe('kept');
+  });
+
+  test('two unreadable clocks still resolve to one deterministic record', () => {
+    const a = sidecar({ highlights: [hl('h1', BAD, { note: 'a' })] });
+    const b = sidecar({ highlights: [hl('h1', BAD, { note: 'b' })] });
+    expect(mergeSidecars(a, b)).toEqual(mergeSidecars(b, a));
+    expect(mergeSidecars(a, b).highlights).toHaveLength(1);
+  });
+
+  test('an unreadable position clock does not decide the merge by argument order', () => {
+    const a = sidecar({ progress: 0.9, position: { chapter: 9, updatedAt: BAD } });
+    const b = sidecar({ progress: 0.3, position: { chapter: 3, updatedAt: T1 } });
+    expect(mergeSidecars(a, b)).toEqual(mergeSidecars(b, a));
+    expect(mergeSidecars(a, b).position?.chapter).toBe(3); // the real clock wins
+  });
+});
+
 describe('mergeIndexes', () => {
   function index(over: Partial<LibraryIndex> = {}): LibraryIndex {
     return {
