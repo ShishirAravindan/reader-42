@@ -3,7 +3,7 @@
 
 import type { Book } from '../epub/book.ts';
 import type { PositionAnchor, ReadingPosition } from '../library/types.ts';
-import { anchorAtChars, charsBeforeAnchor } from './metrics.ts';
+import { LOCATION_SPAN, anchorAtChars, charsBeforeAnchor } from './metrics.ts';
 import { type ReaderView, type RenderedChapter, renderChapter } from './render.ts';
 
 export interface PositionUpdate {
@@ -23,6 +23,17 @@ export interface ControllerHooks {
 
 const SAVE_DEBOUNCE_MS = 800;
 
+/**
+ * The share of the book a chapter with no countable text still occupies. A
+ * plate, a full-page map, a colophon that is one image: they flatten to zero
+ * characters, and a chapter worth zero is a chapter the reader passes through
+ * without the percentage moving — worse, a book whose trailing chapters are
+ * all images reports 100% while a page of it is still unread. One location's
+ * worth is the smallest honest floor: enough to be somewhere, too little to
+ * distort a book made of text.
+ */
+const MIN_CHAPTER_WEIGHT = LOCATION_SPAN;
+
 export class ReaderController {
   private readonly book: Book;
   private readonly mount: HTMLElement;
@@ -30,7 +41,8 @@ export class ReaderController {
   private readonly hooks: ControllerHooks;
   /** Flattened character count per spine chapter; the progress substrate. */
   private readonly chapterChars: number[];
-  private readonly totalChars: number;
+  /** Sum of the floored per-chapter weights (see MIN_CHAPTER_WEIGHT). */
+  private readonly totalWeight: number;
   private readonly now: () => string;
 
   private chapterIndex = 0;
@@ -59,7 +71,8 @@ export class ReaderController {
     this.hooks = hooks;
     this.now = now;
     this.chapterChars = chapterChars;
-    this.totalChars = this.chapterChars.reduce((a, b) => a + b, 0) || 1;
+    this.totalWeight =
+      this.book.chapters.reduce((sum, _chapter, i) => sum + this.weightOf(i), 0) || 1;
     this.mount.addEventListener('scroll', this.onScroll, { passive: true });
   }
 
@@ -281,19 +294,36 @@ export class ReaderController {
   }
 
   /**
+   * The reader is on the last page of the last chapter (parity B6). A PLACE,
+   * deliberately not "progress() >= 1": progress is a ratio of weights and can
+   * round or saturate at the end of any late chapter, and the shell uses this
+   * to pin "Loc Y of Y" and to nudge the finished state. Those must mean the
+   * reader reached the end, never that the arithmetic ran out of room.
+   */
+  atBookEnd(): boolean {
+    if (!this.rendered) return false;
+    return this.chapterIndex === this.book.chapters.length - 1 && this.rendered.atEnd();
+  }
+
+  /**
    * Character-weighted progress (parity B4): chapters are weighted by how much
    * text they hold, so a book with a huge final chapter doesn't claim 90% done
-   * at its halfway point. The end of the last chapter reports exactly 1. Public
-   * so the status line can render immediately, without waiting for a debounced
+   * at its halfway point. Only the end of the book reports exactly 1. Public so
+   * the status line can render immediately, without waiting for a debounced
    * save.
    */
   progress(): number {
     if (!this.rendered) return 0;
-    if (this.chapterIndex === this.book.chapters.length - 1 && this.rendered.atEnd()) return 1;
+    if (this.atBookEnd()) return 1;
     let before = 0;
-    for (let i = 0; i < this.chapterIndex; i++) before += this.chapterChars[i] ?? 0;
-    const current = (this.chapterChars[this.chapterIndex] ?? 0) * this.currentFraction();
-    return Math.min((before + current) / this.totalChars, 1);
+    for (let i = 0; i < this.chapterIndex; i++) before += this.weightOf(i);
+    const current = this.weightOf(this.chapterIndex) * this.currentFraction();
+    return Math.min((before + current) / this.totalWeight, 1);
+  }
+
+  /** A chapter's share of the book, floored so no chapter is worth nothing. */
+  private weightOf(chapter: number): number {
+    return Math.max(this.chapterChars[chapter] ?? 0, MIN_CHAPTER_WEIGHT);
   }
 }
 

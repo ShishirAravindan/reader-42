@@ -357,10 +357,10 @@ export async function openReader(
       location: () => {
         const chapter = controller?.currentChapter() ?? 0;
         // The last page of the book is the last location, even when a short
-        // final chapter reports fraction 0 for its single page (B6).
-        const atBookEnd = (controller?.progress() ?? 0) >= 1;
+        // final chapter reports fraction 0 for its single page (B6). The place,
+        // not the percentage: a book can round to 100% a page early.
         return {
-          loc: atBookEnd
+          loc: controller?.atBookEnd()
             ? metrics.totalLocations
             : metrics.locationOf(chapter, controller?.currentFraction() ?? 0),
           total: metrics.totalLocations,

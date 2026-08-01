@@ -95,7 +95,7 @@ describe('turns across chapters and book boundaries', () => {
     const { controller } = await make(
       'paged',
       { onPosition: ({ progress }) => progresses.push(progress) },
-      [300, 100, 100],
+      [3000, 1000, 1000],
     );
     controller.goToChapter(1); // in jsdom fraction is 0: progress = chars before / total
     expect(progresses).toEqual([0.6]);
@@ -181,6 +181,51 @@ describe('turns across chapters and book boundaries', () => {
       (metrics.chapterChars[1] as number);
     expect(controller.currentFraction()).toBeCloseTo(expected, 10);
     controller.dispose();
+  });
+
+  // An image-only spine item (a plate, a full-page map, a one-image colophon)
+  // flattens to zero characters. Weighted at zero it is worth nothing, so the
+  // book claims to be finished while a page of it is still unread.
+  describe('chapters with no countable text (B4/B6)', () => {
+    const atEndOfChapter = (controller: ReaderController): void => {
+      const view = controller.chapterView() as RenderedChapter;
+      view.getAnchor = () => null; // no structure to anchor to
+      view.chapterFraction = () => 1;
+      view.atEnd = () => true;
+    };
+
+    test('a zero-character chapter still occupies part of the book', async () => {
+      const { controller } = await make('paged', {}, [300, 100, 0]);
+      controller.goToChapter(1);
+      // 300 of (300 + 100 + a floor), not 300 of 400.
+      expect(controller.progress()).toBeLessThan(0.75);
+      expect(controller.progress()).toBeGreaterThan(0.5);
+      controller.dispose();
+    });
+
+    test('progress does not reach 1 at the end of the second-to-last chapter', async () => {
+      const { controller } = await make('paged', {}, [300, 100, 0]);
+      controller.goToChapter(1);
+      atEndOfChapter(controller);
+      expect(controller.currentFraction()).toBe(1);
+      expect(controller.progress()).toBeLessThan(1);
+      expect(controller.atBookEnd()).toBe(false);
+      controller.dispose();
+    });
+
+    test('the book ends at the last page, not when the arithmetic runs out', async () => {
+      const { controller } = await make('paged', {}, [300, 100, 0]);
+      controller.goToChapter(2);
+      const view = controller.chapterView() as RenderedChapter;
+      view.chapterFraction = () => 0;
+      view.atEnd = () => false; // a page of the image plate still to come
+      expect(controller.atBookEnd()).toBe(false);
+      expect(controller.progress()).toBeLessThan(1);
+      view.atEnd = () => true;
+      expect(controller.atBookEnd()).toBe(true);
+      expect(controller.progress()).toBe(1);
+      controller.dispose();
+    });
   });
 
   test('chapter crossings emit the new position immediately', async () => {
