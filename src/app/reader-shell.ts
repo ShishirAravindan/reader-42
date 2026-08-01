@@ -366,6 +366,7 @@ export async function openReader(
           total: metrics.totalLocations,
         };
       },
+      hasPages: () => anchors.length > 0,
       page: () => pageAt(anchors, currentChars()),
       minutesLeft: (scope) => {
         const chapter = controller?.currentChapter() ?? 0;

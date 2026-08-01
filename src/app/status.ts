@@ -67,14 +67,19 @@ function clampProgress(progress: number): number {
   return Math.min(Math.max(progress, 0), 1);
 }
 
-/** The print page containing a global char offset: last anchor at or before it. */
+/**
+ * The print page containing a global char offset: the last anchor at or before
+ * it. Null before the first anchor — front matter that the print edition never
+ * paginated is not page 1, and saying so would put the reader several pages
+ * ahead of where they are. Null too when the book carries no page-list at all.
+ */
 export function pageAt(
   anchors: PageAnchor[],
   globalChar: number,
 ): { label: string; last: string } | null {
   const first = anchors[0];
   const lastAnchor = anchors[anchors.length - 1];
-  if (!first || !lastAnchor) return null;
+  if (!first || !lastAnchor || globalChar < first.globalChar) return null;
   let current = first;
   for (const anchor of anchors) {
     if (anchor.globalChar > globalChar) break;
@@ -89,7 +94,9 @@ export function pageAt(
 export interface StatusSource {
   progress(): number;
   location(): { loc: number; total: number };
-  /** Null when the book carries no page-list; the 'page' state is skipped. */
+  /** Does the BOOK have print pages at all? False skips the 'page' state. */
+  hasPages(): boolean;
+  /** Null where the print edition has no page here (front matter). */
   page(): { label: string; last: string } | null;
   minutesLeft(scope: 'chapter' | 'book'): number | null;
 }
@@ -120,7 +127,7 @@ export function createStatusLine(
 ): StatusLine {
   const { strip, cycle: cycleTarget, progress: progressFill, percent: rightSlot } = elements;
   // A stale 'page' pref from a book with a page-list degrades gracefully.
-  let mode: StatusMode = initialMode === 'page' && source.page() === null ? 'percent' : initialMode;
+  let mode: StatusMode = initialMode === 'page' && !source.hasPages() ? 'percent' : initialMode;
 
   const leftText = (): string => {
     switch (mode) {
@@ -134,7 +141,11 @@ export function createStatusLine(
       }
       case 'page': {
         const page = source.page();
-        return page ? formatPage(page.label, page.last) : '';
+        if (page) return formatPage(page.label, page.last);
+        // Front matter, ahead of the print edition's first numbered page: the
+        // location is the honest answer, and a blank strip would read as a bug.
+        const { loc, total } = source.location();
+        return formatLocation(loc, total);
       }
       case 'percent':
         return formatPercent(source.progress());
@@ -159,7 +170,7 @@ export function createStatusLine(
   // chrome reused across opens, and handlers must not stack.
   cycleTarget.onclick = (event): void => {
     event.stopPropagation(); // never reaches the tap zones: no page turn
-    mode = nextStatusMode(mode, source.page() !== null);
+    mode = nextStatusMode(mode, source.hasPages());
     onModeChange(mode);
     render();
   };
