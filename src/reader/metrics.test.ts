@@ -3,6 +3,7 @@ import { buildFixtureEpub, buildZip } from '../../test/fixture-epub.ts';
 import { Book } from '../epub/book.ts';
 import {
   LOCATION_SPAN,
+  anchorAtChars,
   bookMetrics,
   charsBeforeAnchor,
   charsBeforeId,
@@ -262,6 +263,43 @@ describe('charsBeforeAnchor', () => {
     // element, where the chapter total keeps it as a single space.
     expect(Math.abs(end - total)).toBeLessThanOrEqual(1);
     expect(charsBeforeAnchor(chapter, { path: [0], ratio: 0 })).toBe(0);
+  });
+});
+
+describe('anchorAtChars', () => {
+  test('finds the element holding an offset, and how far into it', () => {
+    const doc = new DOMParser().parseFromString(
+      '<body><h1>Title</h1><p>One  two</p><p>three four</p></body>',
+      'text/html',
+    );
+    const root = doc.body;
+    expect(anchorAtChars(root, 0)).toEqual({ path: [0], ratio: 0 });
+    expect(anchorAtChars(root, 5)).toEqual({ path: [1], ratio: 0 });
+    expect(anchorAtChars(root, 'TitleOne two'.length)).toEqual({ path: [2], ratio: 0 });
+    expect(anchorAtChars(root, 'TitleOne two'.length + 5)).toEqual({ path: [2], ratio: 0.5 });
+    // Past the end lands at the end of the last element, never outside it.
+    expect(anchorAtChars(root, 99_999)).toEqual({ path: [2], ratio: 1 });
+  });
+
+  test('descends through a wrapper element instead of stopping at it', () => {
+    const doc = new DOMParser().parseFromString(
+      '<body><div><p>aaaa</p><p>bbbb</p><p>cccc</p></div></body>',
+      'text/html',
+    );
+    expect(anchorAtChars(doc.body, 5)).toEqual({ path: [0, 1], ratio: 0.25 });
+  });
+
+  test('round-trips against charsBeforeAnchor across a real chapter', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const m = bookMetrics(book);
+    const chapter = m.chapterBody(1) as Element;
+    const total = m.chapterChars[1] as number;
+    for (const at of [0, 137, 1024, Math.floor(total / 2), total - 1]) {
+      const back = charsBeforeAnchor(chapter, anchorAtChars(chapter, at)) ?? -1;
+      // Within a couple of characters: prefix counts trim the whitespace run
+      // before an element where the running total keeps it as one space.
+      expect(Math.abs(back - at)).toBeLessThanOrEqual(2);
+    }
   });
 });
 

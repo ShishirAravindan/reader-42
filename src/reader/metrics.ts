@@ -10,7 +10,7 @@
 
 import type { Book } from '../epub/book.ts';
 import type { PositionAnchor } from '../library/types.ts';
-import { clampRatio, elementAtPath } from './locator.ts';
+import { clampRatio, elementAtPath, isOverlayMark } from './locator.ts';
 import { findBody, parseChapterDoc, sanitizeContent } from './render.ts';
 
 /** One location = this many characters of flattened chapter text. */
@@ -177,6 +177,36 @@ export function flattenText(text: string): string {
 }
 
 /**
+ * Counts flattened characters as text arrives, so a document can be walked
+ * once instead of re-flattening a growing prefix at every boundary. `count()`
+ * equals `flattenText(everything pushed so far).length` exactly: a whitespace
+ * run only spends its single space once a real character follows it, which is
+ * how flattenText's trim behaves at both ends.
+ */
+function flatCounter(): { push(text: string): void; count(): number } {
+  let flat = 0;
+  let started = false;
+  let pendingSpace = false;
+  return {
+    push(text: string): void {
+      for (let i = 0; i < text.length; i++) {
+        if (/\s/.test(text[i] as string)) {
+          if (started) pendingSpace = true;
+          continue;
+        }
+        if (pendingSpace) {
+          flat += 1;
+          pendingSpace = false;
+        }
+        started = true;
+        flat += 1;
+      }
+    },
+    count: (): number => flat,
+  };
+}
+
+/**
  * The raw offset that holds a given FLATTENED offset. Locations, progress, and
  * time-left all count flattened characters, while `chapterText` (and so
  * `excerptAt`) speaks raw text-node data; XHTML source is full of indentation
@@ -334,4 +364,64 @@ export function charsBeforeAnchor(root: Element, anchor: PositionAnchor): number
   // rarely more than a screen tall, so the error is bounded by one paragraph.
   const own = flattenText(element.textContent ?? '').length;
   return before + clampRatio(anchor.ratio) * own;
+}
+
+/**
+ * The inverse: the structural anchor at a flattened-character offset into
+ * `root`. Descends to the element that actually holds those characters, so a
+ * jump to a location or a print page lands on the page holding THAT TEXT, at
+ * any type size and in either display mode. Going by a share of the scroll
+ * extent instead lands short or long by however much the layout disagrees with
+ * the text — a whole page at the end of a long chapter, because the paged
+ * scroll extent stops at the last page's start.
+ */
+export function anchorAtChars(root: Element, target: number): PositionAnchor {
+  const path: number[] = [];
+  let current: Element = root;
+  let offset = Math.max(target, 0);
+  for (;;) {
+    const found = childHolding(current, offset);
+    if (!found) break;
+    path.push(found.index);
+    current = found.element;
+    offset = found.into;
+  }
+  if (path.length === 0) return { path: [], ratio: 0 };
+  const own = flattenText(current.textContent ?? '').length;
+  return { path, ratio: own > 0 ? Math.min(Math.max(offset / own, 0), 1) : 0 };
+}
+
+/**
+ * Which structural child of `el` holds the flattened offset, and how far into
+ * it the offset sits. Text directly under `el` (and the text inside overlay
+ * marks, which paths must not see) still counts toward the offsets, or the
+ * coordinates would drift from the ones charsBeforeAnchor reports.
+ */
+function childHolding(
+  el: Element,
+  offset: number,
+): { index: number; element: Element; into: number } | null {
+  const counter = flatCounter();
+  let index = -1;
+  let last: { index: number; element: Element; into: number } | null = null;
+  for (const node of Array.from(el.childNodes)) {
+    if (node.nodeType === 3 /* text */) {
+      counter.push(node.nodeValue ?? '');
+      continue;
+    }
+    if (node.nodeType !== 1 /* element */) continue;
+    const child = node as Element;
+    if (isOverlayMark(child)) {
+      counter.push(rawTextOf(child)); // presentation, not structure
+      continue;
+    }
+    index += 1;
+    const from = counter.count();
+    counter.push(rawTextOf(child));
+    const to = counter.count();
+    last = { index, element: child, into: Math.max(to - from, 0) };
+    if (offset < to) return { index, element: child, into: Math.max(offset - from, 0) };
+  }
+  // Past the end of the text: the last child, at its end.
+  return last;
 }

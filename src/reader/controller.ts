@@ -3,7 +3,7 @@
 
 import type { Book } from '../epub/book.ts';
 import type { PositionAnchor, ReadingPosition } from '../library/types.ts';
-import { charsBeforeAnchor } from './metrics.ts';
+import { anchorAtChars, charsBeforeAnchor } from './metrics.ts';
 import { type ReaderView, type RenderedChapter, renderChapter } from './render.ts';
 
 export interface PositionUpdate {
@@ -134,14 +134,25 @@ export class ReaderController {
   }
 
   /**
-   * Jump to a fraction of a chapter (location entry, the peek slider). The
-   * offset lands through the same clamped page-snap an anchor restore uses,
-   * so the reader never stops between pages.
+   * Jump to a fraction of a chapter's TEXT (location entry, print pages, the
+   * peek slider). The fraction is counted in characters, like everything the
+   * reader is shown, so it is resolved to the element holding those characters
+   * and restored as an anchor: the reader lands on the page that actually
+   * holds the location they asked for, through the same page-snap an anchor
+   * restore uses. A share of the scroll extent would land short — the paged
+   * extent ends at the last page's START, so its fraction 1 is a page early.
    */
   goToFraction(chapter: number, fraction: number): boolean {
     if (chapter < 0 || chapter >= this.book.chapters.length) return false;
     if (chapter !== this.chapterIndex) this.renderChapterAt(chapter);
-    this.rendered?.scrollToFraction(fraction);
+    const rendered = this.rendered;
+    if (rendered) {
+      const chars = this.chapterChars[chapter] ?? 0;
+      // A chapter with no text has no character coordinates; geometry is all
+      // there is to aim at.
+      if (chars > 0) rendered.scrollToAnchor(anchorAtChars(rendered.wrapper, fraction * chars));
+      else rendered.scrollToFraction(fraction);
+    }
     this.emitPosition();
     return true;
   }
