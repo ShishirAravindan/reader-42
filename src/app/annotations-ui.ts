@@ -55,6 +55,16 @@ export interface AnnotationsUI {
   dispose(): void;
 }
 
+/** The highlight mark an event passed through, if any. */
+function markIn(path: (EventTarget | undefined)[]): HTMLElement | null {
+  return (
+    path.find(
+      (n): n is HTMLElement =>
+        n instanceof Element && n.tagName === 'MARK' && n.classList.contains('hl'),
+    ) ?? null
+  );
+}
+
 type NoteContext =
   | { mode: 'create'; pending: NonNullable<ReturnType<typeof serializeRange>> }
   | { mode: 'edit'; id: string };
@@ -101,6 +111,14 @@ export function createAnnotationsUI(deps: AnnotationsDeps): AnnotationsUI {
     // spans the full width of the reader, so testing it treated a tap on the
     // backdrop beside the card as a tap inside it, and nothing dismissed.
     if (!editor.hidden && noteCard && path.includes(noteCard)) return;
+    // A tap on ANOTHER highlight retargets this menu rather than merely
+    // dismissing it. Swallowing it here cost the reader a second tap to reach
+    // the mark they were already pointing at; letting it through reaches the
+    // viewport handler below, which opens the edit menu for that mark.
+    if (editor.hidden && markIn(path)) {
+      closeMenu();
+      return;
+    }
     event.stopPropagation();
     event.preventDefault();
     closeMenu();
@@ -383,12 +401,7 @@ export function createAnnotationsUI(deps: AnnotationsDeps): AnnotationsUI {
   };
 
   const onViewportClick = (event: MouseEvent): void => {
-    const mark = event
-      .composedPath()
-      .find(
-        (n): n is HTMLElement =>
-          n instanceof Element && n.tagName === 'MARK' && n.classList.contains('hl'),
-      );
+    const mark = markIn(event.composedPath());
     if (!mark) return;
     const id = mark.dataset.hl;
     const root = shadow();

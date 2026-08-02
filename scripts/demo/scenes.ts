@@ -929,6 +929,26 @@ scene('highlight-persistence', async ({ page, capture }) => {
   expectEq(after.scrollLeft, before.scrollLeft, 'the dismissing tap turns no page');
   expect(await chromeHidden(page), 'the dismissing tap leaves chrome hidden');
 
+  // With the edit menu up for one mark, ONE tap on another retargets it: the
+  // capture-phase dismissal lets a tap on a highlight through instead of
+  // swallowing it, so the reader never pays a second tap to be understood.
+  await clickMark(page, firstId);
+  await page.locator('#selection-menu').waitFor({ state: 'visible' });
+  expectEq(
+    await page.locator('#selection-menu .hl-dot[aria-pressed="true"]').getAttribute('data-color'),
+    'yellow',
+    'the edit menu opened on the yellow highlight',
+  );
+  await clickMark(page, secondId);
+  expect(await page.locator('#selection-menu').isVisible(), 'one tap moves the menu to the other');
+  expectEq(
+    await page.locator('#selection-menu .hl-dot[aria-pressed="true"]').getAttribute('data-color'),
+    'pink',
+    'and it is the pink highlight’s menu, not a second tap away',
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(80);
+
   // Attach a note to the first highlight through the edit menu.
   await clickMark(page, firstId);
   await page.locator('#selection-menu').waitFor({ state: 'visible' });
