@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { bookDir, bookIdFromBytes, slugify } from './identity.ts';
+import { bookDir, bookIdFromBytes, newRecordId, slugify } from './identity.ts';
 
 describe('bookIdFromBytes', () => {
   test('deterministic 12-char hex id', async () => {
@@ -39,5 +39,18 @@ describe('bookDir', () => {
     expect(bookDir('The Dawn of Everything', 'abc123def456')).toBe(
       'books/the-dawn-of-everything-abc123def456',
     );
+  });
+});
+
+describe('newRecordId', () => {
+  test('8 hex chars: the one id shape highlights and bookmarks both use', () => {
+    for (let i = 0; i < 50; i++) {
+      expect(newRecordId()).toMatch(/^[0-9a-f]{8}$/);
+    }
+  });
+
+  test('and they do not repeat', () => {
+    const seen = new Set(Array.from({ length: 200 }, () => newRecordId()));
+    expect(seen.size).toBe(200);
   });
 });

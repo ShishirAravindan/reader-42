@@ -9,7 +9,7 @@
 
 import { Book } from '../epub/book.ts';
 import type { DeviceCacheTransport } from '../library/device-cache.ts';
-import { slugify } from '../library/identity.ts';
+import { newRecordId, slugify } from '../library/identity.ts';
 import type { Library } from '../library/store.ts';
 import type { BookSidecar, Bookmark } from '../library/types.ts';
 import { ReaderController } from '../reader/controller.ts';
@@ -29,7 +29,7 @@ import { createBookSearch } from '../reader/search.ts';
 import { readerSelection, wordFromSelection } from '../reader/selection.ts';
 import { createAaPanel } from './aa-panel.ts';
 import { type AnnotationsUI, createAnnotationsUI } from './annotations-ui.ts';
-import { type Ribbon, bookmarkOnPage, createRibbon, newBookmarkId } from './bookmarks.ts';
+import { type Ribbon, bookmarkOnPage, createRibbon } from './bookmarks.ts';
 import { createChrome } from './chrome.ts';
 import { createDictionaryCard } from './dictionary-card.ts';
 import { el } from './dom.ts';
@@ -297,7 +297,7 @@ export async function openReader(
       setBookmarks([
         ...bookmarks(),
         {
-          id: newBookmarkId(),
+          id: newRecordId(),
           chapter: controller?.currentChapter() ?? 0,
           anchor,
           createdAt: new Date().toISOString(),

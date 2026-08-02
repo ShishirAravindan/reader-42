@@ -8,6 +8,7 @@
 // Persistence goes through the sidecar callbacks the shell provides; this
 // module never talks to storage directly.
 
+import { newRecordId } from '../library/identity.ts';
 import { HIGHLIGHT_COLORS, type Highlight, type HighlightColor } from '../library/types.ts';
 import {
   applyHighlight,
@@ -259,11 +260,6 @@ export function createAnnotationsUI(deps: AnnotationsDeps): AnnotationsUI {
 
   // --- highlight operations ---
 
-  function randomId(): string {
-    const bytes = crypto.getRandomValues(new Uint8Array(4));
-    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-  }
-
   function createHighlight(
     serialized: NonNullable<ReturnType<typeof serializeRange>>,
     color: HighlightColor,
@@ -272,7 +268,7 @@ export function createAnnotationsUI(deps: AnnotationsDeps): AnnotationsUI {
     const root = wrapper();
     if (!root) return;
     const hl: Highlight = {
-      id: randomId(),
+      id: newRecordId(),
       chapter: deps.chapterIndex(),
       start: serialized.start,
       end: serialized.end,
