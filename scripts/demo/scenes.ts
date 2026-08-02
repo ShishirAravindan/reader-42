@@ -1202,7 +1202,7 @@ async function openNotebook(page: Page): Promise<void> {
   await page.locator('#notebook').waitFor({ state: 'visible' });
 }
 
-scene('notebook-and-links', async ({ page, capture }) => {
+scene('notebook-and-links', async ({ page, base, capture }) => {
   // A third highlight, in ANOTHER chapter: the notebook has to name each
   // chapter from the toc, and a jump has to really cross chapters.
   await tocNav(page, 'Three: An End');
@@ -1324,6 +1324,8 @@ scene('notebook-and-links', async ({ page, capture }) => {
   await tocNav(page, 'One: A Beginning');
   await centerTap(page);
   await page.waitForTimeout(500); // let the position write land
+  const parked = await fetchSidecar(base);
+  expectEq(parked.position?.chapter, 0, 'the reader’s place is parked in chapter 1');
 
   const fresh = await page.context().newPage();
   await fresh.goto(copied);
@@ -1342,6 +1344,22 @@ scene('notebook-and-links', async ({ page, capture }) => {
     'the address bar keeps the deep link (still copyable)',
   );
   await fresh.close();
+
+  // LOAD-BEARING: following a link is a look, not a move. A year-old link to
+  // a chapter-2 highlight, opened from 80% of a book, must not collapse the
+  // synced position back to chapter 2 — that is silent and has no undo.
+  await page.waitForTimeout(1200); // longer than the position save debounce
+  const afterLink = await fetchSidecar(base);
+  expectEq(
+    afterLink.position?.chapter,
+    0,
+    'LOAD-BEARING: a cold-opened deep link left the saved position untouched',
+  );
+  expectEq(
+    afterLink.position?.updatedAt,
+    parked.position?.updatedAt,
+    'and did not even bump its timestamp (latest-wins sync would spread it)',
+  );
 
   // The same link in the page we have been driving, for the evidence shot.
   await page.goto(copied);

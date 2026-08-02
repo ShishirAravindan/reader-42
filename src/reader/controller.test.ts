@@ -129,6 +129,39 @@ describe('turns across chapters and book boundaries', () => {
     controller.dispose();
   });
 
+  // Following a highlight deep link is a look, not a move. Writing the landing
+  // place would overwrite a synced reading position with a chapter the reader
+  // opened a link to, with no undo.
+  test('a visit navigates without saving the place it lands on', async () => {
+    const positions: number[] = [];
+    const { controller } = await make('paged', {
+      onPosition: ({ position }) => positions.push(position.chapter),
+    });
+    controller.goToChapter(2);
+    expect(positions).toEqual([2]);
+
+    controller.visit(() => {
+      controller.goToChapter(0);
+    });
+    expect(controller.currentChapter()).toBe(0); // it really navigated
+    expect(positions).toEqual([2]); // ...and wrote nothing
+    controller.dispose();
+  });
+
+  test('reading on from a visit saves normally', async () => {
+    const positions: number[] = [];
+    const { controller } = await make('paged', {
+      onPosition: ({ position }) => positions.push(position.chapter),
+    });
+    controller.goToChapter(2);
+    controller.visit(() => {
+      controller.goToChapter(0);
+    });
+    controller.turnForward(); // jsdom: one page per chapter, so this crosses
+    expect(positions).toEqual([2, 1]);
+    controller.dispose();
+  });
+
   // Old sidecars may still carry `scroll`; opening one must ignore it rather
   // than restore a pixel offset (or crash on the unknown field).
   test('a legacy position with a scroll field opens without using it', async () => {

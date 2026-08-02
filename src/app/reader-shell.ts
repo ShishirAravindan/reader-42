@@ -342,11 +342,19 @@ export async function openReader(
 
   // A deep link (F5) lands on its highlight, flashed; the address bar keeps
   // the copyable link (salvage §4) — routing never rewrites it.
+  //
+  // Through visit(), so following the link does not WRITE the reader's place.
+  // A link is a look: opening a year-old one from 80% of a book must not
+  // collapse the synced position back to chapter 2. Reading on from where the
+  // link landed saves as usual — the visit only declines to claim the landing
+  // itself.
   if (highlightId) {
     const target = openSidecar?.highlights.find((h) => h.id === highlightId);
     if (target) {
-      controller.goToChapter(target.chapter);
-      annotations.reveal(target.id);
+      controller.visit(() => {
+        controller?.goToChapter(target.chapter);
+        annotations?.reveal(target.id);
+      });
     }
   }
 

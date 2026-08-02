@@ -52,6 +52,8 @@ export class ReaderController {
   private lastPositionKey: string | null = null;
   /** Memoized character offset of the current anchor (see charsIntoChapter). */
   private charCache: { key: string; chars: number } | null = null;
+  /** Set while a visit() runs: navigation that is not the reader's place. */
+  private visiting = false;
 
   constructor(
     book: Book,
@@ -210,6 +212,26 @@ export class ReaderController {
     this.emitPosition();
   }
 
+  /**
+   * Navigate somewhere WITHOUT claiming it as the reader's place. Following a
+   * year-old highlight deep link at 80% of a book must not overwrite the
+   * synced position with chapter 2: there is no undo for that, and the link
+   * was a look, not a move. So the jump renders and scrolls, nothing is
+   * written, and the position clock is re-baselined at where it landed — the
+   * next real move from there (a turn, a scroll, a jump) saves normally. A
+   * visit the reader abandons leaves their place exactly as they left it.
+   */
+  visit(run: () => void): void {
+    this.visiting = true;
+    try {
+      run();
+    } finally {
+      this.visiting = false;
+      const landed = this.capturePosition();
+      this.lastPositionKey = landed ? positionKey(landed) : null;
+    }
+  }
+
   goToChapter(index: number, fragment?: string): boolean {
     if (index < 0 || index >= this.book.chapters.length) return false;
     this.renderChapterAt(index);
@@ -283,6 +305,7 @@ export class ReaderController {
   }
 
   private emitPosition(): void {
+    if (this.visiting) return; // a visit() is not the reader's place
     const position = this.capturePosition();
     if (!position) return;
     // Skip saves that don't move the structural position; only the reader
