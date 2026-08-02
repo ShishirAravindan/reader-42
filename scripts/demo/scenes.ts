@@ -941,6 +941,29 @@ scene('highlight-persistence', async ({ page, capture }) => {
   expect(marks.find((m) => m.id === firstId)?.hasNote, 'the note marker rides the yellow mark');
   await capture('highlights-created');
 
+  // A tap on the backdrop dismisses the note sheet. #note-editor is only the
+  // positioning frame and spans the full width of the reader; the sheet is
+  // .note-card inside it, and everything beside the card is outside.
+  await clickMark(page, firstId);
+  await page.locator('#selection-menu').waitFor({ state: 'visible' });
+  await page.locator('#sel-note').click();
+  await page.locator('#note-editor').waitFor({ state: 'visible' });
+  const backdrop = await page.evaluate(() => {
+    const frame = (document.getElementById('note-editor') as HTMLElement).getBoundingClientRect();
+    const card = (
+      document.querySelector('#note-editor .note-card') as HTMLElement
+    ).getBoundingClientRect();
+    return { x: (frame.left + card.left) / 2, y: card.top + card.height / 2, gap: card.left };
+  });
+  expect(backdrop.gap > 8, `there is backdrop beside the card to tap (${backdrop.gap}px)`);
+  await page.mouse.click(backdrop.x, backdrop.y);
+  await page.waitForTimeout(150);
+  expect(await page.locator('#note-editor').isHidden(), 'a backdrop tap dismisses the note sheet');
+  expect(
+    (await marksIn(page)).find((m) => m.id === firstId)?.hasNote,
+    'and abandons nothing: the saved note is still on the mark',
+  );
+
   // RELOAD: both highlights and the note marker restore from the sidecar.
   await page.waitForTimeout(600); // let the sidecar writes flush
   await page.reload();

@@ -63,6 +63,8 @@ export function createAnnotationsUI(deps: AnnotationsDeps): AnnotationsUI {
   const now = deps.now ?? ((): string => new Date().toISOString());
   const menu = el<HTMLElement>('selection-menu');
   const editor = el<HTMLElement>('note-editor');
+  /** The sheet itself; #note-editor around it is only the positioning frame. */
+  const noteCard = editor.querySelector('.note-card');
   const noteText = el<HTMLTextAreaElement>('note-text');
   let menuMode: 'create' | 'edit' | null = null;
   let selectionTimer: ReturnType<typeof setTimeout> | null = null;
@@ -95,7 +97,10 @@ export function createAnnotationsUI(deps: AnnotationsDeps): AnnotationsUI {
   const onDocClick = (event: MouseEvent): void => {
     const path = event.composedPath();
     if (!menu.hidden && path.includes(menu)) return;
-    if (!editor.hidden && path.includes(editor)) return;
+    // The CARD, not #note-editor: the editor is the positioning wrapper and
+    // spans the full width of the reader, so testing it treated a tap on the
+    // backdrop beside the card as a tap inside it, and nothing dismissed.
+    if (!editor.hidden && noteCard && path.includes(noteCard)) return;
     event.stopPropagation();
     event.preventDefault();
     closeMenu();
