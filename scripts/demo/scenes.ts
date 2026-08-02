@@ -1647,6 +1647,21 @@ scene('footnotes', async ({ page, capture }) => {
     (await metrics(page)).scrollLeft === before.scrollLeft,
     'the pill returns to the page the note was referenced from',
   );
+
+  // LOAD-BEARING (one turn rule, three input paths): with the popover up, a
+  // key and a tap must do the SAME thing. Both spend themselves closing it,
+  // and neither turns the page out from under the note being read.
+  const here = (await metrics(page)).scrollLeft;
+  await clickNoteref(page);
+  await page.locator('#footnote-popover').waitFor({ state: 'visible' });
+  await page.keyboard.press(' ');
+  await page.waitForTimeout(150);
+  expect(await page.locator('#footnote-popover').isHidden(), 'Space closes the open popover');
+  expectEq((await metrics(page)).scrollLeft, here, 'and does not turn the page underneath it');
+  await page.keyboard.press(' ');
+  await page.waitForTimeout(200);
+  expect((await metrics(page)).scrollLeft > here, 'the next Space turns, as in pure text');
+  await zoneClick(page, 'back');
 });
 
 interface SearchRow {

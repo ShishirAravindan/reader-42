@@ -33,7 +33,13 @@ import { type Ribbon, bookmarkOnPage, createRibbon, newBookmarkId } from './book
 import { createChrome } from './chrome.ts';
 import { createDictionaryCard } from './dictionary-card.ts';
 import { el } from './dom.ts';
-import { type Dismissible, firstOpen, handleEscape } from './escape-chain.ts';
+import {
+  type ChainLink,
+  type Dismissible,
+  type TurnPolicy,
+  handleEscape,
+  spendTurn,
+} from './escape-chain.ts';
 import { createFindOverlay } from './find-overlay.ts';
 import { createFinishNudge } from './finish-nudge.ts';
 import { createFootnotePopover } from './footnote-popover.ts';
@@ -568,29 +574,50 @@ export async function openReader(
     el<HTMLElement>('reader'),
   );
 
-  // The Escape chain, declared once, in priority order: transient overlays
-  // first, then panels, then (with nothing open) the hidden chrome.
-  const escapeChain: Dismissible[] = [
-    finishNudge,
-    peek, // closing a peek costs nothing: the position never moved
-    footnotes,
-    dictCard,
+  // The chain of open things, declared once, in priority order: transient
+  // overlays first, then panels, then (with nothing open) the hidden chrome.
+  // Every link carries its own turn policy, so there is no second list to keep
+  // in step: `closes` means a page-turn input is spent dismissing it (parity
+  // I1 — the turn drops you back into pure text, and the next one moves the
+  // page), `blocks` means it holds something only the reader can resolve.
+  const link = (name: string, turn: TurnPolicy, thing: Dismissible): ChainLink => ({
+    name,
+    turn,
+    isOpen: () => thing.isOpen(),
+    close: () => thing.close(),
+  });
+  const escapeChain: ChainLink[] = [
+    link('finish-nudge', 'closes', finishNudge),
+    // Closing a peek costs nothing — but a stray tap must not close it either:
+    // the scrub origin is the promise that peeking is free.
+    link('peek', 'blocks', peek),
+    link('footnotes', 'closes', footnotes),
+    link('dict-card', 'closes', dictCard),
     {
       // The annotation layer owns its own sub-order (menu, then note editor):
       // handleEscape() closes the topmost overlay and reports that it spent
       // the press — true in exactly the cases where isOpen() is.
+      name: 'annotations',
+      // A serialized range and unsaved note text both die if the page moves
+      // under them, and neither is the shell's to throw away.
+      turn: 'blocks',
       isOpen: (): boolean => annotations?.isOpen() ?? false,
       close: (): void => {
         annotations?.handleEscape();
       },
     },
     {
+      name: 'search',
+      turn: 'closes',
       isOpen: (): boolean => searchPanel?.isOpen() ?? false,
       close: (): void => searchPanel?.close(),
+      // The panel steps aside for the page but the hits stay lit, so turns
+      // from here on walk between occurrences on the page you searched for.
+      dismissForTurn: (): void => searchPanel?.close({ keepMarks: true }),
     },
-    notebook,
-    aaPanel,
-    gotoPanel,
+    link('notebook', 'closes', notebook),
+    link('aa-panel', 'closes', aaPanel),
+    link('goto-panel', 'closes', gotoPanel),
   ];
   const onEscape = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape' || el<HTMLElement>('reader').hidden) return;
@@ -601,14 +628,12 @@ export async function openReader(
   const detachInput = attachReadingInput(viewport, {
     dir: () => book.direction,
     onTurn: (d) => {
-      // A page turn drops you back into pure text (parity I1).
-      footnotes.close();
-      gotoPanel.close();
-      notebook.close();
-      // The panel steps aside; the hits stay lit, so a turn can walk between
-      // occurrences on the page you searched for.
-      searchPanel?.close({ keepMarks: true });
-      peek.close();
+      // ONE rule, three input paths (tap, swipe, key): the turn is spent
+      // against the chain first. With anything open it dismisses or is
+      // refused there and the page does not move — which is what keeps a
+      // dictionary card from staying pinned to a DOMRect on the page you
+      // left, and a selection from serializing against a view that scrolled.
+      if (!spendTurn(escapeChain)) return;
       chrome.hide();
       if (d === 'forward') controller?.turnForward();
       else controller?.turnBack();
@@ -622,12 +647,11 @@ export async function openReader(
     onPeek: () => peek.open(),
     // In scroll mode a vertical swipe is a scroll; the gesture stands down.
     peekEnabled: () => displayMode === 'paged',
-    // Keyboard turns pause while ANYTHING is open, and "anything" means the
-    // Escape chain — the one registry of what is on screen. Maintaining a
-    // second list by hand is what let Space turn the page underneath an open
-    // Go To panel: the chain knew the panel was up and the keyboard gate did
-    // not (salvage §7, "state ownership is split without a rule").
-    keysEnabled: () => !el<HTMLElement>('reader').hidden && firstOpen(escapeChain) === null,
+    // Document-level keys only apply to a visible reader. What is OPEN is not
+    // asked here: onTurn spends every turn against the chain, so a key, a tap
+    // and a swipe in the same state do the same thing (salvage §7, "state
+    // ownership is split without a rule").
+    keysEnabled: () => !el<HTMLElement>('reader').hidden,
   });
 
   document.addEventListener('keydown', onEscape);
