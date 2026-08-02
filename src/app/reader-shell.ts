@@ -45,7 +45,7 @@ import { createFindOverlay } from './find-overlay.ts';
 import { createFinishNudge } from './finish-nudge.ts';
 import { createFootnotePopover } from './footnote-popover.ts';
 import { createGoToPanel } from './goto-panel.ts';
-import { createJumpBack, jumpBackLabel } from './jumpback.ts';
+import { createJumpBack, jumpBackLabel, samePlace } from './jumpback.ts';
 import { attachInBookLinks } from './links.ts';
 import { chapterTitles, createNotebook, logseqOutline, sortHighlights } from './notebook.ts';
 import { type Peek, createPeek } from './peek.ts';
@@ -325,7 +325,12 @@ export async function openReader(
       ? metrics.locationOf(from.chapter, controller?.currentFraction() ?? 0)
       : 1;
     run();
-    if (from) backStack.push({ position: from, location });
+    // A jump that went nowhere leaves no way back to offer: tapping Cover
+    // while already on the cover must not raise a "Back to Loc 1" pill that
+    // returns the reader to where they are standing.
+    if (from && !samePlace(from, controller?.currentPosition() ?? null)) {
+      backStack.push({ position: from, location });
+    }
     renderPill();
   };
   backPill.onclick = (event): void => {

@@ -5,6 +5,7 @@ import {
   PILL_HIDES_AFTER_TURNS,
   createJumpBack,
   jumpBackLabel,
+  samePlace,
 } from './jumpback.ts';
 
 const at = (chapter: number): ReadingPosition => ({
@@ -89,5 +90,42 @@ describe('createJumpBack', () => {
 describe('jumpBackLabel', () => {
   test('groups thousands, like the status line', () => {
     expect(jumpBackLabel(entry(9, 12345))).toBe('Back to Loc 12,345');
+  });
+});
+
+describe('samePlace', () => {
+  const at = (chapter: number, path: number[], ratio: number): ReadingPosition => ({
+    chapter,
+    anchor: { path, ratio },
+    updatedAt: '2026-08-01T00:00:00Z',
+  });
+
+  test('the same chapter, path and ratio is the same place', () => {
+    expect(samePlace(at(2, [3, 1], 0.25), at(2, [3, 1], 0.25))).toBe(true);
+  });
+
+  test('when the clock is all that differs, the reader has not moved', () => {
+    // A no-op jump re-stamps updatedAt; that is when, not where.
+    const before = at(0, [0], 0);
+    expect(samePlace(before, { ...before, updatedAt: '2026-08-02T09:00:00Z' })).toBe(true);
+  });
+
+  test('a different chapter, element or ratio is somewhere else', () => {
+    expect(samePlace(at(2, [3, 1], 0.25), at(3, [3, 1], 0.25))).toBe(false);
+    expect(samePlace(at(2, [3, 1], 0.25), at(2, [3, 2], 0.25))).toBe(false);
+    expect(samePlace(at(2, [3, 1], 0.25), at(2, [3, 1], 0.5))).toBe(false);
+    expect(samePlace(at(2, [3], 0.25), at(2, [3, 1], 0.25))).toBe(false);
+  });
+
+  test('an unanchored position matches only another unanchored one', () => {
+    const bare: ReadingPosition = { chapter: 1, updatedAt: '2026-08-01T00:00:00Z' };
+    expect(samePlace(bare, { ...bare })).toBe(true);
+    expect(samePlace(bare, at(1, [0], 0))).toBe(false);
+  });
+
+  test('null is a place too: nowhere', () => {
+    expect(samePlace(null, null)).toBe(true);
+    expect(samePlace(null, at(0, [0], 0))).toBe(false);
+    expect(samePlace(at(0, [0], 0), null)).toBe(false);
   });
 });

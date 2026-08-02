@@ -74,3 +74,23 @@ export function createJumpBack(): JumpBack {
 export function jumpBackLabel(entry: JumpBackEntry): string {
   return `Back to Loc ${entry.location.toLocaleString('en-US')}`;
 }
+
+/**
+ * Whether two positions name the same place. A jump that went nowhere — Cover
+ * while already on the cover, a contents entry for the chapter in view — has
+ * no way back to offer, and pushing one raises a pill that returns the reader
+ * to where they are already standing. `updatedAt` is deliberately ignored: it
+ * is when the position was recorded, not where it is.
+ */
+export function samePlace(a: ReadingPosition | null, b: ReadingPosition | null): boolean {
+  if (!a || !b) return a === b;
+  if (a.chapter !== b.chapter) return false;
+  const one = a.anchor;
+  const two = b.anchor;
+  if (!one || !two) return one === two;
+  return (
+    one.ratio === two.ratio &&
+    one.path.length === two.path.length &&
+    one.path.every((step, i) => step === two.path[i])
+  );
+}

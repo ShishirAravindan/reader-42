@@ -1572,6 +1572,25 @@ scene('go-to', async ({ page, capture }) => {
   const m = await metrics(page);
   expectEq(m.scrollLeft, 0, 'and to its first page');
 
+  // Cover AGAIN, from the cover, goes nowhere — so it leaves nothing behind.
+  // A jump that moved no one has no way back to offer, and pushing one raises
+  // a pill that returns the reader to where they are already standing.
+  const pillAfterCover = await page.locator('#jump-back').textContent();
+  await openGoTo(page);
+  await page.locator('#goto-cover').click();
+  await page.waitForTimeout(250);
+  expectEq(
+    await page.locator('#jump-back').textContent(),
+    pillAfterCover,
+    'a no-op jump pushes nothing: the pill still names the last real one',
+  );
+  await page.locator('#jump-back').click();
+  await page.waitForTimeout(250);
+  expect(
+    await page.locator('#jump-back').isHidden(),
+    'and one tap empties the stack, because only one entry was ever on it',
+  );
+
   // Beginning: this fixture declares no bodymatter landmark, so it honestly
   // falls back to the same place rather than guessing at front matter.
   await openGoTo(page);
