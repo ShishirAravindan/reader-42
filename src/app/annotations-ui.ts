@@ -333,11 +333,18 @@ export function createAnnotationsUI(deps: AnnotationsDeps): AnnotationsUI {
     closeEditor();
   };
 
-  // Keep the book selection alive while tapping menu buttons: without this,
-  // the mousedown on the menu collapses it before the action can serialize.
-  const onMenuPointerDown = (event: Event): void => event.preventDefault();
-  menu.addEventListener('mousedown', onMenuPointerDown);
-  menu.addEventListener('touchstart', onMenuPointerDown, { passive: false });
+  // Keep the book selection visible while a MOUSE clicks a menu button: the
+  // mousedown would otherwise collapse it under the reader's own cursor.
+  //
+  // Touch gets no preventDefault, ever. Cancelling a touchstart suppresses the
+  // compatibility mouse events the buttons are wired on, so every control here
+  // — the colour dots, Note, Look up, Copy — was inert on a phone. Nothing is
+  // lost by letting the touch through: openCreateMenu captured `serialized`
+  // when the menu was built, and evaluateSelection is 250ms behind the tap.
+  const onMenuPointerDown = (event: PointerEvent): void => {
+    if (event.pointerType === 'mouse') event.preventDefault();
+  };
+  menu.addEventListener('pointerdown', onMenuPointerDown);
 
   // --- selection and mark-tap watching ---
 
@@ -431,8 +438,7 @@ export function createAnnotationsUI(deps: AnnotationsDeps): AnnotationsUI {
       document.removeEventListener('pointerup', onPointerUp);
       document.removeEventListener('click', onDocClick, true);
       deps.viewport.removeEventListener('click', onViewportClick);
-      menu.removeEventListener('mousedown', onMenuPointerDown);
-      menu.removeEventListener('touchstart', onMenuPointerDown);
+      menu.removeEventListener('pointerdown', onMenuPointerDown);
       menu.hidden = true;
       editor.hidden = true;
     },

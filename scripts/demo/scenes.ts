@@ -1566,14 +1566,18 @@ scene('go-to', async ({ page, capture }) => {
 });
 
 /** Click the fixture's footnote marker inside the chapter shadow. */
-async function clickNoteref(page: Page): Promise<void> {
-  const point = await page.evaluate(() => {
+function noterefPoint(page: Page): Promise<{ x: number; y: number }> {
+  return page.evaluate(() => {
     const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
     const link = shadow?.getElementById('nr1');
     if (!link) throw new Error('no noteref in the rendered chapter');
     const r = link.getClientRects()[0] ?? link.getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   });
+}
+
+async function clickNoteref(page: Page): Promise<void> {
+  const point = await noterefPoint(page);
   await page.mouse.click(point.x, point.y);
   await page.waitForTimeout(150);
 }
@@ -2101,5 +2105,131 @@ scene('phone', async ({ base, onPhone }) => {
     expectEq(bars.stripVisible, 'visible', 'the hairline stays up with the chrome open');
     expect(bars.titleHidden, 'the title steps aside rather than being squeezed');
     await capture('phone-chrome');
+
+    // --- everything below is driven with a FINGER, not page.mouse ---
+    //
+    // Mouse-driven scenes cannot see the touch code paths at all: the
+    // selection menu was inert on a phone for want of a compatibility click,
+    // and taps and swipes reached the turn handler with no click event to
+    // dismiss anything. Both are invisible to page.mouse.click.
+
+    const scrollLeft = (): Promise<number> =>
+      page.evaluate(() => document.getElementById('viewport')?.scrollLeft ?? 0);
+
+    const tapAt = async (x: number, y: number): Promise<void> => {
+      await page.touchscreen.tap(x, y);
+      await page.waitForTimeout(250);
+    };
+    const tapOn = async (selector: string): Promise<void> => {
+      const target = await page.locator(selector).boundingBox();
+      expect(target, `${selector} is on screen for the thumb`);
+      await tapAt(target.x + target.width / 2, target.y + target.height / 2);
+    };
+    /** A finger drag on the viewport: the touchstart/touchend pair the app sees. */
+    const swipeViewport = async (
+      dx: number,
+      dy: number,
+      from: { x: number; y: number } = { x: 0.5, y: 0.5 },
+    ): Promise<void> => {
+      await page.evaluate(
+        (drag) => {
+          const v = document.getElementById('viewport') as HTMLElement;
+          const r = v.getBoundingClientRect();
+          const x0 = r.left + r.width * drag.fx;
+          const y0 = r.top + r.height * drag.fy;
+          const fire = (type: string, x: number, y: number): void => {
+            const touch = new Touch({ identifier: 1, target: v, clientX: x, clientY: y });
+            const list = type === 'touchend' ? [] : [touch];
+            v.dispatchEvent(
+              new TouchEvent(type, {
+                bubbles: true,
+                cancelable: true,
+                touches: list,
+                targetTouches: list,
+                changedTouches: [touch],
+              }),
+            );
+          };
+          fire('touchstart', x0, y0);
+          fire('touchend', x0 + drag.dx, y0 + drag.dy);
+        },
+        { dx, dy, fx: from.x, fy: from.y },
+      );
+      await page.waitForTimeout(300);
+    };
+
+    // Somewhere with prose to mark. (Chrome is open from the block above.)
+    await tapOn('#toc-toggle');
+    await page.locator('#toc a', { hasText: 'Two: The Long Middle' }).first().tap();
+    await page.waitForTimeout(400);
+    await tapAt(box.x + box.width / 2, box.y + box.height / 2); // chrome away
+
+    // LOAD-BEARING (product law 5): the selection menu works with a finger.
+    // Every control here is wired on `click`, so a preventDefaulted touchstart
+    // suppressed the compatibility click and NOTHING on this menu ever fired
+    // on a phone.
+    await selectTextIn(page, 'p5', 'jumps over the lazy dog');
+    await capture('phone-selection-menu');
+    await tapOn('#selection-menu [data-color="yellow"]');
+    expect(
+      (await marksIn(page)).some(
+        (m) => m.text === 'jumps over the lazy dog' && m.classes.includes('hl-yellow'),
+      ),
+      'a thumb on a colour dot really highlights',
+    );
+
+    // The rest of the menu answers a finger too: Note opens its sheet.
+    await selectTextIn(page, 'p6', 'position anchors have real work');
+    await tapOn('#sel-note');
+    expect(await page.locator('#note-editor').isVisible(), 'and Note opens the editor sheet');
+    await tapOn('#note-cancel');
+    expect(await page.locator('#note-editor').isHidden(), 'which Cancel dismisses');
+
+    // A swipe with the menu up must not move the page: the selection was
+    // serialized against THIS layout, and a turn underneath it corrupts the
+    // range the reader is about to act on.
+    await selectTextIn(page, 'p6', 'deliberately and at length');
+    const held = await scrollLeft();
+    await swipeViewport(-140, 0);
+    expectEq(await scrollLeft(), held, 'a swipe under the selection menu turns no page');
+    expect(await page.locator('#selection-menu').isVisible(), 'and the menu is still there');
+    await tapAt(box.x + box.width / 2, box.y + box.height * 0.3); // dismiss it
+
+    // With nothing open, the same swipe is an ordinary page turn.
+    const rest = await scrollLeft();
+    await swipeViewport(-140, 0);
+    expect((await scrollLeft()) > rest, 'with nothing open, a swipe turns the page');
+
+    // A transient overlay and a swipe: the swipe is spent closing it, and the
+    // page stays put. A touchend carries no click, so the popover's own
+    // capture-phase dismissal never runs — the turn gate is the only thing
+    // standing between the reader and a popover pinned to the page they left.
+    await tapOn('#toc-toggle');
+    await page.locator('#toc a', { hasText: 'One: A Beginning' }).first().tap();
+    await page.waitForTimeout(400);
+    await tapAt(box.x + box.width / 2, box.y + box.height / 2); // chrome away
+    const noteref = await noterefPoint(page);
+    await tapAt(noteref.x, noteref.y);
+    expect(await page.locator('#footnote-popover').isVisible(), 'a thumb opens the note popover');
+    const atNote = await scrollLeft();
+    await swipeViewport(-140, 0);
+    expect(await page.locator('#footnote-popover').isHidden(), 'a swipe closes the popover');
+    expectEq(await scrollLeft(), atNote, 'and does NOT turn the page out from under it');
+    expectEq(await chapterNumber(page), '1', 'nor carry the reader into the next chapter');
+
+    // Page Flip by thumb, then back to reading: the swipe suppresses its own
+    // phantom click, but that suppression must not eat the NEXT real tap.
+    await tapOn('#toc-toggle');
+    await page.locator('#toc a', { hasText: 'Two: The Long Middle' }).first().tap();
+    await page.waitForTimeout(400);
+    await tapAt(box.x + box.width / 2, box.y + box.height / 2); // chrome away
+    await swipeViewport(0, -120, { x: 0.5, y: 0.97 });
+    expect(await page.locator('#peek-sheet').isVisible(), 'a swipe up from the edge peeks');
+    await tapOn('#peek-back');
+    expect(await page.locator('#peek-sheet').isHidden(), 'and the chip puts it away');
+    const afterPeek = await scrollLeft();
+    await tapAt(box.x + box.width * 0.85, box.y + box.height / 2);
+    expect((await scrollLeft()) > afterPeek, 'the very next tap in the forward zone turns');
+    await capture('phone-touch-annotations');
   });
 });
