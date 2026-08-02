@@ -26,6 +26,20 @@ class FlakyTransport implements LibraryTransport {
   }
 }
 
+/** A store whose puts complete out of the order they were issued in. */
+class SlowDeviceStore extends MemoryDeviceStore {
+  private call = 0;
+  constructor(private readonly delaysMs: number[]) {
+    super();
+  }
+
+  override async put(key: string, bytes: Uint8Array): Promise<void> {
+    const delay = this.delaysMs[this.call++] ?? 0;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    await super.put(key, bytes);
+  }
+}
+
 function indexJson(books: { id: string; dir: string }[], onDeck: string[]): string {
   return JSON.stringify({
     schema: 1,
@@ -101,6 +115,22 @@ describe('DeviceCacheTransport', () => {
     await cache.read('books/gamma-ccc/book.epub');
     await cache.read('books/gamma-ccc/book.json');
     expect((await store.keys()).some((k) => k.includes('gamma'))).toBe(false);
+  });
+
+  test('concurrent pins land in call order, so the store names the last one', async () => {
+    // Flicking through the shelf: each open pins before its own reads resolve,
+    // so several pins are in flight at once. The reader landed on gamma, and a
+    // reload must prefetch gamma — not whichever put happened to finish last.
+    // The delays here invert completion order against call order on purpose.
+    const remote = new FlakyTransport();
+    const slow = new SlowDeviceStore([30, 10, 0]);
+    const cache = new DeviceCacheTransport(remote, slow);
+    await Promise.all([
+      cache.pin('books/alpha-aaa'),
+      cache.pin('books/beta-bbb'),
+      cache.pin('books/gamma-ccc'),
+    ]);
+    expect(dec(await slow.get('~pinned'))).toBe('books/gamma-ccc');
   });
 
   test('pin makes the open book fully local and survives a new instance', async () => {

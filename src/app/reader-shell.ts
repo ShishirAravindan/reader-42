@@ -127,6 +127,10 @@ export async function openReader(
   }
   const book = await Book.open(bytes);
   if (generation !== openGeneration) return;
+  // Re-assert the pin now that this open owns the shell. The pin above is what
+  // made the reads local; this one is what makes the device's record name the
+  // book the reader actually landed on rather than one they flicked past.
+  if (entry && deviceCache) void deviceCache.pin(entry.dir);
   openSidecar = sidecar;
   // Character counts, once per open (milliseconds): the substrate for honest
   // progress weights, the location index, and time-left (parity B1/B4/B5).
