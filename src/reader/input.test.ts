@@ -97,7 +97,7 @@ describe('swipeTurn', () => {
 });
 
 describe('attachReadingInput', () => {
-  function harness(dir: 'ltr' | 'rtl' = 'ltr', keysEnabled = true, corner = false) {
+  function harness(dir: 'ltr' | 'rtl' = 'ltr', keysEnabled = true, corner = false, peek = false) {
     const viewport = document.createElement('div');
     document.body.appendChild(viewport);
     // jsdom does no layout; give the viewport a real rect for zone math.
@@ -109,9 +109,25 @@ describe('attachReadingInput', () => {
       onTurn: (d) => events.push(d),
       onChrome: () => events.push('chrome'),
       ...(corner ? { onCorner: (): number => events.push('corner') } : {}),
+      ...(peek ? { onPeek: (): number => events.push('peek') } : {}),
       keysEnabled: () => keysEnabled,
     });
     return { viewport, events, detach };
+  }
+
+  /** jsdom has no Touch constructor; the handlers only read clientX/clientY. */
+  function touchEvent(type: 'touchstart' | 'touchend', x: number, y: number): Event {
+    const event = new TouchEvent(type, { bubbles: true });
+    const point = { clientX: x, clientY: y };
+    Object.defineProperty(event, 'touches', { value: type === 'touchend' ? [] : [point] });
+    Object.defineProperty(event, 'changedTouches', { value: [point] });
+    return event;
+  }
+
+  /** One finger down at (x0,y0), up at (x1,y1). */
+  function drag(viewport: HTMLElement, x0: number, y0: number, x1: number, y1: number): void {
+    viewport.dispatchEvent(touchEvent('touchstart', x0, y0));
+    viewport.dispatchEvent(touchEvent('touchend', x1, y1));
   }
 
   test('the top-right corner wins over the forward zone underneath it', () => {
@@ -172,6 +188,34 @@ describe('attachReadingInput', () => {
     detach();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown' }));
     expect(events).toEqual(['forward', 'back']);
+  });
+
+  test('a handled swipe still swallows its own phantom click', () => {
+    const { viewport, events, detach } = harness();
+    drag(viewport, 500, 300, 300, 300); // swipe left: one forward turn
+    viewport.dispatchEvent(new MouseEvent('click', { clientX: 300, bubbles: true }));
+    expect(events, `the click that follows a swipe is not a second turn`).toEqual(['forward']);
+    detach();
+  });
+
+  test('the click suppression never survives into the next gesture', () => {
+    const { viewport, events, detach } = harness();
+    // A drag long enough to be handled produces NO compatibility click, so
+    // nothing consumes the flag. Left set, it ate the next real tap.
+    drag(viewport, 500, 300, 300, 300);
+    drag(viewport, 850, 300, 850, 300); // an ordinary tap: touchstart clears it
+    viewport.dispatchEvent(new MouseEvent('click', { clientX: 850, bubbles: true }));
+    expect(events, `the tap after a swipe still turns`).toEqual(['forward', 'forward']);
+    detach();
+  });
+
+  test('and not after a peek either (the reported phone failure)', () => {
+    const { viewport, events, detach } = harness('ltr', true, false, true);
+    drag(viewport, 450, 580, 450, 460); // swipe up from the bottom edge
+    drag(viewport, 850, 300, 850, 300);
+    viewport.dispatchEvent(new MouseEvent('click', { clientX: 850, bubbles: true }));
+    expect(events, `the tap after a peek still turns`).toEqual(['peek', 'forward']);
+    detach();
   });
 
   test('an rtl book is driven ltr, because the renderer lays it out ltr', () => {

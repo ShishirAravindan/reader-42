@@ -151,6 +151,11 @@ export function attachReadingInput(viewport: HTMLElement, opts: ReadingInputOpti
   };
 
   const onTouchStart = (event: TouchEvent): void => {
+    // A new touch always starts unsuppressed. The flag is set by a handled
+    // drag, and a drag long enough to be handled produces no compatibility
+    // click to consume it — so clearing it only in onClick left it stuck, and
+    // the tap AFTER a peek or a swipe-turn was silently eaten.
+    suppressClick = false;
     const touch = event.touches[0];
     touchStart =
       touch && event.touches.length === 1 ? { x: touch.clientX, y: touch.clientY } : null;
