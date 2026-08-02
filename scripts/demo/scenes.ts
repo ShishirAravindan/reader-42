@@ -1587,8 +1587,8 @@ scene('go-to', async ({ page, capture }) => {
   await page.locator('#jump-back').click();
   await page.waitForTimeout(250);
   expect(
-    await page.locator('#jump-back').isHidden(),
-    'and one tap empties the stack, because only one entry was ever on it',
+    (await chapterNumber(page)) !== '1',
+    'and one tap leaves the cover, because no entry pointing back at it was pushed',
   );
 
   // Beginning: this fixture declares no bodymatter landmark, so it honestly
@@ -1689,6 +1689,10 @@ scene('footnotes', async ({ page, capture }) => {
   expect(await chromeHidden(page), 'Escape spent itself on the popover; chrome stays hidden');
 
   // "Go to note" is the real jump, for readers who want it in context.
+  const pillBefore = await page.evaluate(() => {
+    const pill = document.getElementById('jump-back') as HTMLElement;
+    return { hidden: pill.hidden, label: pill.textContent ?? '' };
+  });
   await clickNoteref(page);
   await page.locator('#footnote-goto').click();
   await page.waitForTimeout(200);
@@ -1702,31 +1706,44 @@ scene('footnotes', async ({ page, capture }) => {
     return r.right > vr.left && r.left < vr.right;
   });
   expect(onScreen, '“Go to note” brings the note itself on screen');
-  expect(
-    await page.locator('#jump-back').isVisible(),
-    'and leaves the pill to carry the reader back',
+  expectEq(await chapterNumber(page), '1', 'without leaving the chapter it lives in');
+  // This fixture's chapter one is one page long, so the note is already beside
+  // its reference and "Go to note" moves no one. A jump that moved no one
+  // leaves nothing behind: no new way back, and the pill says what it said.
+  expectEq(
+    (await metrics(page)).scrollLeft,
+    before.scrollLeft,
+    'the reader is still on the page the note was referenced from',
+  );
+  expectEq(
+    await page.evaluate(() => {
+      const pill = document.getElementById('jump-back') as HTMLElement;
+      return JSON.stringify({ hidden: pill.hidden, label: pill.textContent ?? '' });
+    }),
+    JSON.stringify(pillBefore),
+    'and the jump-back pill is exactly as it was: nothing was pushed',
   );
   await capture('footnote-jumped');
-  await page.locator('#jump-back').click();
-  await page.waitForTimeout(200);
-  expect(
-    (await metrics(page)).scrollLeft === before.scrollLeft,
-    'the pill returns to the page the note was referenced from',
-  );
 
   // LOAD-BEARING (one turn rule, three input paths): with the popover up, a
   // key and a tap must do the SAME thing. Both spend themselves closing it,
   // and neither turns the page out from under the note being read.
-  const here = (await metrics(page)).scrollLeft;
+  // Chapter one is a single page here, so a stray turn shows up as a CHAPTER
+  // change, not as scrollLeft moving: both go into the reading.
+  const place = async (): Promise<string> =>
+    `ch${await chapterNumber(page)}@${(await metrics(page)).scrollLeft}`;
+  const here = await place();
   await clickNoteref(page);
   await page.locator('#footnote-popover').waitFor({ state: 'visible' });
   await page.keyboard.press(' ');
   await page.waitForTimeout(150);
   expect(await page.locator('#footnote-popover').isHidden(), 'Space closes the open popover');
-  expectEq((await metrics(page)).scrollLeft, here, 'and does not turn the page underneath it');
+  expectEq(await place(), here, 'and does not turn the page underneath it');
+  // The next one turns, as in pure text. Chapter one is a single page in this
+  // fixture, so "turned" is the chapter advancing, not scrollLeft growing.
   await page.keyboard.press(' ');
-  await page.waitForTimeout(200);
-  expect((await metrics(page)).scrollLeft > here, 'the next Space turns, as in pure text');
+  await page.waitForTimeout(300);
+  expectEq(await chapterNumber(page), '2', 'the next Space turns, as in pure text');
   await zoneClick(page, 'back');
 });
 
@@ -2220,7 +2237,13 @@ scene('phone', async ({ base, onPhone }) => {
       await page.waitForTimeout(300);
     };
 
+    /** The top bar is translated away while hidden, so its marks need it back. */
+    const revealChrome = async (): Promise<void> => {
+      if (await chromeHidden(page)) await tapAt(box.x + box.width / 2, box.y + box.height / 2);
+    };
+
     // Somewhere with prose to mark. (Chrome is open from the block above.)
+    await revealChrome();
     await tapOn('#toc-toggle');
     await page.locator('#toc a', { hasText: 'Two: The Long Middle' }).first().tap();
     await page.waitForTimeout(400);
@@ -2266,6 +2289,7 @@ scene('phone', async ({ base, onPhone }) => {
     // page stays put. A touchend carries no click, so the popover's own
     // capture-phase dismissal never runs — the turn gate is the only thing
     // standing between the reader and a popover pinned to the page they left.
+    await revealChrome();
     await tapOn('#toc-toggle');
     await page.locator('#toc a', { hasText: 'One: A Beginning' }).first().tap();
     await page.waitForTimeout(400);
@@ -2281,6 +2305,7 @@ scene('phone', async ({ base, onPhone }) => {
 
     // Page Flip by thumb, then back to reading: the swipe suppresses its own
     // phantom click, but that suppression must not eat the NEXT real tap.
+    await revealChrome();
     await tapOn('#toc-toggle');
     await page.locator('#toc a', { hasText: 'Two: The Long Middle' }).first().tap();
     await page.waitForTimeout(400);
