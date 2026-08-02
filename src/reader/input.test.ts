@@ -218,6 +218,31 @@ describe('attachReadingInput', () => {
     detach();
   });
 
+  test('a drag that ends a selection is neither a swipe turn nor a peek', () => {
+    // The guard onClick has always had. Without it on touchend, a swipe up
+    // from the bottom band raised the peek UNDERNEATH the live selection menu
+    // and Escape then spent itself on the peek instead of the menu.
+    const { viewport, events, detach } = harness('ltr', true, false, true);
+    const p = document.createElement('p');
+    p.textContent = 'a selected passage';
+    viewport.appendChild(p);
+    const selection = document.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(p);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    drag(viewport, 450, 580, 450, 460); // would be the peek gesture
+    drag(viewport, 500, 300, 300, 300); // would be a forward swipe
+    expect(events).toEqual([]);
+
+    selection?.removeAllRanges();
+    drag(viewport, 500, 300, 300, 300);
+    expect(events).toEqual(['forward']);
+    p.remove();
+    detach();
+  });
+
   test('an rtl book is driven ltr, because the renderer lays it out ltr', () => {
     // LOAD-BEARING: `.chapter.paged` has no `direction: rtl` and its columns
     // always run left to right, so page 2 of an rtl book still renders to the

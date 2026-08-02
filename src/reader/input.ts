@@ -169,6 +169,11 @@ export function attachReadingInput(viewport: HTMLElement, opts: ReadingInputOpti
     const rect = viewport.getBoundingClientRect();
     const startY = touchStart.y - rect.top;
     touchStart = null;
+    // The same guard onClick has: a drag that ends a selection belongs to the
+    // annotation layer. Without it, a swipe up from the bottom band opened the
+    // peek UNDERNEATH the live selection menu, and Escape then spent itself on
+    // the peek rather than the menu the reader was looking at.
+    if (hasSelection(event)) return;
     // The peek is checked first: it is the more specific gesture, and a
     // near-vertical swipe is never a page turn anyway.
     if (opts.onPeek && (opts.peekEnabled?.() ?? true) && isPeekSwipe(dx, dy, startY, rect.height)) {
@@ -204,8 +209,8 @@ export function attachReadingInput(viewport: HTMLElement, opts: ReadingInputOpti
   };
 }
 
-/** A tap that ends a text selection must not also turn the page. */
-function hasSelection(event: MouseEvent): boolean {
+/** A tap or drag that ends a text selection must not also turn the page. */
+function hasSelection(event: MouseEvent | TouchEvent): boolean {
   // Chromium exposes shadow selections on the shadow root (salvage §1).
   const root = (event.composedPath()[0] as Node | undefined)?.getRootNode?.();
   const shadowSelection =
