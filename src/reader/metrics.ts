@@ -284,6 +284,29 @@ export function excerptAt(text: string, offset: number, maxChars: number): strin
   return `${(lastSpace > maxChars * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
 }
 
+/**
+ * What sits at a structural anchor, without rendering its chapter: resolve the
+ * path against the parsed chapter body, turn it into a raw text offset, and
+ * excerpt from the chapter's text. Layout-free, so the Go To panel can
+ * describe pages the reader is nowhere near.
+ *
+ * Locator resolution belongs here rather than in the app layer: this module
+ * already owns the parsed bodies these paths address, and the offset maths
+ * that turns an element into a place in the chapter's text.
+ */
+export function excerptAtAnchor(
+  metrics: BookMetrics,
+  chapter: number,
+  path: number[],
+  maxChars: number,
+): string {
+  const body = metrics.chapterBody(chapter);
+  if (!body) return '';
+  const element = elementAtPath(body, path) ?? body;
+  const offset = rawOffsetOfElement(body, element) ?? 0;
+  return excerptAt(metrics.chapterText(chapter), offset, maxChars);
+}
+
 // --- print page anchors (parity B2) ---
 
 /** A print page's start as a global character offset; the display substrate. */

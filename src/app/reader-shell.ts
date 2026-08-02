@@ -15,14 +15,12 @@ import type { BookSidecar, Bookmark } from '../library/types.ts';
 import { ReaderController } from '../reader/controller.ts';
 import { type Dictionary, createDictionary } from '../reader/dictionary.ts';
 import { attachReadingInput } from '../reader/input.ts';
-import { elementAtPath } from '../reader/locator.ts';
 import {
-  type BookMetrics,
   bookMetrics,
   excerptAt,
+  excerptAtAnchor,
   pageAnchors,
   rawOffsetForFlat,
-  rawOffsetOfElement,
 } from '../reader/metrics.ts';
 import type { DisplayMode } from '../reader/mode.ts';
 import { createBookSearch } from '../reader/search.ts';
@@ -420,7 +418,7 @@ export async function openReader(
       },
       bookmarks,
       chapterTitle: chapterTitleFor,
-      snippet: (bm) => bookmarkSnippet(metrics, bm),
+      snippet: (bm) => excerptAtAnchor(metrics, bm.chapter, bm.anchor.path, BOOKMARK_SNIPPET_CHARS),
       pages: () => anchors,
       totalLocations: () => metrics.totalLocations,
       goToCover: () => jumpFrom(() => controller?.goToChapter(0)),
@@ -705,20 +703,6 @@ export function closeReader(): void {
   controller?.dispose();
   controller = null;
   openSidecar = null;
-}
-
-/**
- * What sits at a bookmark, without rendering its chapter: resolve the
- * structural anchor against the parsed chapter body, turn it into a raw text
- * offset, and excerpt from the chapter's text. Layout-free, so the Go To
- * panel can describe pages the reader is nowhere near.
- */
-function bookmarkSnippet(metrics: BookMetrics, bookmark: Bookmark): string {
-  const body = metrics.chapterBody(bookmark.chapter);
-  if (!body) return '';
-  const element = elementAtPath(body, bookmark.anchor.path) ?? body;
-  const offset = rawOffsetOfElement(body, element) ?? 0;
-  return excerptAt(metrics.chapterText(bookmark.chapter), offset, BOOKMARK_SNIPPET_CHARS);
 }
 
 const BOOKMARK_SNIPPET_CHARS = 90;

@@ -9,6 +9,7 @@ import {
   charsBeforeAnchor,
   charsBeforeIds,
   excerptAt,
+  excerptAtAnchor,
   flattenText,
   pageAnchors,
   rawOffsetForFlat,
@@ -166,6 +167,28 @@ describe('chapterText and chapterBody', () => {
     expect(body?.children.length).toBe(2);
     expect(m.chapterBody(0)).toBe(body); // cached, not re-parsed
     expect(m.chapterBody(5)).toBeNull();
+  });
+});
+
+describe('excerptAtAnchor', () => {
+  const bodies = ['<h1>One</h1>\n<p>Alpha beta gamma.</p>\n<p>Delta epsilon zeta.</p>'];
+
+  test('describes the place a structural anchor names, without rendering it', async () => {
+    const m = bookMetrics(await Book.open(knownEpub(bodies)));
+    expect(excerptAtAnchor(m, 0, [1], 30)).toStartWith('Alpha beta gamma.');
+    expect(excerptAtAnchor(m, 0, [2], 30)).toBe('Delta epsilon zeta.');
+    expect(excerptAtAnchor(m, 0, [0], 30)).toStartWith('One Alpha');
+  });
+
+  test('a path that resolves to nothing falls back to the chapter start', async () => {
+    const m = bookMetrics(await Book.open(knownEpub(bodies)));
+    // Stale bookmarks must describe SOMETHING, never crash the Go To panel.
+    expect(excerptAtAnchor(m, 0, [99], 20)).toStartWith('One Alpha');
+  });
+
+  test('a chapter that does not exist has nothing at all in it', async () => {
+    const m = bookMetrics(await Book.open(knownEpub(bodies)));
+    expect(excerptAtAnchor(m, 7, [0], 20)).toBe('');
   });
 });
 
