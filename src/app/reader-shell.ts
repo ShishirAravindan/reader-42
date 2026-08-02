@@ -553,7 +553,11 @@ export async function openReader(
       notebook.close();
       aaPanel.close();
       searchPanel?.close({ keepMarks: true });
-      chrome.hide();
+      // No chrome.hide() here: the peek is opened by a GESTURE (a thumb on the
+      // hairline, a swipe from the edge), and salvage §4 is that only an
+      // explicit control hides chrome. Hiding it here left the reader with no
+      // chrome and nothing to restore it, because closing the peek never put
+      // it back.
     },
   });
   // The progress rule IS the way to look elsewhere: tapping the hairline opens
@@ -588,9 +592,10 @@ export async function openReader(
   });
   const escapeChain: ChainLink[] = [
     link('finish-nudge', 'closes', finishNudge),
-    // Closing a peek costs nothing — but a stray tap must not close it either:
-    // the scrub origin is the promise that peeking is free.
-    link('peek', 'blocks', peek),
+    // Popover, card and menu are anchored to something the reader just
+    // touched, so they are nearer their attention than the peek sheet — and
+    // the footnote popover's own contract is that it closes ahead of every
+    // panel, which the peek is one of.
     link('footnotes', 'closes', footnotes),
     link('dict-card', 'closes', dictCard),
     {
@@ -606,6 +611,9 @@ export async function openReader(
         annotations?.handleEscape();
       },
     },
+    // Closing a peek costs nothing — but a stray tap must not close it either:
+    // the scrub origin is the promise that peeking is free.
+    link('peek', 'blocks', peek),
     {
       name: 'search',
       turn: 'closes',
