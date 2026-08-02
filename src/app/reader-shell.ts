@@ -37,6 +37,7 @@ import {
   type ChainLink,
   type Dismissible,
   type TurnPolicy,
+  closeOthers,
   handleEscape,
   spendTurn,
 } from './escape-chain.ts';
@@ -439,11 +440,12 @@ export async function openReader(
         setBookmarks(bookmarks().filter((b) => b.id !== bm.id));
         ribbon?.refresh();
       },
-      onOpen: () => {
-        notebook.close();
-        aaPanel.close();
-        searchPanel?.close();
-      },
+      // Opening anything means closing everything else that is up. The chain
+      // knows what "everything else" is, so no call site keeps its own list —
+      // six hand-copied ones had drifted into six different subsets, and none
+      // of them dismissed the footnote popover, the dictionary card or a live
+      // selection menu.
+      onOpen: () => closeOthers(escapeChain, 'goto-panel'),
     },
   );
   const notebook = createNotebook(
@@ -472,11 +474,7 @@ export async function openReader(
           })),
         ),
       }),
-      onOpen: () => {
-        gotoPanel.close();
-        aaPanel.close();
-        searchPanel?.close();
-      },
+      onOpen: () => closeOthers(escapeChain, 'notebook'),
     },
   );
 
@@ -495,11 +493,7 @@ export async function openReader(
       status?.refresh();
       ribbon?.refresh(); // the same bookmark, judged against the new geometry
     },
-    onOpen: () => {
-      gotoPanel.close();
-      notebook.close();
-      searchPanel?.close();
-    },
+    onOpen: () => closeOthers(escapeChain, 'aa-panel'),
   });
 
   // In-book search (H5). The book's text comes from metrics, which parses and
@@ -522,11 +516,7 @@ export async function openReader(
         });
       },
       onCleared: () => findOverlay.clear(),
-      onOpen: () => {
-        gotoPanel.close();
-        notebook.close();
-        aaPanel.close();
-      },
+      onOpen: () => closeOthers(escapeChain, 'search'),
     },
   );
 
@@ -553,10 +543,7 @@ export async function openReader(
       jumpFrom(() => controller?.goToFraction(place.chapter, place.fraction));
     },
     onOpen: () => {
-      gotoPanel.close();
-      notebook.close();
-      aaPanel.close();
-      searchPanel?.close({ keepMarks: true });
+      closeOthers(escapeChain, 'peek');
       // No chrome.hide() here: the peek is opened by a GESTURE (a thumb on the
       // hairline, a swipe from the edge), and salvage §4 is that only an
       // explicit control hides chrome. Hiding it here left the reader with no

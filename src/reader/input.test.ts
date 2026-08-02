@@ -194,7 +194,7 @@ describe('attachReadingInput', () => {
     const { viewport, events, detach } = harness();
     drag(viewport, 500, 300, 300, 300); // swipe left: one forward turn
     viewport.dispatchEvent(new MouseEvent('click', { clientX: 300, bubbles: true }));
-    expect(events, `the click that follows a swipe is not a second turn`).toEqual(['forward']);
+    expect(events).toEqual(['forward']); // the click that follows a swipe is not a second turn;
     detach();
   });
 
@@ -205,7 +205,7 @@ describe('attachReadingInput', () => {
     drag(viewport, 500, 300, 300, 300);
     drag(viewport, 850, 300, 850, 300); // an ordinary tap: touchstart clears it
     viewport.dispatchEvent(new MouseEvent('click', { clientX: 850, bubbles: true }));
-    expect(events, `the tap after a swipe still turns`).toEqual(['forward', 'forward']);
+    expect(events).toEqual(['forward', 'forward']); // the tap after a swipe still turns;
     detach();
   });
 
@@ -214,7 +214,7 @@ describe('attachReadingInput', () => {
     drag(viewport, 450, 580, 450, 460); // swipe up from the bottom edge
     drag(viewport, 850, 300, 850, 300);
     viewport.dispatchEvent(new MouseEvent('click', { clientX: 850, bubbles: true }));
-    expect(events, `the tap after a peek still turns`).toEqual(['peek', 'forward']);
+    expect(events).toEqual(['peek', 'forward']); // the tap after a peek still turns;
     detach();
   });
 
