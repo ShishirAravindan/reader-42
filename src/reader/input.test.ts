@@ -174,6 +174,21 @@ describe('attachReadingInput', () => {
     expect(events).toEqual(['forward', 'back']);
   });
 
+  test('an rtl book is driven ltr, because the renderer lays it out ltr', () => {
+    // LOAD-BEARING: `.chapter.paged` has no `direction: rtl` and its columns
+    // always run left to right, so page 2 of an rtl book still renders to the
+    // RIGHT of page 1. Mirroring the input alone pointed every gesture the
+    // wrong way against the screen. zoneFor/turnForKey/swipeTurn still mirror
+    // (tested above); the wiring simply does not ask them to yet.
+    const { viewport, events, detach } = harness('rtl');
+    viewport.dispatchEvent(new MouseEvent('click', { clientX: 850, bubbles: true }));
+    viewport.dispatchEvent(new MouseEvent('click', { clientX: 50, bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
+    expect(events).toEqual(['forward', 'back', 'forward', 'back']);
+    detach();
+  });
+
   test('keysEnabled=false gates keys but not taps', () => {
     const { viewport, events, detach } = harness('ltr', false);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown' }));

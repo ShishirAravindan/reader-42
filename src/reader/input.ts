@@ -1,7 +1,9 @@
 // Semantic reading input: tap zones, swipe, and keyboard page turns, mapped
 // to 'forward'/'back'/'chrome' so the shell never touches raw geometry.
 // Kindle zone model (A3): left third back, right third forward, center
-// reveals chrome; everything mirrors for right-to-left books.
+// reveals chrome. The pure helpers mirror for right-to-left books; what the
+// wiring actually feeds them is inputDirection(), which stays 'ltr' until the
+// renderer mirrors too — see the note on it.
 
 export type TurnDirection = 'forward' | 'back';
 export type ReadingDirection = 'ltr' | 'rtl';
@@ -21,6 +23,27 @@ export const CORNER_PX = 56;
 export function isCornerTap(x: number, y: number, width: number, size = CORNER_PX): boolean {
   if (width <= 0) return false;
   return x >= width - size && x <= width && y >= 0 && y <= size;
+}
+
+/**
+ * The direction the INPUT model mirrors on, given the book's own page
+ * progression. It is always 'ltr', because the renderer does not mirror:
+ * `.chapter.paged` has no `direction: rtl` and its CSS columns always run left
+ * to right, so in an `<spine page-progression-direction="rtl">` book page 2
+ * still renders to the RIGHT of page 1. Mirroring the input alone points every
+ * gesture the wrong way against what is on screen: the right third would go
+ * back, ArrowRight would go back, a swipe left would go back.
+ *
+ * Mirroring for real needs the renderer to move first: `direction: rtl` on the
+ * chapter wrapper so the columns lay out right to left, the paged scroller's
+ * reversed (negative) scrollLeft handled in the page arithmetic, and the page
+ * anchors and column-stride maths re-derived against that origin. Until then
+ * input matches layout, which is the honest half of the feature. zoneFor,
+ * turnForKey and swipeTurn keep their `dir` parameter — they are already
+ * correct, and are what the renderer's mirroring will switch back on.
+ */
+export function inputDirection(_bookDirection: ReadingDirection): ReadingDirection {
+  return 'ltr';
 }
 
 export function zoneFor(x: number, width: number, dir: ReadingDirection): TapZone {
@@ -94,6 +117,9 @@ export function attachReadingInput(viewport: HTMLElement, opts: ReadingInputOpti
   // flag one gesture would both swipe-turn and zone-turn.
   let suppressClick = false;
   let touchStart: { x: number; y: number } | null = null;
+  // Every path reads the direction through this: the book's own progression
+  // only reaches the input model once the renderer mirrors too.
+  const dir = (): ReadingDirection => inputDirection(opts.dir());
 
   const onClick = (event: MouseEvent): void => {
     if (suppressClick) {
@@ -119,7 +145,7 @@ export function attachReadingInput(viewport: HTMLElement, opts: ReadingInputOpti
       opts.onCorner();
       return;
     }
-    const zone = zoneFor(event.clientX - rect.left, rect.width, opts.dir());
+    const zone = zoneFor(event.clientX - rect.left, rect.width, dir());
     if (zone === 'chrome') opts.onChrome();
     else opts.onTurn(zone);
   };
@@ -145,7 +171,7 @@ export function attachReadingInput(viewport: HTMLElement, opts: ReadingInputOpti
       opts.onPeek();
       return;
     }
-    const turn = swipeTurn(dx, dy, opts.dir());
+    const turn = swipeTurn(dx, dy, dir());
     if (!turn) return;
     suppressClick = true;
     opts.onTurn(turn);
@@ -155,7 +181,7 @@ export function attachReadingInput(viewport: HTMLElement, opts: ReadingInputOpti
     if (opts.keysEnabled && !opts.keysEnabled()) return;
     if (isEditable(event.target)) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
-    const turn = turnForKey(event.key, event.shiftKey, opts.dir());
+    const turn = turnForKey(event.key, event.shiftKey, dir());
     if (!turn) return;
     event.preventDefault();
     opts.onTurn(turn);
