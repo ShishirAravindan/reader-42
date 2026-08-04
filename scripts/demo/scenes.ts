@@ -278,7 +278,17 @@ function trackVisible(page: Page): Promise<boolean> {
   return page.evaluate(() => {
     const track = document.getElementById('status-track') as HTMLElement;
     const style = getComputedStyle(track);
-    return style.visibility === 'visible' && Number(style.opacity) > 0;
+    const r = track.getBoundingClientRect();
+    // Every way of painting nothing, not just the one the off state uses:
+    // narrowing this to `opacity` would weaken the two ON-state callers, which
+    // is the same trade that let the off state ship broken.
+    return (
+      style.display !== 'none' &&
+      style.visibility === 'visible' &&
+      Number(style.opacity) > 0 &&
+      r.width > 0 &&
+      r.height > 0
+    );
   });
 }
 
