@@ -22,11 +22,28 @@ export interface SceneContext {
    * device's own storage are real; closed when the body returns.
    */
   onPhone(body: (phone: PhoneContext) => Promise<void>): Promise<void>;
+  /**
+   * Run a body on a fresh device: its own storage, its own service worker, its
+   * own network switch, closed when the body returns.
+   *
+   * The offline promises cannot be proven on the shared page. They need a
+   * FIRST visit (a worker that has never installed), an empty device cache to
+   * watch fill, and the network cut out from under them — none of which the
+   * page the other scenes are reading on can offer without wrecking it.
+   */
+  onFreshDevice(body: (device: DeviceContext) => Promise<void>): Promise<void>;
 }
 
 export interface PhoneContext {
   page: Page;
   capture(label: string): Promise<void>;
+}
+
+export interface DeviceContext {
+  page: Page;
+  capture(label: string): Promise<void>;
+  /** Cut this device's network, or give it back. */
+  setOffline(offline: boolean): Promise<void>;
 }
 
 /** A mid-size modern phone: the screen the boredom moment actually happens on. */
@@ -165,6 +182,24 @@ export async function runScenes(): Promise<void> {
           });
         } finally {
           await phoneContext.close();
+        }
+      },
+      onFreshDevice: async (body): Promise<void> => {
+        const deviceContext = await launched.newContext({
+          viewport: { width: 1280, height: 800 },
+        });
+        const devicePage = await deviceContext.newPage();
+        try {
+          await body({
+            page: devicePage,
+            capture: (label: string): Promise<void> => capture(devicePage, label),
+            setOffline: (offline: boolean): Promise<void> => deviceContext.setOffline(offline),
+          });
+        } finally {
+          // Give the network back before closing: a context torn down while
+          // offline can leave the shared server holding a half-dead socket.
+          await deviceContext.setOffline(false);
+          await deviceContext.close();
         }
       },
     };

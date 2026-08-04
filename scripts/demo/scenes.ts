@@ -2609,3 +2609,191 @@ scene('resize-relayout', async ({ page, capture }) => {
   expectEq(restored.column, wide.column, 'widening back restores the column');
   expectEq(restored.pages, wide.pages, 'and the page count it had before the shrink');
 });
+
+// --- the offline promises -------------------------------------------------
+//
+// These three ran as standalone scripts that nothing invoked: no package.json
+// script, no CI job. Unrun, they also rotted — both drove the reader with a
+// "Next ›" button and a "‹ Library" link that the chrome rework deleted, so
+// they would have failed on their first line had anything ever called them.
+// Folded into the registry, in the one suite CI runs in full, and rewritten
+// against the vocabulary the rest of the scenes use.
+//
+// Each takes a fresh device rather than the shared page: a first visit needs a
+// service worker that has never installed, an empty cache to watch fill, and
+// the network cut, none of which the page the other scenes read on survives.
+// They come LAST because the write-queue scene deliberately mutates the shared
+// book's sidecar.
+
+scene('pwa-shell', async ({ base, onFreshDevice }) => {
+  await onFreshDevice(async ({ page, capture, setOffline }) => {
+    // 1. First visit online: the worker installs, claims, and precaches.
+    await page.goto(`${base}/`);
+    await page.locator('#welcome:not([hidden])').waitFor();
+    await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
+    const cached = await page.evaluate(async () => {
+      const names = (await caches.keys()).filter((k) => k.startsWith('shell-'));
+      if (names.length !== 1) return [];
+      const cache = await caches.open(names[0] as string);
+      return (await cache.keys()).map((req) => new URL(req.url).pathname).sort();
+    });
+    for (const p of ['/', '/app.js', '/styles.css', '/manifest.webmanifest']) {
+      expect(cached.includes(p), `the worker precached ${p}`);
+    }
+
+    // 2 + 3. Cut the network; a fresh navigation must still open, and fast.
+    await setOffline(true);
+    await page.reload();
+    await page.locator('#welcome:not([hidden])').waitFor();
+    const interactive = await page.evaluate(() => {
+      const entry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
+      return entry.domContentLoadedEventEnd;
+    });
+    await capture('pwa-shell-offline');
+    expect(interactive > 0, 'the offline navigation produced real timings, not zeroes');
+    expect(
+      interactive < 1000,
+      `offline cold-open beats the one-second product law (${interactive.toFixed(0)}ms to interactive)`,
+    );
+  });
+});
+
+scene('book-cache', async ({ base, onFreshDevice }) => {
+  await onFreshDevice(async ({ page, capture, setOffline }) => {
+    // 1. Online: open the book and let the device cache fill. The library is
+    // the one the earlier scenes have been reading, so the book opens wherever
+    // it was left — which is resume working, and why the assertion is "the
+    // chapter is rendered", not "chapter one".
+    await page.goto(`${base}/?lib=dev`);
+    await page.getByText(TITLE).click();
+    await page.locator('#viewport .chapter-host').waitFor();
+    await page.waitForFunction(
+      async () => (await (await caches.open('books-v1')).keys()).length >= 1,
+    );
+    await page.waitForFunction(
+      () =>
+        new Promise((resolve) => {
+          const req = indexedDB.open('reader-42', 1);
+          req.onupgradeneeded = (): void => {
+            req.result.createObjectStore('files');
+          };
+          req.onsuccess = (): void => {
+            const get = req.result.transaction('files').objectStore('files').getAllKeys();
+            get.onsuccess = (): void => resolve(get.result.length >= 3); // index, sidecar, epub
+            get.onerror = (): void => resolve(false);
+          };
+          req.onerror = (): void => resolve(false);
+        }),
+    );
+    expect(true, 'opening online cached the epub (Cache API) and the sidecars (IndexedDB)');
+
+    // 2 + 3. Network cut, cold navigation STRAIGHT INTO the book.
+    await setOffline(true);
+    const started = Date.now();
+    await page.reload();
+    await page.locator('#viewport .chapter-host').waitFor();
+    const openToReading = Date.now() - started;
+    await capture('book-cache-offline-reading');
+    expect(
+      openToReading < 1000,
+      `offline open-to-reading beats the one-second product law (${openToReading}ms)`,
+    );
+
+    // 4. The shelf works offline too, off the cached index and sidecars.
+    // The book opened straight into its text (product law 2), so the chrome
+    // holding the back control has to be asked for before it can be used.
+    await centerTap(page);
+    await page.locator('#back-to-shelf').click();
+    await page.locator('.book-title', { hasText: TITLE }).waitFor();
+    await capture('book-cache-offline-shelf');
+    expect(true, 'the shelf rendered offline from the cached index');
+  });
+});
+
+scene('offline-writes', async ({ base, onFreshDevice }) => {
+  // The riskiest promise in the storage design: a write made while the
+  // transport is unreachable is never lost and never clobbers another device.
+  const index = (await (await fetch(`${base}/lib/library.json`)).json()) as {
+    books: { dir: string }[];
+  };
+  const dir = index.books[0]?.dir;
+  expect(dir, 'the dev library has a book to write to');
+  const sidecarUrl = `${base}/lib/${dir}/book.json`;
+  interface DiskSidecar {
+    position?: { chapter: number };
+    /** Only the id is read here; the rest of a highlight rides along untouched. */
+    highlights?: { id: string; [field: string]: unknown }[];
+  }
+  const onDisk = async (): Promise<DiskSidecar> =>
+    (await (await fetch(sidecarUrl)).json()) as DiskSidecar;
+
+  /** Poll a condition against the FOLDER, which is the contract. */
+  const untilOnDisk = async (label: string, ok: (s: DiskSidecar) => boolean): Promise<void> => {
+    for (let i = 0; i < 60; i++) {
+      if (ok(await onDisk())) {
+        console.log(`  ok: ${label}`);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error(`assert failed (timed out): ${label}`);
+  };
+
+  await onFreshDevice(async ({ page, capture, setOffline }) => {
+    await page.goto(`${base}/?lib=dev`);
+    await page.getByText(TITLE).click();
+    await page.locator('#viewport .chapter-host').waitFor();
+    await page.waitForTimeout(300);
+
+    // 1. Online reading reaches the folder. Park on a known chapter first, so
+    // the assertions do not depend on where the earlier scenes left the book.
+    await tocNav(page, 'One: A Beginning');
+    await untilOnDisk(
+      'an online page turn saved the position to the folder',
+      (s) => s.position?.chapter === 0,
+    );
+
+    // 2. Network cut: the next turn queues on the device instead of failing,
+    // and the folder provably does not move.
+    await setOffline(true);
+    await tocNav(page, 'Three: An End');
+    await page.waitForTimeout(1200); // longer than the debounce: every chance to land
+    expectEq(
+      (await onDisk()).position?.chapter,
+      0,
+      'the offline turn did NOT reach the folder; it queued on the device',
+    );
+    await capture('offline-writes-reading-offline');
+
+    // 3. Meanwhile another device highlights the same book, writing the
+    // sidecar directly (that device's transport is working).
+    const other = (await (await fetch(sidecarUrl)).json()) as DiskSidecar & Record<string, unknown>;
+    other.highlights = [
+      ...(other.highlights ?? []),
+      {
+        id: 'hl-other-device',
+        chapter: 0,
+        start: { path: [1], offset: 0 },
+        end: { path: [1], offset: 20 },
+        text: 'The first chapter is short.',
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    const put = await fetch(sidecarUrl, {
+      method: 'PUT',
+      body: `${JSON.stringify(other, null, 2)}\n`,
+    });
+    expect(put.ok, "the other device's highlight landed in the folder");
+
+    // 4. Reconnect: the queue flushes and merges field-wise, losing neither.
+    await setOffline(false);
+    await untilOnDisk(
+      "the flush kept THIS device's newer position",
+      (s) => s.position?.chapter === 2,
+    );
+    await untilOnDisk(
+      "and the OTHER device's highlight, so the merge is a union and not a clobber",
+      (s) => (s.highlights ?? []).some((h) => h.id === 'hl-other-device'),
+    );
+  });
+});
