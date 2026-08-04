@@ -55,6 +55,16 @@ interface NormalizedChapter {
  * Collapse whitespace and lowercase, keeping a raw offset per surviving
  * character. Leading and trailing whitespace is dropped, so the normalized
  * text starts and ends on real characters.
+ *
+ * The invariant everything downstream rests on: `map.length === text.length`,
+ * one entry per CODE UNIT of the normalized text, because `map` is indexed by
+ * an offset into that text and the result becomes a live Range. Lowercasing is
+ * not length-preserving — Turkish 'İ' lowercases to two code units, 'i' plus a
+ * combining dot — so emitting one entry per INPUT character silently slid
+ * every later offset by the difference and the find marks lit up the wrong
+ * words for the rest of the chapter. Both units of a grown character point
+ * back at the single raw character they came from, which is what makes the
+ * offsets resolvable either way round.
  */
 export function normalizeForSearch(raw: string): NormalizedChapter {
   const chars: string[] = [];
@@ -71,10 +81,37 @@ export function normalizeForSearch(raw: string): NormalizedChapter {
       map.push(i);
       pendingSpace = false;
     }
-    chars.push(ch.toLowerCase());
-    map.push(i);
+    // Per code unit, not per code point: a surrogate half is its own entry, so
+    // an astral character occupies two and a hit that ends on one still ends
+    // past its low half.
+    const lower = ch.toLowerCase();
+    for (let k = 0; k < lower.length; k++) {
+      chars.push(lower[k] as string);
+      map.push(i);
+    }
   }
   return { text: chars.join(''), map };
+}
+
+/**
+ * Slice bounds that never fall between the halves of a surrogate pair.
+ *
+ * The context window is a fixed count of code units either side of a hit, so
+ * an astral character straddling that edge gets cut in half and the results
+ * list shows a replacement glyph. The whole character is kept or dropped.
+ */
+function snippetStart(text: string, at: number): number {
+  const code = text.charCodeAt(at);
+  const prev = at > 0 ? text.charCodeAt(at - 1) : 0;
+  const splitsPair = code >= 0xdc00 && code <= 0xdfff && prev >= 0xd800 && prev <= 0xdbff;
+  return splitsPair ? at - 1 : at; // keep the character whole
+}
+
+function snippetEnd(text: string, at: number): number {
+  const end = Math.min(at, text.length);
+  const last = end > 0 ? text.charCodeAt(end - 1) : 0;
+  const splitsPair = last >= 0xd800 && last <= 0xdbff && end < text.length;
+  return splitsPair ? end - 1 : end; // drop the orphaned half
 }
 
 /** Trim a snippet edge at a word boundary, with an ellipsis when it cuts. */
@@ -132,9 +169,11 @@ export function createBookSearch(
             chapter,
             start: rawStart,
             end: rawEnd + 1,
-            before: trimBefore(text.slice(Math.max(at - SNIPPET_CONTEXT, 0), at)),
+            before: trimBefore(
+              text.slice(snippetStart(text, Math.max(at - SNIPPET_CONTEXT, 0)), at),
+            ),
             match: text.slice(at, endIndex),
-            after: trimAfter(text.slice(endIndex, endIndex + SNIPPET_CONTEXT)),
+            after: trimAfter(text.slice(endIndex, snippetEnd(text, endIndex + SNIPPET_CONTEXT))),
           });
           // Push first, then check: finding one hit PAST the cap is what
           // makes "capped" exactly true, never merely "we stopped counting".

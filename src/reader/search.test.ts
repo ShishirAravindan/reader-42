@@ -5,6 +5,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   SEARCH_HIT_CAP,
+  SNIPPET_CONTEXT,
   applyFindMarks,
   clearFindMarks,
   createBookSearch,
@@ -33,6 +34,32 @@ describe('normalizeForSearch', () => {
     expect('  The\n  Quick  fox '[map[0] as number]).toBe('T');
     const foxAt = text.indexOf('fox');
     expect('  The\n  Quick  fox '[map[foxAt] as number]).toBe('f');
+  });
+
+  // THE INVARIANT THE WHOLE MODULE RESTS ON. `map[i]` is looked up by an index
+  // into `text`, so there must be exactly one entry per CODE UNIT of `text`.
+  // Anything that emits a different number of units than it consumed slides
+  // every later offset by the difference, and offsets are what become live
+  // Ranges: the find mark then lights up the wrong words for the rest of the
+  // chapter.
+  test('keeps one map entry per code unit when lowercasing changes length', () => {
+    // Turkish capital I with dot lowercases to TWO code units (i + combining
+    // dot above). One raw character in, two out.
+    const raw = 'AİB needle here';
+    const { text, map } = normalizeForSearch(raw);
+    expect('İ'.toLowerCase()).toHaveLength(2); // the premise, pinned
+    expect(map).toHaveLength(text.length);
+    // Both emitted units point back at the single raw character they came from.
+    const dotted = text.indexOf('i');
+    expect(map[dotted]).toBe(1);
+    expect(map[dotted + 1]).toBe(1);
+  });
+
+  test('an astral character keeps its two code units addressed separately', () => {
+    const raw = 'a\u{1D4B3}b';
+    const { text, map } = normalizeForSearch(raw);
+    expect(map).toHaveLength(text.length);
+    expect(map).toEqual([0, 1, 2, 3]);
   });
 });
 
@@ -78,6 +105,53 @@ describe('createBookSearch', () => {
     const { hits, capped } = many.search('ab');
     expect(hits).toHaveLength(SEARCH_HIT_CAP);
     expect(capped).toBe(true);
+  });
+});
+
+/**
+ * Text outside the Basic Multilingual Plane, which real books carry: maths
+ * italics, older scripts, emoji in a modern preface. Two separate promises —
+ * the OFFSETS a hit reports (they become a Range) and the SNIPPET a hit shows
+ * (it goes on screen as-is).
+ */
+describe('astral characters and lowercase growth', () => {
+  const ASTRAL = '\u{1D4B3}'; // MATHEMATICAL SCRIPT CAPITAL X, two code units
+  /** A high or low surrogate standing on its own: a broken character. */
+  const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+  test('a hit ending on an astral character reports both of its code units', () => {
+    const raw = `the rune ${ASTRAL} marks it`;
+    const { hits } = createBookSearch(1, () => raw).search(`rune ${ASTRAL}`);
+    expect(hits).toHaveLength(1);
+    const hit = hits[0];
+    if (!hit) throw new Error('expected a hit');
+    const matched = raw.slice(hit.start, hit.end);
+    expect(matched).toBe(`rune ${ASTRAL}`);
+    expect(LONE_SURROGATE.test(matched)).toBe(false);
+  });
+
+  test('a snippet never cuts an astral character in half', () => {
+    // The context window is a fixed number of code units either side, so an
+    // astral character sitting exactly on that boundary gets sliced through
+    // the middle and the results list renders a replacement glyph.
+    const trailing = `needle${'x'.repeat(SNIPPET_CONTEXT - 1)}${ASTRAL} tail`;
+    const after = createBookSearch(1, () => trailing).search('needle').hits[0]?.after ?? '';
+    expect(LONE_SURROGATE.test(after)).toBe(false);
+
+    const leading = `start ${ASTRAL}${'y'.repeat(SNIPPET_CONTEXT - 1)}needle rest`;
+    const before = createBookSearch(1, () => leading).search('needle').hits[0]?.before ?? '';
+    expect(LONE_SURROGATE.test(before)).toBe(false);
+  });
+
+  test('a character that grows when lowercased does not slide later hits', () => {
+    // Everything after the grown character is what breaks: the hit is found in
+    // normalized space, then read back through the map into raw space.
+    const raw = 'AİB needle here';
+    const { hits } = createBookSearch(1, () => raw).search('needle');
+    expect(hits).toHaveLength(1);
+    const hit = hits[0];
+    if (!hit) throw new Error('expected a hit');
+    expect(raw.slice(hit.start, hit.end)).toBe('needle');
   });
 });
 
