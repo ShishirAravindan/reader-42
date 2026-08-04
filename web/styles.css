@@ -711,8 +711,21 @@ button:hover {
   text-transform: uppercase;
   color: var(--muted);
 }
+/* A row of controls, and the row must never cost the reader a label. The
+   buttons are `nowrap`, so a flex item can not shrink below its longest word:
+   four weight steps (the widest is "Semibold") wanted 335px inside a 304px
+   panel, the row overflowed, and since the panel is a scroll container the
+   surplus was simply clipped — "Heavy" shipped drawn as "Hea".
+
+   Two rules, in order of who does the work. `flex-wrap` is the GUARANTEE: a
+   control that does not fit drops to the next line instead of being cut in
+   half, whatever the face, the base size, or the label's language. The
+   tightened side padding is what keeps the wrap a safety net rather than the
+   everyday look — the weight row fits on one line again at the stock size,
+   with room to spare. */
 .aa-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem;
 }
@@ -720,6 +733,8 @@ button:hover {
   flex: 1;
   font-size: 0.9rem;
   white-space: nowrap;
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
 }
 #aa-panel button[aria-pressed="true"] {
   border-color: var(--link);

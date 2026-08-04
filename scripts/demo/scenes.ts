@@ -98,6 +98,34 @@ async function setLayout(page: Page, mode: 'paged' | 'scroll'): Promise<void> {
   await page.waitForTimeout(150);
 }
 
+/**
+ * Every control on the Aa panel that is not fully inside the panel's own box,
+ * horizontally, within a pixel.
+ *
+ * PER-ELEMENT geometry on purpose. The weight row shipped with "Heavy"
+ * rendered as "Hea" while the scene stayed green, because the assertion of the
+ * day clicked the button and checked that the computed weight reached the
+ * text — which a half-drawn button does perfectly well. Document-level
+ * overflow is no better: the panel is a scroll container (`overflow-y: auto`
+ * computes overflow-x to `auto`), so a control clipped by the panel overflows
+ * NOTHING at the document level and `scrollWidth <= innerWidth` stays true.
+ * The only thing that catches a clipped control is measuring the control.
+ */
+function aaClipped(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const panel = document.getElementById('aa-panel') as HTMLElement;
+    const box = panel.getBoundingClientRect();
+    return Array.from(panel.querySelectorAll<HTMLElement>('button'))
+      .map((b) => ({ b, r: b.getBoundingClientRect() }))
+      .filter(({ r }) => r.width > 0 && r.height > 0) // visible controls only
+      .filter(({ r }) => r.left < box.left - 1 || r.right > box.right + 1)
+      .map(
+        ({ b, r }) =>
+          `${b.id || b.className}[${b.textContent}] left ${Math.round(r.left - box.left)}px, right ${Math.round(r.right - box.right)}px vs panel`,
+      );
+  });
+}
+
 scene('import-and-open', async ({ page, base, capture }) => {
   await page.goto(`${base}/?lib=dev`);
   await page.locator('#shelf').waitFor({ state: 'visible' });
@@ -625,6 +653,9 @@ scene('typography', async ({ page, capture }) => {
     'Typography and themes',
     'and carries the name of the control that opens it',
   );
+  // Every control on the sheet is drawn whole. A label the reader can only
+  // half-read is not a control, whatever the click handler does.
+  expectEq((await aaClipped(page)).join('; '), '', 'every Aa control is drawn inside the panel');
   await capture('aa-panel');
 
   // Theme -> dark: ONE token source proves itself — the app shell, the meta
@@ -2406,6 +2437,11 @@ scene('phone', async ({ base, onPhone }) => {
       panel.scrollTop = panel.scrollHeight;
     });
     await page.waitForTimeout(120);
+    expectEq(
+      (await aaClipped(page)).join('; '),
+      '',
+      'every Aa control is drawn inside the sheet at 390px too',
+    );
     expectEq((await metrics(page)).overflowY, 'hidden', 'the sheet opens over a paged book');
     await tapOn('#aa-layout-scroll');
     // Both of these discriminate. Without the band the thumb lands on the
