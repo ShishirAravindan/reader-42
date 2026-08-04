@@ -44,6 +44,27 @@ export function scene(name: string, fn: (ctx: SceneContext) => Promise<void>): v
   scenes.push({ name, fn });
 }
 
+/**
+ * The gate on the gate: an EMPTY registry must be a failure, never a pass.
+ *
+ * Scenes register by side effect (`import './scenes.ts'` in run.ts). Split
+ * that file, or drop the import while refactoring, and the run loop iterates
+ * nothing, prints "all 0 scenes passed", and exits 0 — a green CI job that
+ * proves the suite ran, not that anything held. Every geometry-dependent
+ * invariant in this reader is claimed only here, so a suite that can pass by
+ * running nothing is worse than no suite at all.
+ *
+ * Separate from `runScenes` and pure on purpose, so it can be unit tested
+ * without a browser or a dev server.
+ */
+export function assertScenesRegistered(count: number): void {
+  if (count > 0) return;
+  throw new Error(
+    'no scenes registered: the acceptance suite would have passed by running nothing ' +
+      '(is the side-effect import of the scene modules still in run.ts?)',
+  );
+}
+
 export function expect(cond: unknown, label: string): asserts cond {
   if (!cond) throw new Error(`assert failed: ${label}`);
   console.log(`  ok: ${label}`);
@@ -73,6 +94,9 @@ async function waitForServer(url: string): Promise<void> {
 }
 
 export async function runScenes(): Promise<void> {
+  // Before anything is spawned or created: a guard that fires after the dev
+  // server is up leaks the server and the temp library on the way out.
+  assertScenesRegistered(scenes.length);
   const flags = new Set(process.argv.slice(2));
   const port = Number(process.env.PORT ?? 4299);
   const base = `http://localhost:${port}`;
