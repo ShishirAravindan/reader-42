@@ -685,7 +685,12 @@ button:hover {
     border-bottom: none;
     padding-left: calc(1rem + env(safe-area-inset-left));
     padding-right: calc(1rem + env(safe-area-inset-right));
-    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+    /* The hairline's band (see the panel rule near #search-panel): as a bottom
+       sheet this panel reaches the bottom edge, so its last row — Layout —
+       sat under the Page Flip target and could not be tapped. The desktop
+       popover is anchored under the top bar and never reaches the strip, so it
+       keeps its ordinary padding. */
+    padding-bottom: calc(44px + env(safe-area-inset-bottom));
   }
 }
 .aa-group {
@@ -1129,6 +1134,19 @@ button:hover {
   flex-direction: column;
   gap: 0.6rem;
 }
+/* The hairline's band, claimed by every panel that reaches the bottom edge.
+   The strip is z-index 5 and always up, and its rule is a 44px-tall hit target
+   spanning the width — so a control sitting in the last 44px of a panel is not
+   the reader's to tap: the thumb opens Page Flip instead, and the setting they
+   aimed at never changes. Reserving the band is what makes the bottom row of a
+   panel reachable. #peek-sheet has always done this; these three now do too.
+   (Declared after all three rules so it wins over their padding shorthands.) */
+#goto-panel,
+#notebook,
+#search-panel {
+  padding-bottom: calc(44px + env(safe-area-inset-bottom));
+}
+
 .search-form {
   display: flex;
 }

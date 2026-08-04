@@ -2348,5 +2348,40 @@ scene('phone', async ({ base, onPhone }) => {
     await tapAt(box.x + box.width * 0.85, box.y + box.height / 2);
     expect((await scrollLeft()) > afterPeek, 'the very next tap in the forward zone turns');
     await capture('phone-touch-annotations');
+
+    // LOAD-BEARING: the BOTTOM ROW of a panel belongs to the panel, not to the
+    // hairline underneath it. The strip is z-index 5, always up, and its Page
+    // Flip rule is a 44px target spanning the width — so a thumb aimed at the
+    // last row of a bottom sheet opened the peek and changed nothing. Layout is
+    // the last group on the Aa sheet, so it is the row that proves the band.
+    await revealChrome();
+    await tapOn('#aa-toggle');
+    await page.locator('#aa-panel').waitFor({ state: 'visible' });
+    // The sheet is taller than its max-height, so the last group is only
+    // reachable scrolled: this is the reader who has scrolled down to Layout.
+    await page.evaluate(() => {
+      const panel = document.getElementById('aa-panel') as HTMLElement;
+      panel.scrollTop = panel.scrollHeight;
+    });
+    await page.waitForTimeout(120);
+    expectEq((await metrics(page)).overflowY, 'hidden', 'the sheet opens over a paged book');
+    await tapOn('#aa-layout-scroll');
+    // Both of these discriminate. Without the band the thumb lands on the
+    // strip, which is OUTSIDE the panel: the panel's own outside-click swallow
+    // fires first, so the sheet shuts and the setting never changes. (Go To and
+    // the notebook swallow nothing, so there the same tap opens Page Flip
+    // instead — same band, same cause, a louder symptom.)
+    expect(
+      await page.locator('#aa-panel').isVisible(),
+      'the tap lands INSIDE the sheet, which stays open',
+    );
+    expectEq(
+      (await metrics(page)).overflowY,
+      'auto',
+      'it reaches the Layout control the reader aimed at',
+    );
+    await tapOn('#aa-layout-paged'); // leave the book as this scene found it
+    await page.waitForTimeout(150);
+    await capture('phone-aa-sheet');
   });
 });
