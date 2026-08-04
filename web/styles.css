@@ -313,7 +313,7 @@ button:hover {
 #top-bar {
   top: 0;
   border-bottom: 1px solid var(--line);
-  box-shadow: 0 1px 10px rgba(36, 33, 27, 0.07);
+  box-shadow: 0 1px 10px var(--scrim);
 }
 #reader.chrome-hidden .chrome-bar {
   opacity: 0;
@@ -504,7 +504,7 @@ button:hover {
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 8px 40px rgba(36, 33, 27, 0.16);
+  box-shadow: 0 8px 40px var(--scrim);
   padding: 1.8rem 2.2rem;
   text-align: center;
   max-width: min(22rem, 85vw);
@@ -667,7 +667,7 @@ button:hover {
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 8px 40px rgba(36, 33, 27, 0.16);
+  box-shadow: 0 8px 40px var(--scrim);
   padding: 0.9rem 1rem 1rem;
   display: flex;
   flex-direction: column;
