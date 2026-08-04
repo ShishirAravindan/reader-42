@@ -2499,3 +2499,113 @@ scene('phone', async ({ base, onPhone }) => {
     await capture('phone-aa-sheet');
   });
 });
+
+/**
+ * A window that gets NARROWER mid-chapter.
+ *
+ * Relayout across a resize had no scene at all, and the shrinking direction is
+ * the one that bites. Paged mode forces the columns to overflow their host
+ * with a spacer parked at `pages * stride`; that spacer is itself part of
+ * `scrollWidth`, which is what the page count is read from. Re-measure without
+ * collapsing the spacer first and it holds the extent open at the OLD width:
+ * the book keeps a page it no longer has text for, the reader turns onto blank
+ * paper at the end of the chapter, and every page-count readout is off by one
+ * until something else forces a fresh layout. The renderer collapses the
+ * spacer before measuring for exactly this reason; nothing was checking.
+ *
+ * Two shrinks, because the measure cap (A5) makes them behave differently and
+ * only the second one can grow the page count:
+ *
+ *   1280 -> 900   surplus width, so the column is capped at the measure and
+ *                 only the MARGINS give. The column is untouched, so the page
+ *                 count must not move. "Fewer pixels means more pages" is the
+ *                 wrong intuition here and asserting it fails against correct
+ *                 behavior.
+ *   900 -> 400    now the window is far narrower than the measure, the column
+ *                 itself gives, and the page count genuinely grows. It has to
+ *                 be a decisive narrowing: shaving ten percent off the column
+ *                 lengthens the text by less than the slack in the last
+ *                 column, so the count can legitimately not move at all.
+ *
+ * What has to hold through both: the extent stays an exact multiple of the
+ * page width, the last page the extent claims has text on it, and the reader
+ * keeps the paragraph they were reading. The numbers come off the live
+ * geometry rather than from the app's own `pageCount()`, so a bug in that
+ * formula cannot hide behind itself.
+ */
+scene('resize-relayout', async ({ page, capture }) => {
+  await tocNav(page, 'Two: The Long Middle');
+  await zoneClick(page, 'forward');
+  await zoneClick(page, 'forward');
+
+  /** Extent, page width and page count, with the whole-pages invariant checked. */
+  const survey = async (label: string): Promise<{ pages: number; column: number }> => {
+    const m = await metrics(page);
+    expectEq(m.scrollWidth % m.clientWidth, 0, `${label}: the extent is a whole number of pages`);
+    expectEq(m.scrollLeft % m.clientWidth, 0, `${label}: the reader sits on a page boundary`);
+    return { pages: m.scrollWidth / m.clientWidth, column: await columnWidth(page) };
+  };
+
+  const anchorId = await firstVisibleParagraph(page);
+  expect(anchorId, 'a paragraph is at the page start before the resize');
+  const wide = await survey('1280px');
+
+  // Shrink one: into the surplus. 400ms because the renderer debounces resize
+  // by 150ms; the typography scene already waits the same way for the same
+  // reason.
+  await page.setViewportSize({ width: 900, height: 800 });
+  await page.waitForTimeout(400);
+  const mid = await survey('900px');
+  expectEq(
+    mid.column,
+    wide.column,
+    `the measure cap holds the column steady while the margins absorb the loss (${wide.column}px)`,
+  );
+  expectEq(mid.pages, wide.pages, `so the same text still occupies the same ${wide.pages} pages`);
+  expectEq(
+    await firstVisibleParagraph(page),
+    anchorId,
+    'and the reader keeps their paragraph across the margin-only relayout',
+  );
+
+  // Shrink two: past the measure, where the column itself has to give.
+  await page.setViewportSize({ width: 400, height: 800 });
+  await page.waitForTimeout(400);
+  const narrow = await survey('400px');
+  expect(
+    narrow.column < mid.column,
+    `below the measure the column really narrows (${mid.column}px -> ${narrow.column}px)`,
+  );
+  expect(
+    narrow.pages > mid.pages,
+    `a narrower column means more pages (${mid.pages} -> ${narrow.pages} pages)`,
+  );
+  expectEq(
+    await firstVisibleParagraph(page),
+    anchorId,
+    'LOAD-BEARING: the reader keeps the paragraph they were reading across the reflow',
+  );
+
+  // THE PHANTOM PAGE: go to the last page the extent claims exists and look
+  // for text on it. A spacer left at its old, wider setting shows itself here
+  // and nowhere else.
+  await page.evaluate(() => {
+    const v = document.getElementById('viewport') as HTMLElement;
+    v.scrollLeft = v.scrollWidth - v.clientWidth;
+  });
+  await page.waitForTimeout(120);
+  expect(
+    await firstVisibleParagraph(page),
+    'the last page the narrowed extent claims has text on it, not blank paper',
+  );
+  await capture('resize-narrower');
+
+  // Widen back. The scenes share this page, so the viewport is restored before
+  // this one returns; the round trip is also the assertion that the shrink
+  // left nothing behind.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.waitForTimeout(400);
+  const restored = await survey('back at 1280px');
+  expectEq(restored.column, wide.column, 'widening back restores the column');
+  expectEq(restored.pages, wide.pages, 'and the page count it had before the shrink');
+});

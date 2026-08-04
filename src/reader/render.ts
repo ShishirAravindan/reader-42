@@ -88,8 +88,14 @@ export interface RenderedChapter {
   anchorInView(anchor: PositionAnchor): boolean;
   /** Snap to a fraction of the chapter, through the same page-snap as anchors. */
   scrollToFraction(fraction: number): void;
-  /** Re-apply mode CSS and restore the anchor; for mode switches and resize. */
-  relayout(): void;
+  /**
+   * Re-apply mode CSS and restore the anchor; for mode switches and resize.
+   *
+   * Callers that trigger the reflow themselves pass nothing and the place is
+   * read live. A resize passes the place it recorded BEFORE the browser
+   * reflowed, which is the only moment that offset still means what it meant.
+   */
+  relayout(remembered?: PositionAnchor | null): void;
   /** One page forward/back (paged) or most of a screen (scroll). False at the chapter edge. */
   turnForward(): boolean;
   turnBack(): boolean;
@@ -297,6 +303,27 @@ export function renderChapter(
     return page * stride();
   }
 
+  /**
+   * Where the reader is, recorded while the layout it was measured against is
+   * still the one on screen.
+   *
+   * A resize cannot re-derive this after the fact. The browser reflows to the
+   * new width BEFORE any ResizeObserver callback runs, so by the time the
+   * observer fires the scroll offset is unchanged but no longer means what it
+   * meant: narrowing the window mid-chapter left `scrollLeft` at 2560 while
+   * that offset had come to address the eighth paragraph instead of the
+   * fourteenth, and the relayout dutifully restored the reader to a page they
+   * had already read. Only paged mode needs this — it has `overflow: hidden`,
+   * so every position change goes through the methods below, whereas in scroll
+   * mode the reader moves the viewport themselves and a live read is still the
+   * honest answer.
+   */
+  let placed: PositionAnchor | null = null;
+
+  function rememberPlace(): void {
+    placed = anchorFor(wrapper, mount, axis());
+  }
+
   function restoreAnchor(anchor: PositionAnchor | null): void {
     if (applied === 'paged') {
       mount.scrollTop = 0;
@@ -307,6 +334,7 @@ export function renderChapter(
       const target = anchor ? anchorTarget(wrapper, mount, anchor, 'v') : null;
       mount.scrollTop = target ?? 0;
     }
+    rememberPlace();
   }
 
   function turnFlash(): void {
@@ -333,6 +361,7 @@ export function renderChapter(
       // land between pages.
       if (applied === 'paged') mount.scrollLeft = pageStartFor(absoluteStart(target, mount, 'h'));
       else target.scrollIntoView({ block: 'start' });
+      rememberPlace();
     },
     getAnchor: (): PositionAnchor | null => anchorFor(wrapper, mount, axis()),
     scrollToAnchor(anchor: PositionAnchor): void {
@@ -358,12 +387,17 @@ export function renderChapter(
         mount.scrollLeft = 0;
         mount.scrollTop = clamped * Math.max(mount.scrollHeight - mount.clientHeight, 0);
       }
+      rememberPlace();
     },
-    relayout(): void {
+    relayout(remembered?: PositionAnchor | null): void {
       // Never resolve geometry against a hidden viewport (salvage §2); the
       // resize observer re-runs this once the mount is visible again.
       if (mount.clientWidth <= 0 && mount.clientHeight <= 0) return;
-      const anchor = anchorFor(wrapper, mount, axis()); // current layout's axis
+      // A caller that reflows the layout ITSELF (the Aa panel, a mode switch)
+      // gets here before the browser has re-laid anything out, so reading the
+      // place now is exact. A resize does not: it hands over the place it
+      // recorded beforehand, because reading it now would read the new layout.
+      const anchor = remembered ?? anchorFor(wrapper, mount, axis());
       applyModeCss();
       restoreAnchor(anchor); // new layout's axis
     },
@@ -372,6 +406,7 @@ export function renderChapter(
         const next = currentPage() + 1;
         if (next > pages() - 1) return false;
         mount.scrollLeft = next * stride();
+        rememberPlace();
         turnFlash();
         return true;
       }
@@ -385,6 +420,7 @@ export function renderChapter(
         const current = currentPage();
         if (current <= 0) return false;
         mount.scrollLeft = (current - 1) * stride();
+        rememberPlace();
         turnFlash();
         return true;
       }
@@ -395,6 +431,7 @@ export function renderChapter(
     toEnd(): void {
       if (applied === 'paged') mount.scrollLeft = (pages() - 1) * stride();
       else mount.scrollTop = Math.max(mount.scrollHeight - mount.clientHeight, 0);
+      rememberPlace();
     },
     chapterFraction(): number {
       const paged = applied === 'paged';
@@ -427,7 +464,11 @@ export function renderChapter(
         return;
       }
       if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => rendered.relayout(), 150);
+      // Paged mode restores the place recorded before the reflow; scroll mode
+      // has no such record (the reader scrolls it themselves) and reads live.
+      resizeTimer = setTimeout(() => {
+        rendered.relayout(applied === 'paged' ? placed : null);
+      }, 150);
     });
     observer.observe(mount);
   }
