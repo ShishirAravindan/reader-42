@@ -10,6 +10,7 @@ import type { Book } from '../epub/book.ts';
 import { resolveAgainst } from '../epub/path.ts';
 import type { Chapter, Resource } from '../epub/types.ts';
 import type { PositionAnchor } from '../library/types.ts';
+import { afterFaceLoads, fontSpec } from './fonts.ts';
 import { absoluteStart, anchorFor, anchorTarget } from './locator.ts';
 import type { DisplayMode } from './mode.ts';
 import { columnGeometry, pageCount, pageIndexFor } from './paging.ts';
@@ -222,6 +223,38 @@ export function renderChapter(
     wrapper.classList.toggle('font-override', typo.fontStack !== null);
   }
 
+  // The typography spec whose face has already had its second pass. Both a
+  // dedupe and the loop guard: the pass ends in relayout(), which lands back
+  // here, and without this the same face would be waited on forever.
+  let faceSeen = '';
+
+  /**
+   * The second pass. measurePx() is a geometry read against whatever face is
+   * on screen RIGHT NOW, and with `font-display: swap` that is the fallback
+   * until the chosen face arrives — on a cold open, and again on every face
+   * switch from the Aa panel. Neither had a second pass, so the column kept a
+   * measure taken for a face the reader is not reading.
+   *
+   * This is the one mechanism for both: the panel's controls reflow by calling
+   * relayout(), so putting the pass inside the layout itself covers the panel,
+   * the cold open, the resize, and anything added later, without a caller
+   * having to remember. Re-anchoring is what relayout() already does, so the
+   * reading position survives the extra pass the same way it survives a size
+   * step.
+   */
+  function relayoutWhenFaceArrives(): void {
+    const spec = fontSpec(getComputedStyle(wrapper));
+    if (spec === faceSeen) return; // this face has had its pass, or needed none
+    faceSeen = spec;
+    afterFaceLoads(spec, () => {
+      // isConnected, not a disposed flag: a chapter change disposes this host
+      // (host.remove()) but reuses the same mount, so a stale callback would
+      // otherwise scroll the NEW chapter to the OLD chapter's anchor.
+      if (faceSeen !== spec || !host.isConnected) return;
+      rendered.relayout();
+    });
+  }
+
   function applyModeCss(): void {
     applied = view.mode();
     applyTypography();
@@ -252,6 +285,9 @@ export function renderChapter(
       wrapper.classList.remove('paged');
       spacer.style.display = 'none';
     }
+    // Last, and after the measure it may invalidate: if the face behind that
+    // measurement had not arrived yet, come back and do it again.
+    relayoutWhenFaceArrives();
   }
 
   /** Page whose span contains an h-axis offset, clamped into the chapter. */

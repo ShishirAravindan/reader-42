@@ -785,6 +785,32 @@ scene('typography', async ({ page, capture }) => {
   style = await chapterParagraphStyle(page);
   expect(style.fontFamily.includes('Atkinson'), 'reload restores the font');
   expectEq(style.fontSizePx, 20.48, 'reload restores the size step (1.28rem)');
+
+  // LOAD-BEARING: the cold-open column is measured against the face the reader
+  // is actually reading. This reload IS a cold open in a saved non-default
+  // face: the faces are `font-display: swap`, so the chapter renders in the
+  // fallback serif and the measure probe — a geometry read — answers for the
+  // fallback's average character width, not Atkinson's. Nothing re-measured,
+  // so the column kept a width computed for a book set in something else, and
+  // in paged mode a wrong column is a wrong page stride: a restored position
+  // lands a page or two off.
+  //
+  // The probe: the column is capped AT the measure, so trimming a few pixels
+  // of window forces a fresh measurement without changing what that
+  // measurement should be. The face is certainly resident by now, so the
+  // re-measured column is the true one. If the cold-open column equals it, the
+  // cold open measured the real face. If it does not, it measured the
+  // fallback — which is precisely the bug.
+  const coldColumn = await columnWidth(page);
+  await page.setViewportSize({ width: 1272, height: 800 });
+  await page.waitForTimeout(400); // the renderer debounces resize by 150ms
+  const trueColumn = await columnWidth(page);
+  await page.setViewportSize({ width: 1280, height: 800 }); // scenes share this page
+  await page.waitForTimeout(400);
+  expect(
+    Math.abs(coldColumn - trueColumn) <= 1,
+    `the cold-open column was measured against the reader's own face (${coldColumn.toFixed(1)}px at open vs ${trueColumn.toFixed(1)}px re-measured)`,
+  );
   await capture('typography-restored');
 
   await centerTap(page);
