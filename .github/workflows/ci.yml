@@ -9,10 +9,14 @@
 
 name: ci
 
+# Every change reaches dev through a pull request, so `pull_request` already
+# covers it; keeping dev under `push` too ran the whole suite twice for one
+# merge. main stays, because it is reached by merging dev rather than by a PR
+# and would otherwise never be checked on its own.
 on:
   pull_request:
   push:
-    branches: [main, dev]
+    branches: [main]
 
 jobs:
   checks:
