@@ -6,7 +6,7 @@
 //
 //   bun scripts/demo/run.ts [--video] [--headed]
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { type Browser, type Page, chromium } from 'playwright';
@@ -115,13 +115,18 @@ export async function runScenes(): Promise<void> {
 
   try {
     await waitForServer(`${base}/`);
-    // Which Chromium: an explicit PW_CHROMIUM wins, then the sandbox's pinned
-    // browser, then Playwright's own install (which is what CI has). Falling
-    // through rather than hard-coding is what lets these scenes run both here
-    // and on a runner that never heard of /opt/pw-browsers.
-    const pinned = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium';
+    // Which Chromium: PW_CHROMIUM when set, otherwise Playwright resolves its
+    // own install (`bunx playwright install chromium`), which is what CI and a
+    // cold clone both have.
+    //
+    // There used to be a hard-coded sandbox path here, taken whenever it
+    // existed. Two ways that misfires: the path names a DIRECTORY on some
+    // sandboxes and `existsSync` says yes, so launch got a directory as an
+    // executable and died at boot; and on any machine without that path the
+    // env var was the only escape from a guess. An explicit variable or
+    // Playwright's own resolution — no third guess.
     const launched = await chromium.launch({
-      ...(existsSync(pinned) ? { executablePath: pinned } : {}),
+      ...(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {}),
       headless: !flags.has('--headed'),
     });
     browser = launched;
