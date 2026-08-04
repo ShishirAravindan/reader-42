@@ -571,6 +571,18 @@ scene('typography', async ({ page, capture }) => {
   await page.locator('#aa-toggle').click();
   await page.locator('#aa-panel').waitFor({ state: 'visible' });
   expect(!(await chromeHidden(page)), 'chrome stays open under the Aa panel');
+  // The panel is a dialog with a name: a screen reader landing in it must be
+  // told what it landed in, the same courtesy every drawn mark in the bar gets.
+  const aaRole = await page.evaluate(() => {
+    const panel = document.getElementById('aa-panel') as HTMLElement;
+    return { role: panel.getAttribute('role'), name: panel.getAttribute('aria-label') };
+  });
+  expectEq(aaRole.role, 'dialog', 'the Aa panel announces itself as a dialog');
+  expectEq(
+    aaRole.name,
+    'Typography and themes',
+    'and carries the name of the control that opens it',
+  );
   await capture('aa-panel');
 
   // Theme -> dark: ONE token source proves itself — the app shell, the meta
