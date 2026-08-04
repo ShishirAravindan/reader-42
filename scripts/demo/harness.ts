@@ -6,10 +6,11 @@
 //
 //   bun scripts/demo/run.ts [--video] [--headed]
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { type Browser, type Page, chromium } from 'playwright';
+import type { LibraryTransport } from '../../src/library/transport.ts';
 
 export interface SceneContext {
   page: Page;
@@ -98,7 +99,16 @@ export function expectEq<T>(actual: T, expected: T, label: string): void {
 
 const OUT = path.join(import.meta.dir, 'out');
 
-async function waitForServer(url: string): Promise<void> {
+// --- booting the app ------------------------------------------------------
+//
+// Exported because the acceptance suite is not the only thing that has to
+// drive the real app: the showcase recording does too. It used to carry its
+// own copies of all of this, including a chromium path that did not exist on
+// any machine here, which is how a second, quietly broken way to start the app
+// grew alongside the one CI exercises.
+
+/** Poll until the dev server answers, or give up and say so. */
+export async function waitForServer(url: string): Promise<void> {
   for (let i = 0; i < 50; i++) {
     try {
       await fetch(url);
@@ -110,6 +120,53 @@ async function waitForServer(url: string): Promise<void> {
   throw new Error(`dev server never came up at ${url}`);
 }
 
+/** Spawn the dev server over a library folder. Kill the handle when done. */
+export function startDevServer(port: number, libDir: string): ReturnType<typeof Bun.spawn> {
+  return Bun.spawn(['bun', path.join(import.meta.dir, '..', 'dev.ts')], {
+    env: { ...process.env, PORT: String(port), LIBRARY_DIR: libDir },
+    stdout: 'ignore',
+  });
+}
+
+/**
+ * Launch chromium the one way everything here launches it: PW_CHROMIUM when
+ * set, otherwise Playwright resolves its own install (`bunx playwright install
+ * chromium`), which is what CI and a cold clone both have.
+ */
+export function launchChromium(headless: boolean): Promise<Browser> {
+  return chromium.launch({
+    ...(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {}),
+    headless,
+  });
+}
+
+/** A throwaway library folder under DEMO_TMP (or the system temp dir). */
+export function makeLibraryDir(prefix: string): string {
+  return mkdtempSync(path.join(process.env.DEMO_TMP ?? os.tmpdir(), prefix));
+}
+
+/**
+ * Plain-filesystem transport, for scripts that seed a library BEFORE a browser
+ * exists. The scenes themselves import through the UI instead, because an
+ * import that only ever happens behind the app's back is an import path the
+ * suite never checks.
+ */
+export class FsTransport implements LibraryTransport {
+  constructor(private readonly root: string) {}
+  async read(p: string): Promise<Uint8Array | null> {
+    try {
+      return new Uint8Array(readFileSync(path.join(this.root, p)));
+    } catch {
+      return null;
+    }
+  }
+  async write(p: string, bytes: Uint8Array): Promise<void> {
+    const abs = path.join(this.root, p);
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(abs, bytes);
+  }
+}
+
 export async function runScenes(): Promise<void> {
   // Before anything is spawned or created: a guard that fires after the dev
   // server is up leaks the server and the temp library on the way out.
@@ -118,12 +175,8 @@ export async function runScenes(): Promise<void> {
   const port = Number(process.env.PORT ?? 4299);
   const base = `http://localhost:${port}`;
   mkdirSync(OUT, { recursive: true });
-  const libDir = mkdtempSync(path.join(process.env.DEMO_TMP ?? os.tmpdir(), 'reader42-pages-'));
-
-  const server = Bun.spawn(['bun', path.join(import.meta.dir, '..', 'dev.ts')], {
-    env: { ...process.env, PORT: String(port), LIBRARY_DIR: libDir },
-    stdout: 'ignore',
-  });
+  const libDir = makeLibraryDir('reader42-pages-');
+  const server = startDevServer(port, libDir);
 
   let browser: Browser | null = null;
   let page: Page | null = null;
@@ -132,20 +185,7 @@ export async function runScenes(): Promise<void> {
 
   try {
     await waitForServer(`${base}/`);
-    // Which Chromium: PW_CHROMIUM when set, otherwise Playwright resolves its
-    // own install (`bunx playwright install chromium`), which is what CI and a
-    // cold clone both have.
-    //
-    // There used to be a hard-coded sandbox path here, taken whenever it
-    // existed. Two ways that misfires: the path names a DIRECTORY on some
-    // sandboxes and `existsSync` says yes, so launch got a directory as an
-    // executable and died at boot; and on any machine without that path the
-    // env var was the only escape from a guess. An explicit variable or
-    // Playwright's own resolution — no third guess.
-    const launched = await chromium.launch({
-      ...(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {}),
-      headless: !flags.has('--headed'),
-    });
+    const launched = await launchChromium(!flags.has('--headed'));
     browser = launched;
     const context = await launched.newContext({
       viewport: { width: 1280, height: 800 },

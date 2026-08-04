@@ -6,20 +6,34 @@
 // explains itself without editing. Nothing here asserts — a showcase that
 // fails an assertion would just be a scene, and those live in scenes.ts.
 //
-//   bun scripts/demo/showcase.ts [--book path/to.epub] [--headed]
+// The server boot, the chromium launch, and the seeding transport come from
+// harness.ts. They were copies here until one of them drifted: this script
+// launched a hard-coded chromium path that exists on no machine, and nothing
+// noticed, because nothing runs a recording in CI. Shared code cannot rot in
+// only one of its copies.
+//
+//   bun scripts/demo/showcase.ts [--book path/to.epub] [--query word] [--headed]
 //
 // With no --book it uses the test fixture, so the script runs anywhere the
-// repo does; the published recording uses a real public-domain book.
+// repo does; the published recording uses a real public-domain book. --query
+// is the word the search section looks for, and it has to be a word the book
+// in hand actually contains: the default suits the fixture, and a real book
+// wants its own.
 
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
+import { mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { JSDOM } from 'jsdom';
-import { type Page, chromium } from 'playwright';
+import type { Page } from 'playwright';
 import { readMetadata } from '../../src/epub/book.ts';
 import { Library } from '../../src/library/store.ts';
-import type { LibraryTransport } from '../../src/library/transport.ts';
 import { buildFixtureEpub } from '../../test/fixture-epub.ts';
+import {
+  FsTransport,
+  launchChromium,
+  makeLibraryDir,
+  startDevServer,
+  waitForServer,
+} from './harness.ts';
 
 // The EPUB parser needs a DOMParser; a plain `bun scripts/...` run has none
 // (only `bun test` preloads one). Same reason as test/setup.ts.
@@ -32,35 +46,8 @@ const BASE = `http://localhost:${PORT}`;
 
 const args = process.argv.slice(2);
 const bookArg = args.includes('--book') ? args[args.indexOf('--book') + 1] : undefined;
-
-/** A plain-filesystem transport, so the showcase can seed a library directly. */
-class FsTransport implements LibraryTransport {
-  constructor(private readonly root: string) {}
-  async read(p: string): Promise<Uint8Array | null> {
-    try {
-      return new Uint8Array(readFileSync(path.join(this.root, p)));
-    } catch {
-      return null;
-    }
-  }
-  async write(p: string, bytes: Uint8Array): Promise<void> {
-    const abs = path.join(this.root, p);
-    mkdirSync(path.dirname(abs), { recursive: true });
-    writeFileSync(abs, bytes);
-  }
-}
-
-async function waitForServer(url: string): Promise<void> {
-  for (let i = 0; i < 60; i++) {
-    try {
-      await fetch(url);
-      return;
-    } catch {
-      await new Promise((r) => setTimeout(r, 100));
-    }
-  }
-  throw new Error(`dev server never came up at ${url}`);
-}
+/** A word the fixture is full of; override it whenever --book is given. */
+const query = (args.includes('--query') ? args[args.indexOf('--query') + 1] : undefined) ?? 'quick';
 
 // --- the overlay the recording talks through ---
 
@@ -303,7 +290,7 @@ async function scrub(page: Page, fraction: number): Promise<void> {
 // --- the walkthrough ---
 
 mkdirSync(OUT, { recursive: true });
-const libDir = mkdtempSync(path.join(process.env.DEMO_TMP ?? os.tmpdir(), 'reader42-showcase-'));
+const libDir = makeLibraryDir('reader42-showcase-');
 const bytes = bookArg ? new Uint8Array(readFileSync(bookArg)) : buildFixtureEpub();
 const meta = await readMetadata(bytes).catch(() => ({
   title: 'The Fixture of Everything',
@@ -315,17 +302,11 @@ const seeded = await Library.open(new FsTransport(libDir));
 await seeded.importBook(bytes, { title: meta.title, author: meta.author });
 console.log(`showcase book: ${meta.title}${meta.author ? ` — ${meta.author}` : ''}`);
 
-const server = Bun.spawn(['bun', path.join(import.meta.dir, '..', 'dev.ts')], {
-  env: { ...process.env, PORT: String(PORT), LIBRARY_DIR: libDir },
-  stdout: 'ignore',
-});
+const server = startDevServer(PORT, libDir);
 
 try {
   await waitForServer(`${BASE}/`);
-  const browser = await chromium.launch({
-    executablePath: process.env.PW_CHROMIUM ?? '/opt/pw-browsers/chromium',
-    headless: !args.includes('--headed'),
-  });
+  const browser = await launchChromium(!args.includes('--headed'));
   const context = await browser.newContext({
     viewport: VIDEO,
     recordVideo: { dir: OUT, size: VIDEO },
@@ -427,10 +408,18 @@ try {
   // 8. Search.
   await openPanel(page, '#search-toggle', '#search-panel');
   await say(page, 'Search finds every occurrence — even across inline tags.', 2600);
-  await page.locator('#search-input').fill('Morlocks');
+  await page.locator('#search-input').fill(query);
   await page.locator('#search-input').press('Enter');
   await page.waitForTimeout(1400);
-  await page.locator('#search-results .search-hit').first().waitFor({ timeout: 5000 });
+  await page
+    .locator('#search-results .search-hit')
+    .first()
+    .waitFor({ timeout: 5000 })
+    .catch(() => {
+      throw new Error(
+        `the search section found no hits for "${query}"; pass --query a word this book contains`,
+      );
+    });
   // The earliest hits for a word that names a chapter are in the contents;
   // a later one is in the story, which is what the jump should show.
   const hits = page.locator('#search-results .search-hit');
