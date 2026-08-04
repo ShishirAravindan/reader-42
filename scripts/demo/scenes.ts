@@ -239,9 +239,29 @@ async function statusTap(page: Page): Promise<void> {
   await page.waitForTimeout(60);
 }
 
-/** Is the hairline's progress rule painting at all? (the off state hides it) */
+/**
+ * Is the hairline's progress rule painting at all? Asks about PAINT only. It
+ * used to ask Playwright's isVisible(), which conflated "paints nothing" with
+ * "is not there" — and that conflation is exactly how the off state shipped
+ * with its Page Flip target removed from hit testing. Reachability is asked
+ * separately, by `trackUnderThumb`.
+ */
 function trackVisible(page: Page): Promise<boolean> {
-  return page.locator('#status-track').isVisible();
+  return page.evaluate(() => {
+    const track = document.getElementById('status-track') as HTMLElement;
+    const style = getComputedStyle(track);
+    return style.visibility === 'visible' && Number(style.opacity) > 0;
+  });
+}
+
+/** Is the rule still the thing a thumb on it would actually hit? */
+function trackUnderThumb(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const track = document.getElementById('status-track') as HTMLElement;
+    const r = track.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return hit === track || track.contains(hit);
+  });
 }
 
 /** Cycle the readout until it reaches a state, or give up after a full lap. */
@@ -359,8 +379,30 @@ scene('status-cycle', async ({ page, base, capture }) => {
   expectEq(await statusLeft(page), '', 'off state shows no text');
   expectEq(await statusRight(page), '', 'off state shows no percent');
   // The cycle really does end in nothing: the rule goes too, so the page is
-  // completely clean. Only the invisible hit target survives.
+  // completely clean. Only the invisible hit target survives — and "invisible
+  // hit target" is two claims, so it takes two assertions. The rule paints
+  // nothing AND is still the thing under a thumb placed on it.
   expect(!(await trackVisible(page)), 'off state hides the progress rule as well');
+  expect(await trackUnderThumb(page), 'and the invisible rule is still the button there');
+
+  // LOAD-BEARING: Page Flip survives the clean page. peek.open() has exactly
+  // two callers — this click, and the bottom-edge swipe, which is paged-only.
+  // A rule that stops taking clicks in the off state therefore strands Page
+  // Flip entirely in scroll mode. The click path carries no mode gate, so
+  // proving the click here proves it for both modes.
+  // A raw coordinate click, not locator.click(): Playwright would wait for the
+  // element to become "visible" and never deliver the input the reader does.
+  const rule = await page.locator('#status-track').boundingBox();
+  expect(rule, 'the off-state rule still occupies its strip');
+  await page.mouse.click(rule.x + rule.width / 2, rule.y + rule.height / 2);
+  await page.waitForTimeout(200);
+  expect(
+    await page.locator('#peek-sheet').isVisible(),
+    'the cleaned-off rule still opens Page Flip',
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(120);
+  expect(await page.locator('#peek-sheet').isHidden(), 'and Escape puts it away again');
 
   await statusTap(page); // one more tap brings it back
   expectEq(

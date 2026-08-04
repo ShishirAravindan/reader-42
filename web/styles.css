@@ -447,8 +447,15 @@ button:hover {
 #status-line.status-off #status-cycle {
   color: transparent;
 }
+/* Hide the PAINT, not the button. `visibility: hidden` also removes the
+   element from hit testing, and this rule is a 44px-tall Page Flip target:
+   with the readout cycled off it took the whole strip out of reach, and
+   `peek.open()` has only two callers — this click and the bottom-edge swipe,
+   which is paged-only. In scroll mode that left Page Flip unreachable by any
+   input at all. Opacity paints nothing and stays a button, which is also what
+   the cycle already promises: "only the invisible hit target survives". */
 #status-line.status-off #status-track {
-  visibility: hidden;
+  opacity: 0;
 }
 
 /* The dog-ear ribbon (G1): a folded corner over the top-right of the page,
