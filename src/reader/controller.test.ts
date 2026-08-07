@@ -4,6 +4,13 @@ import { Book } from '../epub/book.ts';
 import type { ReadingPosition } from '../library/types.ts';
 import { type ControllerHooks, ReaderController, positionKey } from './controller.ts';
 import type { DisplayMode } from './mode.ts';
+import { DEFAULT_TYPOGRAPHY, type ReaderView } from './render.ts';
+
+const view = (mode: DisplayMode): ReaderView => ({
+  mode: () => mode,
+  measureRem: () => 38,
+  typography: () => DEFAULT_TYPOGRAPHY,
+});
 
 const at = (chapter: number, path: number[], ratio: number): ReadingPosition => ({
   chapter,
@@ -41,7 +48,7 @@ describe('turns across chapters and book boundaries', () => {
     const book = await Book.open(buildFixtureEpub());
     const mount = document.createElement('div');
     document.body.appendChild(mount);
-    const controller = new ReaderController(book, mount, { mode: () => mode }, hooks);
+    const controller = new ReaderController(book, mount, view(mode), hooks);
     controller.open(null);
     return { controller, mount };
   }
@@ -83,7 +90,7 @@ describe('turns across chapters and book boundaries', () => {
     const controller = new ReaderController(
       book,
       mount,
-      { mode: () => 'paged' },
+      view('paged'),
       { onPosition: ({ progress }) => progresses.push(progress) },
       [300, 100, 0], // chapter 0 is three quarters of the book
     );

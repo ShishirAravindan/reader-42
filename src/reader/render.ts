@@ -14,9 +14,34 @@ import { absoluteStart, anchorFor, anchorTarget } from './locator.ts';
 import type { DisplayMode } from './mode.ts';
 import { columnGeometry, pageCount, pageIndexFor } from './paging.ts';
 
+export type TextAlign = 'justify' | 'left';
+
+/** Reader typography (parity C1–C6), applied through custom properties. */
+export interface ReaderTypography {
+  /** Resolved family stack, or null for the publisher default (no override). */
+  fontStack: string | null;
+  fontSizeRem: number;
+  leading: number;
+  weight: number;
+  align: TextAlign;
+}
+
+/** The stock look; also what headless tests read. Matches the CSS fallbacks. */
+export const DEFAULT_TYPOGRAPHY: ReaderTypography = {
+  fontStack: null,
+  fontSizeRem: 1.05,
+  leading: 1.65,
+  weight: 400,
+  align: 'left',
+};
+
 export interface ReaderView {
   /** Read at call time, never captured in a closure (salvage §2). */
   mode(): DisplayMode;
+  /** The comfortable text measure (C5), live: relayout() re-reads it. */
+  measureRem(): number;
+  /** Typography prefs, live: relayout() re-reads and re-applies them. */
+  typography(): ReaderTypography;
 }
 
 export interface RenderedChapter {
@@ -42,9 +67,6 @@ export interface RenderedChapter {
   atEnd(): boolean;
 }
 
-/** The comfortable text measure; also the paged column cap (salvage §2). */
-const MEASURE_REM = 38;
-
 export function renderChapter(
   book: Book,
   chapter: Chapter,
@@ -62,6 +84,8 @@ export function renderChapter(
   const blobUrls: string[] = [];
   const wrapper = document.createElement('div');
   wrapper.className = 'chapter';
+  // Hyphenation needs a language or `hyphens: auto` silently does nothing.
+  wrapper.setAttribute('lang', book.metadata.language || 'en');
 
   if (resource) {
     const parsed = parseChapterDoc(new TextDecoder().decode(resource.bytes));
@@ -111,10 +135,31 @@ export function renderChapter(
     return Number.isFinite(size) && size > 0 ? size : 16;
   }
 
+  // Typography rides the same capture -> apply -> restore cycle as a mode
+  // switch: the view accessors are read HERE, at apply time, so relayout()'s
+  // anchor capture still sees the previous layout. Writing the properties
+  // from outside the renderer would reflow before the capture and lose the
+  // reading position.
+  function applyTypography(): void {
+    const typo = view.typography();
+    host.style.setProperty('--reader-measure', `${view.measureRem()}rem`);
+    host.style.setProperty('--reader-font-size', `${typo.fontSizeRem}rem`);
+    host.style.setProperty('--reader-leading', String(typo.leading));
+    host.style.setProperty('--reader-weight', String(typo.weight));
+    host.style.setProperty('--reader-align', typo.align);
+    host.style.setProperty('--reader-hyphens', typo.align === 'justify' ? 'auto' : 'manual');
+    if (typo.fontStack) host.style.setProperty('--reader-font', typo.fontStack);
+    else host.style.removeProperty('--reader-font');
+    // Publisher default means NO override rule at all (gated by this class),
+    // so the book's own font choices stay untouched.
+    wrapper.classList.toggle('font-override', typo.fontStack !== null);
+  }
+
   function applyModeCss(): void {
     applied = view.mode();
+    applyTypography();
     if (applied === 'paged') {
-      const geom = columnGeometry(mount.clientWidth, MEASURE_REM * remPx());
+      const geom = columnGeometry(mount.clientWidth, view.measureRem() * remPx());
       gap = geom.gap;
       // The mount never scrolls vertically in paged mode; chrome bars overlay
       // the viewport, so showing them must not change this geometry.
@@ -438,24 +483,42 @@ function isExternal(href: string): boolean {
 
 // --- base typography inside the shadow ---
 
+// Colors come exclusively from the app stylesheet's theme tokens (parity D1):
+// custom properties inherit through the shadow boundary, so the [data-theme]
+// blocks in web/styles.css are the single source of truth. The var() fallbacks
+// mirror the paper theme purely for headless rendering (tests without the app
+// stylesheet); no color may be defined here outside a fallback (salvage §7).
 const SHADOW_BASE_CSS = `
   :host {
-    --reader-fg: #24211b;
-    --reader-bg: #f5f4ef;
-    --reader-link: #33518a;
-    --reader-muted: #6e6759;
     display: block;
     position: relative;
-    color: var(--reader-fg);
-    background: var(--reader-bg);
+    color: var(--fg, #24211b);
+    background: var(--bg, #f5f4ef);
   }
+  /* Typography flows in as --reader-* custom properties on the chapter host,
+     written by applyTypography() from the ReaderView at relayout time; the
+     fallbacks are the stock look. Weight sets the wrapper only and inherits:
+     strong/b/headings keep their own (relatively bolder) weights. */
   .chapter {
-    max-width: 38rem; /* keep in sync with MEASURE_REM */
+    max-width: var(--reader-measure, 38rem);
     margin: 0 auto;
     padding: 2.5rem 1.5rem 6rem;
     font-family: 'Charter', 'Bitstream Charter', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
-    font-size: 1.05rem;
-    line-height: 1.65;
+    font-size: var(--reader-font-size, 1.05rem);
+    line-height: var(--reader-leading, 1.65);
+    font-weight: var(--reader-weight, 400);
+    text-align: var(--reader-align, left);
+    -webkit-hyphens: var(--reader-hyphens, manual);
+    hyphens: var(--reader-hyphens, manual);
+  }
+  /* Curated-face override (C1): everything except code, which stays mono.
+     The later :is() block wins on specificity and order. */
+  .chapter.font-override, .chapter.font-override * {
+    font-family: var(--reader-font, inherit) !important;
+  }
+  .chapter.font-override :is(pre, code, kbd, samp),
+  .chapter.font-override :is(pre, code, kbd, samp) * {
+    font-family: 'SF Mono', 'Menlo', monospace !important;
   }
   /* Paged: one column per page, geometry injected as custom properties by
      applyModeCss. column-fill: auto is load-bearing: without it columns
@@ -488,20 +551,23 @@ const SHADOW_BASE_CSS = `
     margin: 1.6em 0 0.6em;
     text-wrap: balance;
   }
-  .chapter h1 { font-size: 1.7rem; }
-  .chapter h2 { font-size: 1.35rem; }
-  .chapter h3 { font-size: 1.15rem; }
+  /* em, not rem: headings scale with the reader's font-size steps. */
+  .chapter h1 { font-size: 1.6em; }
+  .chapter h2 { font-size: 1.3em; }
+  .chapter h3 { font-size: 1.1em; }
   .chapter a {
-    color: var(--reader-link);
+    color: var(--link, #33518a);
     text-decoration-thickness: 1px;
     text-underline-offset: 0.15em;
   }
   .chapter blockquote {
-    border-left: 2px solid var(--reader-link);
+    border-left: 2px solid var(--link, #33518a);
     margin: 1em 0;
     padding: 0 0 0 1em;
-    color: var(--reader-muted);
+    color: var(--muted, #6e6759);
   }
   .chapter img, .chapter svg, .chapter image { max-width: 100%; height: auto; }
+  /* Dark theme dims images (Kindle-style), never inverts; other themes set none. */
+  .chapter img { filter: var(--img-dim, none); }
   .chapter pre, .chapter code { font-family: 'SF Mono', 'Menlo', monospace; font-size: 0.9em; }
 `;

@@ -1,12 +1,116 @@
 /* App chrome. Deliberately plain: the aesthetic pass is its own milestone,
    decided mockups-first. Paper-and-ink tokens shared with the shadow CSS. */
 
-:root {
+/* Curated reading faces (parity C1): bundled and licensed (OFL texts ship in
+   /fonts/licenses/). Declared at the document level on purpose — font-family
+   names resolve document-wide, so chapter text inside the shadow root can use
+   them without the shadow CSS carrying its own @font-face. */
+@font-face {
+  font-family: "Literata";
+  src: url("/fonts/Literata-var.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Literata";
+  src: url("/fonts/Literata-Italic-var.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("/fonts/AtkinsonHyperlegible-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("/fonts/AtkinsonHyperlegible-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("/fonts/AtkinsonHyperlegible-Italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("/fonts/AtkinsonHyperlegible-BoldItalic.woff2") format("woff2");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+/* OpenDyslexic ships no italic; font-synthesis (on by default) slants it. */
+@font-face {
+  font-family: "OpenDyslexic";
+  src: url("/fonts/OpenDyslexic-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "OpenDyslexic";
+  src: url("/fonts/OpenDyslexic-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Page-color themes (parity D1). The ONLY place colors are defined: the
+   shadow CSS consumes these same custom properties (they inherit through the
+   shadow boundary), so app chrome and book page always agree — the salvage §7
+   token duplication is dead. Each block carries the full set. The selector is
+   `[data-theme=…]`, not `:root[data-theme=…]`, so an Aa-panel swatch can
+   preview a theme by carrying its data-theme attribute — same single source.
+   Order matters: the themed blocks must follow the paper default. */
+:root,
+[data-theme="paper"] {
   --bg: #f5f4ef;
   --fg: #24211b;
   --muted: #6e6759;
   --link: #33518a;
   --line: #ddd8cc;
+  --hover: rgba(36, 33, 27, 0.06);
+  --scrim: rgba(36, 33, 27, 0.16);
+  --img-dim: none;
+}
+[data-theme="white"] {
+  --bg: #ffffff;
+  --fg: #1c1c1c;
+  --muted: #6b6b6b;
+  --link: #2f5aa8;
+  --line: #e4e4e1;
+  --hover: rgba(0, 0, 0, 0.05);
+  --scrim: rgba(0, 0, 0, 0.14);
+  --img-dim: none;
+}
+[data-theme="sepia"] {
+  --bg: #f3e7d0;
+  --fg: #3f3222;
+  --muted: #7c6c52;
+  --link: #6f5322;
+  --line: #e0d0b0;
+  --hover: rgba(63, 50, 34, 0.07);
+  --scrim: rgba(63, 50, 34, 0.18);
+  --img-dim: none;
+}
+[data-theme="dark"] {
+  --bg: #121212;
+  --fg: #d6d3cd;
+  --muted: #8f8c85;
+  --link: #92aede;
+  --line: #2c2c2a;
+  --hover: rgba(255, 255, 255, 0.07);
+  --scrim: rgba(0, 0, 0, 0.5);
+  /* Kindle dims images in dark mode rather than inverting them. */
+  --img-dim: brightness(0.87);
 }
 
 * {
@@ -164,6 +268,10 @@ button:hover {
   text-overflow: ellipsis;
   min-width: 0;
 }
+/* Aa clusters with Contents on the right; the title keeps the middle. */
+#aa-toggle {
+  margin-left: auto;
+}
 
 /* Always-visible reading status (parity B3): a slim strip over the page
    bottom, independent of the chrome bars. The strip itself lets taps pass
@@ -217,7 +325,7 @@ button:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(36, 33, 27, 0.16);
+  background: var(--scrim);
 }
 .finish-card {
   background: var(--bg);
@@ -277,7 +385,119 @@ button:hover {
   border-radius: 4px;
 }
 #toc a:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--hover);
+}
+
+/* The Aa panel: a right-anchored popover under the top bar; a bottom sheet
+   on narrow screens. Every control applies live — no Save button. */
+#aa-panel {
+  position: absolute;
+  top: calc(3.4rem + env(safe-area-inset-top));
+  right: 0.75rem;
+  z-index: 4;
+  width: 21rem;
+  max-height: calc(100% - 6rem);
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 40px rgba(36, 33, 27, 0.16);
+  padding: 0.9rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+@media (max-width: 40rem) {
+  #aa-panel {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 75%;
+    border-radius: 12px 12px 0 0;
+    border-bottom: none;
+    padding-left: calc(1rem + env(safe-area-inset-left));
+    padding-right: calc(1rem + env(safe-area-inset-right));
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+}
+.aa-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.aa-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.aa-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.aa-row > button {
+  flex: 1;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+#aa-panel button[aria-pressed="true"] {
+  border-color: var(--link);
+  box-shadow: inset 0 0 0 1px var(--link);
+}
+/* Theme swatches preview their own palette: each button carries data-theme,
+   so the token blocks above scope to it — no duplicated color values. */
+.aa-swatch {
+  background: var(--bg);
+  color: var(--fg);
+  border-color: var(--line);
+}
+/* Font rows render in their own face. */
+.aa-font-row {
+  text-align: left;
+}
+.aa-font-publisher {
+  font-family: "Charter", "Iowan Old Style", Georgia, serif;
+}
+.aa-font-literata {
+  font-family: "Literata", Georgia, serif;
+}
+.aa-font-atkinson {
+  font-family: "Atkinson Hyperlegible", Verdana, sans-serif;
+}
+.aa-font-opendyslexic {
+  font-family: "OpenDyslexic", Verdana, sans-serif;
+  font-size: 0.8rem; /* the face runs large */
+}
+#aa-size-down,
+#aa-size-up {
+  flex: 0 0 auto;
+  min-width: 3rem;
+}
+#aa-size-down {
+  font-size: 0.8rem;
+}
+#aa-size-down:disabled,
+#aa-size-up:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.aa-dots {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  gap: 0.32rem;
+}
+.aa-dots span {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--line);
+}
+.aa-dots span.on {
+  background: var(--fg);
 }
 
 /* Touch: every control is a real fingertip target (44px minimum). */

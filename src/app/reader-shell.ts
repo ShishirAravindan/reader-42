@@ -12,10 +12,12 @@ import { attachReadingInput } from '../reader/input.ts';
 import { bookMetrics, pageAnchors } from '../reader/metrics.ts';
 import type { DisplayMode } from '../reader/mode.ts';
 import { MAX_SAMPLE_SEC, createPace } from '../reader/pace.ts';
+import { createAaPanel } from './aa-panel.ts';
 import { createChrome } from './chrome.ts';
 import { el } from './dom.ts';
 import {
   getDisplayMode,
+  getMeasureRem,
   getPace,
   getStatusMode,
   setDisplayMode,
@@ -23,6 +25,7 @@ import {
   setStatusMode,
 } from './prefs.ts';
 import { type StatusLine, createStatusLine, pageAt } from './status.ts';
+import { currentTypography } from './typography.ts';
 
 export interface ReaderDeps {
   library: Library;
@@ -35,6 +38,8 @@ let controller: ReaderController | null = null;
 let openSidecar: BookSidecar | null = null;
 let detachInput: (() => void) | null = null;
 let detachEscape: (() => void) | null = null;
+/** Closes the Aa panel (detaching its outside-click listener) on teardown. */
+let closeAaPanel: (() => void) | null = null;
 /** Flushes the reading-session clock and detaches its listeners. */
 let teardownSession: (() => void) | null = null;
 
@@ -155,7 +160,9 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   controller = new ReaderController(
     book,
     viewport,
-    { mode: () => displayMode },
+    // Taste read at call time (C8): the Aa panel writes a pref, then calls
+    // controller.relayout(), and the renderer re-reads these accessors.
+    { mode: () => displayMode, measureRem: getMeasureRem, typography: currentTypography },
     {
       onChapter: (index) => {
         el<HTMLElement>('reader-chapter-label').textContent =
@@ -244,7 +251,7 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
     displayMode = displayMode === 'paged' ? 'scroll' : 'paged';
     setDisplayMode(displayMode);
     labelModeToggle();
-    controller?.setMode();
+    controller?.relayout();
   };
 
   const toc = el<HTMLElement>('toc');
@@ -252,6 +259,19 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   el<HTMLButtonElement>('toc-toggle').onclick = () => {
     toc.hidden = !toc.hidden;
   };
+
+  // The Aa panel (C1-C6/D1): controls write device-local prefs; reflowing
+  // ones call relayout(), which re-reads the ReaderView accessors above.
+  const aaPanel = createAaPanel(el<HTMLElement>('aa-panel'), el<HTMLButtonElement>('aa-toggle'), {
+    relayout: () => {
+      controller?.relayout();
+      status?.refresh();
+    },
+    onOpen: () => {
+      toc.hidden = true;
+    },
+  });
+  closeAaPanel = aaPanel.close;
 
   detachInput = attachReadingInput(viewport, {
     dir: () => book.direction,
@@ -264,7 +284,8 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
       status?.refresh(); // same-chapter turns update the strip before the debounced save
     },
     onChrome: () => chrome.toggle(),
-    keysEnabled: () => !el<HTMLElement>('reader').hidden,
+    // Keyboard turns pause while the Aa panel is up (its own keys still work).
+    keysEnabled: () => !el<HTMLElement>('reader').hidden && !aaPanel.isOpen(),
   });
 
   // Escape only ever restores or closes (salvage §4): it closes an open
@@ -273,6 +294,10 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
     if (event.key !== 'Escape' || el<HTMLElement>('reader').hidden) return;
     if (!finishNudge.hidden) {
       closeFinish();
+      return;
+    }
+    if (aaPanel.isOpen()) {
+      aaPanel.close();
       return;
     }
     if (!toc.hidden) {
@@ -310,6 +335,8 @@ export function closeReader(): void {
   detachInput = null;
   detachEscape?.();
   detachEscape = null;
+  closeAaPanel?.();
+  closeAaPanel = null;
   teardownSession?.(); // flush the session before the sidecar goes away
   teardownSession = null;
   controller?.dispose();

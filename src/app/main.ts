@@ -15,7 +15,9 @@ import { DriveTransport } from '../library/transports/drive.ts';
 import { LocalFolderTransport } from '../library/transports/local-folder.ts';
 import type { BookSidecar } from '../library/types.ts';
 import { el } from './dom.ts';
+import { getTheme } from './prefs.ts';
 import { closeReader, openReader } from './reader-shell.ts';
+import { applyTheme } from './theme.ts';
 
 const sections = {
   welcome: el<HTMLElement>('welcome'),
@@ -60,6 +62,8 @@ function wireInstallFlow(): void {
 // --- boot: pick a transport ---
 
 async function boot(): Promise<void> {
+  // The theme is app-wide, not reader-only: the shelf wears it too.
+  applyTheme(getTheme());
   // The shell lives in the service worker cache after first visit, so the
   // app cold-opens with no network (see web/sw.js).
   if ('serviceWorker' in navigator) {
