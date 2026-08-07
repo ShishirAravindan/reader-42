@@ -2478,6 +2478,14 @@ scene('phone', async ({ base, onPhone }) => {
       '',
       'every Aa control is drawn inside the sheet at 390px too',
     );
+    // The fingertip check has only ever run against the shelf and the top bar.
+    // The Aa sheet carries the densest controls in the app, so the panel being
+    // open is exactly the state where the 44px floor is worth proving.
+    expectEq(
+      (await undersized()).join(', '),
+      '',
+      'Aa panel open: every control is still a fingertip target',
+    );
     expectEq((await metrics(page)).overflowY, 'hidden', 'the sheet opens over a paged book');
     await tapOn('#aa-layout-scroll');
     // Both of these discriminate. Without the band the thumb lands on the
