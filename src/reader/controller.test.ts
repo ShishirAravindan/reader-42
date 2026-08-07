@@ -75,6 +75,26 @@ describe('turns across chapters and book boundaries', () => {
     controller.dispose();
   });
 
+  test('custom weights drive length-honest progress (B4)', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const mount = document.createElement('div');
+    document.body.appendChild(mount);
+    const progresses: number[] = [];
+    const controller = new ReaderController(
+      book,
+      mount,
+      { mode: () => 'paged' },
+      { onPosition: ({ progress }) => progresses.push(progress) },
+      [300, 100, 0], // chapter 0 is three quarters of the book
+    );
+    controller.open(null);
+    controller.goToChapter(1); // in jsdom fraction is 0: progress = chars before / total
+    expect(progresses).toEqual([0.75]);
+    expect(controller.progress()).toBe(0.75);
+    expect(controller.currentFraction()).toBe(0);
+    controller.dispose();
+  });
+
   test('chapter crossings emit the new position immediately', async () => {
     const positions: number[] = [];
     const { controller } = await make('scroll', {

@@ -9,10 +9,20 @@ import type { Library } from '../library/store.ts';
 import type { BookSidecar } from '../library/types.ts';
 import { ReaderController } from '../reader/controller.ts';
 import { attachReadingInput } from '../reader/input.ts';
+import { bookMetrics, pageAnchors } from '../reader/metrics.ts';
 import type { DisplayMode } from '../reader/mode.ts';
+import { MAX_SAMPLE_SEC, createPace } from '../reader/pace.ts';
 import { createChrome } from './chrome.ts';
 import { el } from './dom.ts';
-import { getDisplayMode, setDisplayMode } from './prefs.ts';
+import {
+  getDisplayMode,
+  getPace,
+  getStatusMode,
+  setDisplayMode,
+  setPace,
+  setStatusMode,
+} from './prefs.ts';
+import { type StatusLine, createStatusLine, pageAt } from './status.ts';
 
 export interface ReaderDeps {
   library: Library;
@@ -25,6 +35,11 @@ let controller: ReaderController | null = null;
 let openSidecar: BookSidecar | null = null;
 let detachInput: (() => void) | null = null;
 let detachEscape: (() => void) | null = null;
+/** Flushes the reading-session clock and detaches its listeners. */
+let teardownSession: (() => void) | null = null;
+
+/** A stretch under this long is a peek, not a reading session (salvage §5). */
+const MIN_SESSION_SEC = 30;
 // Kindle parity: paginated is the default; the current value is device-local
 // taste (prefs), re-read on every open and read at call time by the renderer.
 let displayMode: DisplayMode = 'paged';
@@ -45,6 +60,55 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   }
   const book = await Book.open(bytes);
   openSidecar = sidecar;
+  // Character counts, once per open (milliseconds): the substrate for honest
+  // progress weights, the location index, and time-left (parity B1/B4/B5).
+  const metrics = bookMetrics(book);
+
+  // Reading pace (B5): device-local, per book, fed with character offsets
+  // (never pixels) at each position emission. Sessions (salvage §5) reuse the
+  // same activity clock: time between emissions counts as reading unless the
+  // gap is long enough to be an idle.
+  const pace = createPace(getPace(id));
+  let sessionSec = 0;
+  let lastActiveMs: number | null = Date.now();
+
+  const tickActivity = (nowMs: number): void => {
+    if (lastActiveMs !== null) {
+      const dt = (nowMs - lastActiveMs) / 1000;
+      if (dt > 0 && dt <= MAX_SAMPLE_SEC) sessionSec += dt;
+    }
+    lastActiveMs = nowMs;
+  };
+
+  const flushSession = (): void => {
+    if (sessionSec >= MIN_SESSION_SEC && openSidecar) {
+      openSidecar = {
+        ...openSidecar,
+        sessions: [
+          ...openSidecar.sessions,
+          { seconds: Math.round(sessionSec), endedAt: new Date().toISOString() },
+        ],
+      };
+      void library.saveSidecar(openSidecar);
+    }
+    sessionSec = 0;
+  };
+
+  const onVisibility = (): void => {
+    if (document.hidden) {
+      tickActivity(Date.now());
+      flushSession();
+      lastActiveMs = null; // hidden time never counts
+    } else {
+      lastActiveMs = Date.now();
+    }
+  };
+  document.addEventListener('visibilitychange', onVisibility);
+  teardownSession = () => {
+    document.removeEventListener('visibilitychange', onVisibility);
+    tickActivity(Date.now());
+    flushSession();
+  };
 
   deps.showReader();
   el<HTMLElement>('reader-book-title').textContent = sidecar.title;
@@ -54,7 +118,40 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   chrome.hide();
   displayMode = getDisplayMode();
 
+  // End-of-book nudge (B6): one more forward turn on the last page offers
+  // the finished state. Never re-nudges a finished book; never forces an
+  // exit — the reader stays in the book either way.
+  const finishNudge = el<HTMLElement>('finish-nudge');
+  finishNudge.hidden = true; // a previous open may have left it up
+  const closeFinish = (): void => {
+    finishNudge.hidden = true;
+  };
+  const showFinish = (): void => {
+    if (!openSidecar || openSidecar.state === 'finished') return;
+    el<HTMLElement>('finish-book-title').textContent = openSidecar.title;
+    el<HTMLElement>('finish-actions').hidden = false;
+    el<HTMLElement>('finish-confirm').hidden = true;
+    finishNudge.hidden = false;
+  };
+  el<HTMLButtonElement>('finish-not-yet').onclick = closeFinish;
+  el<HTMLButtonElement>('finish-yes').onclick = () => {
+    if (!openSidecar) return;
+    openSidecar = {
+      ...openSidecar,
+      state: 'finished',
+      stateChangedAt: new Date().toISOString(),
+    };
+    void library.saveSidecar(openSidecar);
+    // A quiet confirmation, then the card slips away.
+    el<HTMLElement>('finish-actions').hidden = true;
+    el<HTMLElement>('finish-confirm').hidden = false;
+    setTimeout(closeFinish, 1400);
+  };
+
   const viewport = el<HTMLElement>('viewport');
+  // Declared before the controller: its hooks fire during open(), and must
+  // see an initialized (if still null) binding, never a TDZ hole.
+  let status: StatusLine | null = null;
   controller = new ReaderController(
     book,
     viewport,
@@ -63,6 +160,10 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
       onChapter: (index) => {
         el<HTMLElement>('reader-chapter-label').textContent =
           `${index + 1} of ${book.chapters.length}`;
+        status?.refresh();
+      },
+      onBoundary: (edge) => {
+        if (edge === 'end') showFinish();
       },
       onPosition: ({ position, progress }) => {
         if (!openSidecar) return;
@@ -74,13 +175,61 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
             ? { state: 'reading' as const, stateChangedAt: position.updatedAt }
             : {}),
         };
-        el<HTMLElement>('progress-label').textContent = `${Math.round(progress * 100)}%`;
         void library.saveSidecar(openSidecar);
+        // Pace sample: the position as a global character offset.
+        const now = Date.now();
+        tickActivity(now);
+        const chars = metrics.chapterChars[position.chapter] ?? 0;
+        const fraction = controller?.currentFraction() ?? 0;
+        pace.record(metrics.charsBefore(position.chapter) + fraction * chars, now);
+        setPace(id, pace.state());
+        status?.refresh();
       },
     },
+    metrics.chapterChars,
   );
   controller.open(sidecar.position);
-  el<HTMLElement>('progress-label').textContent = `${Math.round(sidecar.progress * 100)}%`;
+
+  // The status line (B3): live values read straight off the controller and
+  // metrics, so it renders correctly immediately on open — no waiting for
+  // the first debounced position save.
+  const anchors = pageAnchors(book, metrics);
+  const currentChars = (): number => {
+    const chapter = controller?.currentChapter() ?? 0;
+    const chars = metrics.chapterChars[chapter] ?? 0;
+    return metrics.charsBefore(chapter) + (controller?.currentFraction() ?? 0) * chars;
+  };
+  status = createStatusLine(
+    el<HTMLElement>('status-line'),
+    el<HTMLButtonElement>('status-cycle'),
+    el<HTMLElement>('status-percent'),
+    {
+      progress: () => controller?.progress() ?? 0,
+      location: () => {
+        const chapter = controller?.currentChapter() ?? 0;
+        // The last page of the book is the last location, even when a short
+        // final chapter reports fraction 0 for its single page (B6).
+        const atBookEnd = (controller?.progress() ?? 0) >= 1;
+        return {
+          loc: atBookEnd
+            ? metrics.totalLocations
+            : metrics.locationOf(chapter, controller?.currentFraction() ?? 0),
+          total: metrics.totalLocations,
+        };
+      },
+      page: () => pageAt(anchors, currentChars()),
+      minutesLeft: (scope) => {
+        const chapter = controller?.currentChapter() ?? 0;
+        const remaining =
+          scope === 'chapter'
+            ? (1 - (controller?.currentFraction() ?? 0)) * (metrics.chapterChars[chapter] ?? 0)
+            : metrics.totalChars - currentChars();
+        return pace.minutesFor(remaining);
+      },
+    },
+    getStatusMode(),
+    setStatusMode,
+  );
 
   el<HTMLButtonElement>('back-to-shelf').onclick = () => {
     location.hash = '';
@@ -112,6 +261,7 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
       chrome.hide();
       if (d === 'forward') controller?.turnForward();
       else controller?.turnBack();
+      status?.refresh(); // same-chapter turns update the strip before the debounced save
     },
     onChrome: () => chrome.toggle(),
     keysEnabled: () => !el<HTMLElement>('reader').hidden,
@@ -121,6 +271,10 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   // panel, else reveals hidden chrome; it never hides anything else.
   const onEscape = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape' || el<HTMLElement>('reader').hidden) return;
+    if (!finishNudge.hidden) {
+      closeFinish();
+      return;
+    }
     if (!toc.hidden) {
       toc.hidden = true;
       return;
@@ -156,6 +310,8 @@ export function closeReader(): void {
   detachInput = null;
   detachEscape?.();
   detachEscape = null;
+  teardownSession?.(); // flush the session before the sidecar goes away
+  teardownSession = null;
   controller?.dispose();
   controller = null;
   openSidecar = null;

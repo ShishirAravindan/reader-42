@@ -267,14 +267,15 @@ export function renderChapter(
 
 const NS_XHTML = 'http://www.w3.org/1999/xhtml';
 
-function parseChapterDoc(html: string): Document {
+/** Shared with metrics.ts: character counts must see the same DOM the renderer shows. */
+export function parseChapterDoc(html: string): Document {
   // XHTML first per spec; wild EPUBs ship plain HTML, so fall back on error.
   const doc = new DOMParser().parseFromString(html, 'application/xhtml+xml');
   if (doc.getElementsByTagName('parsererror').length === 0) return doc;
   return new DOMParser().parseFromString(html, 'text/html');
 }
 
-function findBody(doc: Document): Element {
+export function findBody(doc: Document): Element {
   // XHTML documents may not populate doc.body; fall through the namespaces.
   return (
     doc.body ??
