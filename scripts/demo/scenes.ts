@@ -1546,6 +1546,19 @@ scene('go-to', async ({ page, capture }) => {
     ((await page.locator('#goto-error').textContent()) ?? '').includes('99999'),
     'and says plainly that there is nothing there',
   );
+  // A panel is open, so the keyboard belongs to the panel: a page turn under
+  // an open panel is exactly the bug that shipped when "what is open" was
+  // maintained twice — once as the Escape chain, once by hand in the key gate.
+  const restingAt = (await metrics(page)).scrollLeft;
+  await page.keyboard.press('PageDown');
+  await page.waitForTimeout(300);
+  expectEq(
+    (await metrics(page)).scrollLeft,
+    restingAt,
+    'the keyboard turns no page while a panel is open',
+  );
+
+  // still open from the check above — Escape is the way out of it
   await page.keyboard.press('Escape');
   await page.waitForTimeout(80);
   expect(await page.locator('#goto-panel').isHidden(), 'Escape closes the Go To panel');
