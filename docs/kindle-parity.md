@@ -170,26 +170,13 @@ The ⚠︎ flags above, gathered as the batched question set:
 5. **H4 Rendering unit** one-chapter-at-a-time (simple) vs continuous/book-wide (needed for Page Flip thumbnails and book-wide page numbers). *This is the load-bearing architecture call; decide before building A/H.*
 6. **J2 Cross-device conflict** silent latest-wins vs a resume prompt. *Recommend silent by default, prompt optional later.*
 
-### Kickoff resolutions (Epic 0)
+### Where the answers live
 
-Resolved for this build at the owner's direction to proceed from this doc's
-recommendations; any of these can be overturned by a `decisions.md` entry.
-Collisions 1–4 and 6 adopt the recommendation above as written.
-
-Collision 5, the rendering unit, is resolved as **one chapter at a time**:
-
-- Salvage §7 rates it simple and robust; every rendering trap we know is
-  already solved against it.
-- The linear location index (B1) is derived from character counts, not from
-  layout, so book-wide "Location X of Y" and progress do not need book-wide
-  rendering. Print page numbers (B2) come from the EPUB page-list, likewise
-  layout-free.
-- The one casualty is Page Flip's 3×3 pixel-thumbnail grid. The peek adapts:
-  a location slider across the whole book, chapter-skip arrows, and a live
-  text excerpt of the slider position, all without moving the reading
-  position, with the "back to location" stack intact. The peek UI does not
-  bake in the rendering unit, so a continuous renderer can upgrade it later
-  without a redesign.
+The collisions above were put to the owner and settled. The resolutions are
+recorded in [`decisions.md`](decisions.md), the log of record for load-bearing
+calls, and this spec deliberately does not restate them: it holds the
+questions and the reasoning behind each behavior, the log holds the answers.
+Where the two disagree, the log is right.
 
 ## Non-core appendix
 
@@ -249,19 +236,19 @@ Flip (H4) as the most involved single item.
 
 ## What shipped
 
-The rebuild landed all six epics. Every line item above is implemented except
-where noted; each carries at least one assertion in the acceptance script
-(`bun run demo`, 17 scenes), and the whole spec above stays as the record of
-*why* each behavior is shaped the way it is.
+Every line item above is built except where the table and the list below say
+otherwise, and each carries at least one assertion in the acceptance suite
+(`bun run demo`, 21 scenes). The spec above stays as the record of *why* each
+behavior is shaped the way it is.
 
 | Epic | Shipped | Notes |
 |---|---|---|
-| 0 Rendering unit | one chapter at a time | See the kickoff resolutions above. |
-| 1 Page model | A1–A6 | Paged default; stride is exactly the viewport width; anchors survive the mode switch. |
+| 0 Rendering unit | one chapter at a time | Every rendering trap the salvage audit warns about is solved against it. |
+| 1 Page model | A1–A6 | Paged default; stride is exactly the viewport width; anchors survive the mode switch and a window resize. The A2 layout choice sits in the Aa panel with the rest of taste, not in a control of its own. |
 | 2 Position, progress, time | B1–B6 | Locations are 128 flattened characters; print pages come from the EPUB page-list; progress is character-weighted. |
 | 3 Typography and themes | C1–C6, C8, D1 | **C7 (orientation lock, reading ruler) deliberately not built.** Theme tokens now have exactly one source. |
 | 4 Selection, dictionary, highlights | E1, E2, F1–F5 | **E3 (custom selection handles) uses the platform's own handles.** Dictionary is Webster 1913, 102k entries, lazily cached. |
-| 5 Navigation and chrome | G1–G2, H1–H5, I1–I3, J1–J2 | Page Flip is a location slider with a live text excerpt, per the kickoff resolution — not a thumbnail grid. |
+| 5 Navigation and chrome | G1–G2, H1–H5, I1–I2, J1 | **I3 (bottom bar) is not built and J2 is only half built**; both are below. Page Flip is a location slider with a live text excerpt, not a thumbnail grid. |
 
 Deliberate refusals and adaptations, so they are not mistaken for gaps:
 
@@ -270,11 +257,21 @@ Deliberate refusals and adaptations, so they are not mistaken for gaps:
   that wants its own design pass rather than a parity checkbox.
 - **E3 selection handles.** Kindle draws its own drag handles. We use the
   platform's, which are the ones the reader's thumb already knows.
-- **H4 Page Flip thumbnails.** Replaced by the location slider + excerpt (see
-  the kickoff resolutions): a 3×3 pixel grid needs the whole book laid out at
-  once, which the rendering unit deliberately does not do.
+- **H4 Page Flip thumbnails.** Replaced by the location slider and excerpt: a
+  3×3 pixel grid needs the whole book laid out at once, which the rendering
+  unit deliberately does not do.
 - **Translation tab (E-series).** Refused: cloud-dependent. The dictionary is
   local; Wikipedia is an explicit outbound link, not an embedded panel.
+- **I3 bottom bar.** Not built. There is no bottom bar: the reader carries one
+  chrome bar, at the top. What the bottom bar was for survives as a hairline
+  above the text, which holds the cyclable progress readout (B3) and opens Page
+  Flip (H4), and which stays up while the rest of the chrome hides.
+- **A2 layout toggle.** No dedicated control. Paged and scroll are two buttons
+  inside the Aa panel, where the reader already goes to set how the book looks.
+- **J2 furthest-read sync.** Half built, deliberately. Position rides the
+  synced sidecar and the newest timestamp wins, which the storage layer already
+  provides; the conflict prompt for "another device is ahead" is not built, and
+  the parity note above always had it as optional.
 
 Two debts from `salvage.md` §7 were paid here rather than carried: in-book
 search now matches across inline tags and marks every occurrence (not one per

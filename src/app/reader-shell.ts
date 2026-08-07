@@ -9,36 +9,41 @@
 
 import { Book } from '../epub/book.ts';
 import type { DeviceCacheTransport } from '../library/device-cache.ts';
-import { slugify } from '../library/identity.ts';
+import { newRecordId, slugify } from '../library/identity.ts';
 import type { Library } from '../library/store.ts';
 import type { BookSidecar, Bookmark } from '../library/types.ts';
 import { ReaderController } from '../reader/controller.ts';
 import { type Dictionary, createDictionary } from '../reader/dictionary.ts';
 import { attachReadingInput } from '../reader/input.ts';
-import { elementAtPath } from '../reader/locator.ts';
 import {
-  type BookMetrics,
   bookMetrics,
   excerptAt,
+  excerptAtAnchor,
   pageAnchors,
   rawOffsetForFlat,
-  rawOffsetOfElement,
 } from '../reader/metrics.ts';
 import type { DisplayMode } from '../reader/mode.ts';
 import { createBookSearch } from '../reader/search.ts';
 import { readerSelection, wordFromSelection } from '../reader/selection.ts';
 import { createAaPanel } from './aa-panel.ts';
 import { type AnnotationsUI, createAnnotationsUI } from './annotations-ui.ts';
-import { type Ribbon, bookmarkOnPage, createRibbon, newBookmarkId } from './bookmarks.ts';
+import { type Ribbon, bookmarkOnPage, createRibbon } from './bookmarks.ts';
 import { createChrome } from './chrome.ts';
 import { createDictionaryCard } from './dictionary-card.ts';
 import { el } from './dom.ts';
-import { type Dismissible, firstOpen, handleEscape } from './escape-chain.ts';
+import {
+  type ChainLink,
+  type Dismissible,
+  type TurnPolicy,
+  closeOthers,
+  handleEscape,
+  spendTurn,
+} from './escape-chain.ts';
 import { createFindOverlay } from './find-overlay.ts';
 import { createFinishNudge } from './finish-nudge.ts';
 import { createFootnotePopover } from './footnote-popover.ts';
 import { createGoToPanel } from './goto-panel.ts';
-import { createJumpBack, jumpBackLabel } from './jumpback.ts';
+import { createJumpBack, jumpBackLabel, samePlace } from './jumpback.ts';
 import { attachInBookLinks } from './links.ts';
 import { chapterTitles, createNotebook, logseqOutline, sortHighlights } from './notebook.ts';
 import { type Peek, createPeek } from './peek.ts';
@@ -121,6 +126,10 @@ export async function openReader(
   }
   const book = await Book.open(bytes);
   if (generation !== openGeneration) return;
+  // Re-assert the pin now that this open owns the shell. The pin above is what
+  // made the reads local; this one is what makes the device's record name the
+  // book the reader actually landed on rather than one they flicked past.
+  if (entry && deviceCache) void deviceCache.pin(entry.dir);
   openSidecar = sidecar;
   // Character counts, once per open (milliseconds): the substrate for honest
   // progress weights, the location index, and time-left (parity B1/B4/B5).
@@ -182,6 +191,7 @@ export async function openReader(
     // Taste read at call time (C8): the Aa panel writes a pref, then calls
     // controller.relayout(), and the renderer re-reads these accessors.
     { mode: () => displayMode, measureChars: getMeasureChars, typography: currentTypography },
+    metrics.chapterChars,
     {
       onChapter: (index) => {
         // The chapter number is no longer chrome (the contents panel and the
@@ -219,7 +229,6 @@ export async function openReader(
         ribbon?.refresh();
       },
     },
-    metrics.chapterChars,
   );
 
   // Deep-link URLs keep the transport query (?lib=…) so a pasted link boots
@@ -286,7 +295,7 @@ export async function openReader(
       setBookmarks([
         ...bookmarks(),
         {
-          id: newBookmarkId(),
+          id: newRecordId(),
           chapter: controller?.currentChapter() ?? 0,
           anchor,
           createdAt: new Date().toISOString(),
@@ -314,7 +323,12 @@ export async function openReader(
       ? metrics.locationOf(from.chapter, controller?.currentFraction() ?? 0)
       : 1;
     run();
-    if (from) backStack.push({ position: from, location });
+    // A jump that went nowhere leaves no way back to offer: tapping Cover
+    // while already on the cover must not raise a "Back to Loc 1" pill that
+    // returns the reader to where they are standing.
+    if (from && !samePlace(from, controller?.currentPosition() ?? null)) {
+      backStack.push({ position: from, location });
+    }
     renderPill();
   };
   backPill.onclick = (event): void => {
@@ -328,11 +342,19 @@ export async function openReader(
 
   // A deep link (F5) lands on its highlight, flashed; the address bar keeps
   // the copyable link (salvage §4) — routing never rewrites it.
+  //
+  // Through visit(), so following the link does not WRITE the reader's place.
+  // A link is a look: opening a year-old one from 80% of a book must not
+  // collapse the synced position back to chapter 2. Reading on from where the
+  // link landed saves as usual — the visit only declines to claim the landing
+  // itself.
   if (highlightId) {
     const target = openSidecar?.highlights.find((h) => h.id === highlightId);
     if (target) {
-      controller.goToChapter(target.chapter);
-      annotations.reveal(target.id);
+      controller.visit(() => {
+        controller?.goToChapter(target.chapter);
+        annotations?.reveal(target.id);
+      });
     }
   }
 
@@ -357,15 +379,16 @@ export async function openReader(
       location: () => {
         const chapter = controller?.currentChapter() ?? 0;
         // The last page of the book is the last location, even when a short
-        // final chapter reports fraction 0 for its single page (B6).
-        const atBookEnd = (controller?.progress() ?? 0) >= 1;
+        // final chapter reports fraction 0 for its single page (B6). The place,
+        // not the percentage: a book can round to 100% a page early.
         return {
-          loc: atBookEnd
+          loc: controller?.atBookEnd()
             ? metrics.totalLocations
             : metrics.locationOf(chapter, controller?.currentFraction() ?? 0),
           total: metrics.totalLocations,
         };
       },
+      hasPages: () => anchors.length > 0,
       page: () => pageAt(anchors, currentChars()),
       minutesLeft: (scope) => {
         const chapter = controller?.currentChapter() ?? 0;
@@ -403,7 +426,7 @@ export async function openReader(
       },
       bookmarks,
       chapterTitle: chapterTitleFor,
-      snippet: (bm) => bookmarkSnippet(metrics, bm),
+      snippet: (bm) => excerptAtAnchor(metrics, bm.chapter, bm.anchor.path, BOOKMARK_SNIPPET_CHARS),
       pages: () => anchors,
       totalLocations: () => metrics.totalLocations,
       goToCover: () => jumpFrom(() => controller?.goToChapter(0)),
@@ -428,11 +451,12 @@ export async function openReader(
         setBookmarks(bookmarks().filter((b) => b.id !== bm.id));
         ribbon?.refresh();
       },
-      onOpen: () => {
-        notebook.close();
-        aaPanel.close();
-        searchPanel?.close();
-      },
+      // Opening anything means closing everything else that is up. The chain
+      // knows what "everything else" is, so no call site keeps its own list —
+      // six hand-copied ones had drifted into six different subsets, and none
+      // of them dismissed the footnote popover, the dictionary card or a live
+      // selection menu.
+      onOpen: () => closeOthers(escapeChain, 'goto-panel'),
     },
   );
   const notebook = createNotebook(
@@ -461,11 +485,7 @@ export async function openReader(
           })),
         ),
       }),
-      onOpen: () => {
-        gotoPanel.close();
-        aaPanel.close();
-        searchPanel?.close();
-      },
+      onOpen: () => closeOthers(escapeChain, 'notebook'),
     },
   );
 
@@ -484,11 +504,7 @@ export async function openReader(
       status?.refresh();
       ribbon?.refresh(); // the same bookmark, judged against the new geometry
     },
-    onOpen: () => {
-      gotoPanel.close();
-      notebook.close();
-      searchPanel?.close();
-    },
+    onOpen: () => closeOthers(escapeChain, 'aa-panel'),
   });
 
   // In-book search (H5). The book's text comes from metrics, which parses and
@@ -511,11 +527,7 @@ export async function openReader(
         });
       },
       onCleared: () => findOverlay.clear(),
-      onOpen: () => {
-        gotoPanel.close();
-        notebook.close();
-        aaPanel.close();
-      },
+      onOpen: () => closeOthers(escapeChain, 'search'),
     },
   );
 
@@ -542,11 +554,12 @@ export async function openReader(
       jumpFrom(() => controller?.goToFraction(place.chapter, place.fraction));
     },
     onOpen: () => {
-      gotoPanel.close();
-      notebook.close();
-      aaPanel.close();
-      searchPanel?.close({ keepMarks: true });
-      chrome.hide();
+      closeOthers(escapeChain, 'peek');
+      // No chrome.hide() here: the peek is opened by a GESTURE (a thumb on the
+      // hairline, a swipe from the edge), and salvage §4 is that only an
+      // explicit control hides chrome. Hiding it here left the reader with no
+      // chrome and nothing to restore it, because closing the peek never put
+      // it back.
     },
   });
   // The progress rule IS the way to look elsewhere: tapping the hairline opens
@@ -567,29 +580,54 @@ export async function openReader(
     el<HTMLElement>('reader'),
   );
 
-  // The Escape chain, declared once, in priority order: transient overlays
-  // first, then panels, then (with nothing open) the hidden chrome.
-  const escapeChain: Dismissible[] = [
-    finishNudge,
-    peek, // closing a peek costs nothing: the position never moved
-    footnotes,
-    dictCard,
+  // The chain of open things, declared once, in priority order: transient
+  // overlays first, then panels, then (with nothing open) the hidden chrome.
+  // Every link carries its own turn policy, so there is no second list to keep
+  // in step: `closes` means a page-turn input is spent dismissing it (parity
+  // I1 — the turn drops you back into pure text, and the next one moves the
+  // page), `blocks` means it holds something only the reader can resolve.
+  const link = (name: string, turn: TurnPolicy, thing: Dismissible): ChainLink => ({
+    name,
+    turn,
+    isOpen: () => thing.isOpen(),
+    close: () => thing.close(),
+  });
+  const escapeChain: ChainLink[] = [
+    link('finish-nudge', 'closes', finishNudge),
+    // Popover, card and menu are anchored to something the reader just
+    // touched, so they are nearer their attention than the peek sheet — and
+    // the footnote popover's own contract is that it closes ahead of every
+    // panel, which the peek is one of.
+    link('footnotes', 'closes', footnotes),
+    link('dict-card', 'closes', dictCard),
     {
       // The annotation layer owns its own sub-order (menu, then note editor):
       // handleEscape() closes the topmost overlay and reports that it spent
       // the press — true in exactly the cases where isOpen() is.
+      name: 'annotations',
+      // A serialized range and unsaved note text both die if the page moves
+      // under them, and neither is the shell's to throw away.
+      turn: 'blocks',
       isOpen: (): boolean => annotations?.isOpen() ?? false,
       close: (): void => {
         annotations?.handleEscape();
       },
     },
+    // Closing a peek costs nothing — but a stray tap must not close it either:
+    // the scrub origin is the promise that peeking is free.
+    link('peek', 'blocks', peek),
     {
+      name: 'search',
+      turn: 'closes',
       isOpen: (): boolean => searchPanel?.isOpen() ?? false,
       close: (): void => searchPanel?.close(),
+      // The panel steps aside for the page but the hits stay lit, so turns
+      // from here on walk between occurrences on the page you searched for.
+      dismissForTurn: (): void => searchPanel?.close({ keepMarks: true }),
     },
-    notebook,
-    aaPanel,
-    gotoPanel,
+    link('notebook', 'closes', notebook),
+    link('aa-panel', 'closes', aaPanel),
+    link('goto-panel', 'closes', gotoPanel),
   ];
   const onEscape = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape' || el<HTMLElement>('reader').hidden) return;
@@ -600,14 +638,12 @@ export async function openReader(
   const detachInput = attachReadingInput(viewport, {
     dir: () => book.direction,
     onTurn: (d) => {
-      // A page turn drops you back into pure text (parity I1).
-      footnotes.close();
-      gotoPanel.close();
-      notebook.close();
-      // The panel steps aside; the hits stay lit, so a turn can walk between
-      // occurrences on the page you searched for.
-      searchPanel?.close({ keepMarks: true });
-      peek.close();
+      // ONE rule, three input paths (tap, swipe, key): the turn is spent
+      // against the chain first. With anything open it dismisses or is
+      // refused there and the page does not move — which is what keeps a
+      // dictionary card from staying pinned to a DOMRect on the page you
+      // left, and a selection from serializing against a view that scrolled.
+      if (!spendTurn(escapeChain)) return;
       chrome.hide();
       if (d === 'forward') controller?.turnForward();
       else controller?.turnBack();
@@ -621,12 +657,11 @@ export async function openReader(
     onPeek: () => peek.open(),
     // In scroll mode a vertical swipe is a scroll; the gesture stands down.
     peekEnabled: () => displayMode === 'paged',
-    // Keyboard turns pause while ANYTHING is open, and "anything" means the
-    // Escape chain — the one registry of what is on screen. Maintaining a
-    // second list by hand is what let Space turn the page underneath an open
-    // Go To panel: the chain knew the panel was up and the keyboard gate did
-    // not (salvage §7, "state ownership is split without a rule").
-    keysEnabled: () => !el<HTMLElement>('reader').hidden && firstOpen(escapeChain) === null,
+    // Document-level keys only apply to a visible reader. What is OPEN is not
+    // asked here: onTurn spends every turn against the chain, so a key, a tap
+    // and a swipe in the same state do the same thing (salvage §7, "state
+    // ownership is split without a rule").
+    keysEnabled: () => !el<HTMLElement>('reader').hidden,
   });
 
   document.addEventListener('keydown', onEscape);
@@ -676,20 +711,6 @@ export function closeReader(): void {
   controller?.dispose();
   controller = null;
   openSidecar = null;
-}
-
-/**
- * What sits at a bookmark, without rendering its chapter: resolve the
- * structural anchor against the parsed chapter body, turn it into a raw text
- * offset, and excerpt from the chapter's text. Layout-free, so the Go To
- * panel can describe pages the reader is nowhere near.
- */
-function bookmarkSnippet(metrics: BookMetrics, bookmark: Bookmark): string {
-  const body = metrics.chapterBody(bookmark.chapter);
-  if (!body) return '';
-  const element = elementAtPath(body, bookmark.anchor.path) ?? body;
-  const offset = rawOffsetOfElement(body, element) ?? 0;
-  return excerptAt(metrics.chapterText(bookmark.chapter), offset, BOOKMARK_SNIPPET_CHARS);
 }
 
 const BOOKMARK_SNIPPET_CHARS = 90;

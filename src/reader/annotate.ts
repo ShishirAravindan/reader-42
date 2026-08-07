@@ -261,15 +261,6 @@ export function removeHighlight(wrapper: HTMLElement, id: string): void {
   unwrapMarks(wrapper, `mark.hl[data-hl="${id}"]`);
 }
 
-/** Client rects of a highlight's segments; empty for stale/unrendered ids. */
-export function highlightRects(wrapper: HTMLElement, id: string): DOMRect[] {
-  const out: DOMRect[] = [];
-  for (const mark of highlightMarks(wrapper, id)) {
-    for (const rect of Array.from(mark.getClientRects())) out.push(rect);
-  }
-  return out;
-}
-
 /** Briefly pulse a highlight (jump-and-flash); purely visual, CSS-driven. */
 export function flashHighlight(wrapper: HTMLElement, id: string): void {
   const marks = highlightMarks(wrapper, id);

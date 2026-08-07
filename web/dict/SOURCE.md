@@ -14,11 +14,41 @@ exactly this reason.
 
 The JSON repackaging is
 [matthewreagan/WebstersEnglishDictionary](https://github.com/matthewreagan/WebstersEnglishDictionary)
-(`dictionary_compact.json`), which is distributed under the **MIT License**.
-Its own README states the dictionary data itself is public domain.
+(`dictionary_compact.json`).
 
 Definitions are truncated to 320 characters at a sentence boundary by the build
 script; no other transformation is applied beyond lowercasing the keys.
+
+## Terms — unresolved, and the owner's to settle
+
+This section previously said the repackaging is MIT-licensed. **It is not.**
+The upstream repository carries no `LICENSE` file, and its README says:
+
+> The original dictionary text file is covered by The Gutenberg Project's
+> licensing, please see the file headers for more details. The Swift parsing
+> tool and example output files in this repository are free and distributed
+> under the GNU General Public License, Version 2.
+
+`dictionary_compact.json` is one of those "example output files". So the two
+readings that matter are:
+
+1. The bytes we ship are a mechanical repackaging of public-domain text, and a
+   mechanical repackaging attracts no new copyright, so nothing but the
+   Gutenberg text's own public-domain status applies.
+2. The upstream author's GPL-2 statement covers the JSON files as distributed,
+   and shipping a derivative of them puts GPL-2 obligations on this repository.
+
+Which one governs is a load-bearing call, not an implementation detail, so it
+is recorded here as an open question rather than answered by an agent. Until it
+is settled, no license notice ships beside the artifact — writing an MIT notice
+that names a license the upstream never granted would be worse than the gap it
+fills. Compare `web/fonts/licenses/OFL-*.txt`, where the upstream terms are
+unambiguous and the notice ships verbatim.
+
+Ways out, if reading 2 is the one the owner lands on: rebuild the artifact
+directly from [Project Gutenberg ebook 29765](https://www.gutenberg.org/ebooks/29765)
+(public domain text, PG header stripped, no intermediate repackaging), or
+accept GPL-2 for the repository and ship its full text here.
 
 ## Rebuilding it
 

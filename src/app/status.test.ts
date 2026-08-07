@@ -77,6 +77,18 @@ describe('pageAt', () => {
     expect(pageAt(anchors, 5000)).toEqual({ label: '3', last: '3' });
   });
 
+  // Front matter the print edition never numbered is not page 1: claiming it
+  // is puts the reader several pages ahead of where they actually are.
+  test('an offset before the first page is no page at all', () => {
+    const later: PageAnchor[] = [
+      { label: '1', globalChar: 800 },
+      { label: '2', globalChar: 1600 },
+    ];
+    expect(pageAt(later, 0)).toBeNull();
+    expect(pageAt(later, 799)).toBeNull();
+    expect(pageAt(later, 800)).toEqual({ label: '1', last: '2' });
+  });
+
   test('empty page-list means no page display', () => {
     expect(pageAt([], 100)).toBeNull();
   });
@@ -101,6 +113,7 @@ describe('createStatusLine', () => {
   const source = (overrides: Partial<StatusSource> = {}): StatusSource => ({
     progress: () => 0.34,
     location: () => ({ loc: 214, total: 1530 }),
+    hasPages: () => true,
     page: () => ({ label: '12', last: '96' }),
     minutesLeft: () => null,
     ...overrides,
@@ -155,9 +168,27 @@ describe('createStatusLine', () => {
   });
 
   test('a stale page mode for a page-less book degrades to percent', () => {
-    const line = createStatusLine(elements, source({ page: () => null }), 'page', () => {});
+    const line = createStatusLine(
+      elements,
+      source({ hasPages: () => false, page: () => null }),
+      'page',
+      () => {},
+    );
     expect(line.mode()).toBe('percent');
     expect(button.textContent).toBe('34%');
+  });
+
+  // The book HAS pages, the reader is just ahead of the first one. The state
+  // stays in the cycle (it comes back a page later); the readout falls back to
+  // the location rather than lying about a page or going blank.
+  test('a book with pages, in front matter, reads as a location', () => {
+    createStatusLine(
+      elements,
+      source({ hasPages: () => true, page: () => null }),
+      'page',
+      () => {},
+    );
+    expect(button.textContent).toBe('Loc 214 of 1,530');
   });
 
   test('status clicks do not bubble to the page-turn layer', () => {

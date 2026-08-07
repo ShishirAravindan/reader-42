@@ -39,12 +39,6 @@ export function sortBookmarks(bookmarks: Bookmark[]): Bookmark[] {
   );
 }
 
-/** 8 hex chars, the shape highlight ids already use; unique enough per book. */
-export function newBookmarkId(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(4));
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 /** Short, human date for a bookmark row ("12 Jul 2026"). */
 export function bookmarkDate(iso: string): string {
   const ms = Date.parse(iso);

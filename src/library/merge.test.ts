@@ -17,7 +17,7 @@ function sidecar(overrides: Partial<BookSidecar> = {}): BookSidecar {
     state: 'reading',
     stateChangedAt: T0,
     progress: 0.2,
-    position: { chapter: 1, anchor: { path: [3], ratio: 0.5 }, scroll: 100, updatedAt: T1 },
+    position: { chapter: 1, anchor: { path: [3], ratio: 0.5 }, updatedAt: T1 },
     highlights: [],
     sessions: [],
     ...overrides,
@@ -46,7 +46,7 @@ describe('mergeSidecars: position and progress', () => {
   test('the later position.updatedAt wins, and progress follows it', () => {
     const behind = sidecar({
       progress: 0.2,
-      position: { chapter: 1, scroll: 100, updatedAt: T1 },
+      position: { chapter: 1, updatedAt: T1 },
     });
     const ahead = sidecar({
       progress: 0.7,
@@ -327,6 +327,38 @@ describe('mergeSidecars: algebra', () => {
     const left = mergeSidecars(mergeSidecars(va, vb), vc);
     const right = mergeSidecars(va, mergeSidecars(vb, vc));
     expect(left).toEqual(right);
+  });
+});
+
+describe('mergeSidecars: unreadable clocks', () => {
+  // A device with a broken clock, or a hand-edited file, can carry a timestamp
+  // Date.parse cannot read. NaN loses every comparison, so an unguarded clock
+  // compare answers "the second argument" — which makes the merge depend on
+  // which device flushed first, and the two stop converging.
+  const BAD = 'not-a-date';
+
+  test('a same-id highlight with an unreadable clock merges commutatively', () => {
+    const good = hl('h1', T1, { note: 'kept' });
+    const broken = hl('h1', BAD, { color: 'pink' });
+    const a = sidecar({ highlights: [good] });
+    const b = sidecar({ highlights: [broken] });
+    expect(mergeSidecars(a, b)).toEqual(mergeSidecars(b, a));
+    // ...and the readable clock wins: a broken clock is the oldest there is.
+    expect(mergeSidecars(a, b).highlights[0]?.note).toBe('kept');
+  });
+
+  test('two unreadable clocks still resolve to one deterministic record', () => {
+    const a = sidecar({ highlights: [hl('h1', BAD, { note: 'a' })] });
+    const b = sidecar({ highlights: [hl('h1', BAD, { note: 'b' })] });
+    expect(mergeSidecars(a, b)).toEqual(mergeSidecars(b, a));
+    expect(mergeSidecars(a, b).highlights).toHaveLength(1);
+  });
+
+  test('an unreadable position clock does not decide the merge by argument order', () => {
+    const a = sidecar({ progress: 0.9, position: { chapter: 9, updatedAt: BAD } });
+    const b = sidecar({ progress: 0.3, position: { chapter: 3, updatedAt: T1 } });
+    expect(mergeSidecars(a, b)).toEqual(mergeSidecars(b, a));
+    expect(mergeSidecars(a, b).position?.chapter).toBe(3); // the real clock wins
   });
 });
 

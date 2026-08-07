@@ -9,6 +9,8 @@
 // nothing here is called per position update except the pure arithmetic.
 
 import type { Book } from '../epub/book.ts';
+import type { PositionAnchor } from '../library/types.ts';
+import { clampRatio, elementAtPath, isOverlayMark } from './locator.ts';
 import { findBody, parseChapterDoc, sanitizeContent } from './render.ts';
 
 /** One location = this many characters of flattened chapter text. */
@@ -43,11 +45,29 @@ export interface BookMetrics {
   chapterText(chapter: number): string;
   /** Parsed, sanitized chapter body; structural paths resolve against it. */
   chapterBody(chapter: number): Element | null;
+  /**
+   * Flattened offset of a page-list fragment inside its chapter, resolved
+   * during the counting pass. Null when the book never named it.
+   */
+  charsBeforeFragment(chapter: number, fragment: string): number | null;
 }
 
 export function bookMetrics(book: Book): BookMetrics {
+  // The page-list's fragments, grouped by chapter, BEFORE the counting pass:
+  // resolving them inside it costs one extra walk of a document already in
+  // hand, where resolving them afterwards means parsing the whole book a
+  // second time, synchronously, at open (product law 2: resume in a second).
+  const wantedIds = new Map<string, Set<string>>();
+  for (const target of book.pageList) {
+    if (!target.fragment) continue;
+    const ids = wantedIds.get(target.path) ?? new Set<string>();
+    ids.add(target.fragment);
+    wantedIds.set(target.path, ids);
+  }
+
   const rawText: string[] = [];
-  const chapterChars = book.chapters.map((chapter) => {
+  const fragmentChars = new Map<number, Map<string, number>>();
+  const chapterChars = book.chapters.map((chapter, index) => {
     const resource = book.resolveResource(chapter.path);
     if (!resource) {
       rawText.push('');
@@ -55,6 +75,8 @@ export function bookMetrics(book: Book): BookMetrics {
     }
     const body = parseBody(new TextDecoder().decode(resource.bytes));
     rawText.push(rawTextOf(body));
+    const ids = wantedIds.get(chapter.path);
+    if (ids) fragmentChars.set(index, charsBeforeIds(body, ids));
     return flattenText(body.textContent ?? '').length;
   });
 
@@ -102,6 +124,8 @@ export function bookMetrics(book: Book): BookMetrics {
       return this.placeAtChar((loc - 1) * LOCATION_SPAN);
     },
     chapterText: (chapter: number): string => rawText[chapter] ?? '',
+    charsBeforeFragment: (chapter: number, fragment: string): number | null =>
+      fragmentChars.get(chapter)?.get(fragment) ?? null,
     chapterBody(chapter: number): Element | null {
       const cached = bodies.get(chapter);
       if (cached) return cached;
@@ -175,6 +199,36 @@ export function flattenText(text: string): string {
 }
 
 /**
+ * Counts flattened characters as text arrives, so a document can be walked
+ * once instead of re-flattening a growing prefix at every boundary. `count()`
+ * equals `flattenText(everything pushed so far).length` exactly: a whitespace
+ * run only spends its single space once a real character follows it, which is
+ * how flattenText's trim behaves at both ends.
+ */
+function flatCounter(): { push(text: string): void; count(): number } {
+  let flat = 0;
+  let started = false;
+  let pendingSpace = false;
+  return {
+    push(text: string): void {
+      for (let i = 0; i < text.length; i++) {
+        if (/\s/.test(text[i] as string)) {
+          if (started) pendingSpace = true;
+          continue;
+        }
+        if (pendingSpace) {
+          flat += 1;
+          pendingSpace = false;
+        }
+        started = true;
+        flat += 1;
+      }
+    },
+    count: (): number => flat,
+  };
+}
+
+/**
  * The raw offset that holds a given FLATTENED offset. Locations, progress, and
  * time-left all count flattened characters, while `chapterText` (and so
  * `excerptAt`) speaks raw text-node data; XHTML source is full of indentation
@@ -230,6 +284,29 @@ export function excerptAt(text: string, offset: number, maxChars: number): strin
   return `${(lastSpace > maxChars * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
 }
 
+/**
+ * What sits at a structural anchor, without rendering its chapter: resolve the
+ * path against the parsed chapter body, turn it into a raw text offset, and
+ * excerpt from the chapter's text. Layout-free, so the Go To panel can
+ * describe pages the reader is nowhere near.
+ *
+ * Locator resolution belongs here rather than in the app layer: this module
+ * already owns the parsed bodies these paths address, and the offset maths
+ * that turns an element into a place in the chapter's text.
+ */
+export function excerptAtAnchor(
+  metrics: BookMetrics,
+  chapter: number,
+  path: number[],
+  maxChars: number,
+): string {
+  const body = metrics.chapterBody(chapter);
+  if (!body) return '';
+  const element = elementAtPath(body, path) ?? body;
+  const offset = rawOffsetOfElement(body, element) ?? 0;
+  return excerptAt(metrics.chapterText(chapter), offset, maxChars);
+}
+
 // --- print page anchors (parity B2) ---
 
 /** A print page's start as a global character offset; the display substrate. */
@@ -254,8 +331,7 @@ export function pageAnchors(book: Book, metrics: BookMetrics): PageAnchor[] {
     if (chapter < 0) continue;
     let offset = 0;
     if (target.fragment) {
-      const body = metrics.chapterBody(chapter);
-      const before = body ? charsBeforeId(body, target.fragment) : null;
+      const before = metrics.charsBeforeFragment(chapter, target.fragment);
       if (before === null) continue;
       offset = Math.min(before, metrics.chapterChars[chapter] ?? 0);
     }
@@ -266,21 +342,21 @@ export function pageAnchors(book: Book, metrics: BookMetrics): PageAnchor[] {
 }
 
 /**
- * Flattened-character offset of the element with `id` inside `root`, i.e.
- * the length of all flattened text strictly before it in document order.
- * Null when the id doesn't resolve.
+ * Flattened-character offset of the first node `stop` accepts, i.e. the length
+ * of all flattened text strictly before it in document order. Null when
+ * nothing in `root` matches.
  */
-export function charsBeforeId(root: Element, id: string): number | null {
-  let raw = '';
+function charsBeforeMatch(root: Element, stop: (node: Node) => boolean): number | null {
+  const counter = flatCounter();
   let found = false;
   const walk = (node: Node): void => {
     if (found) return;
-    if (node.nodeType === 1 /* element */ && (node as Element).getAttribute('id') === id) {
+    if (stop(node)) {
       found = true;
       return;
     }
     if (node.nodeType === 3 /* text */) {
-      raw += node.nodeValue ?? '';
+      counter.push(node.nodeValue ?? '');
       return;
     }
     for (const child of Array.from(node.childNodes)) {
@@ -289,5 +365,122 @@ export function charsBeforeId(root: Element, id: string): number | null {
     }
   };
   walk(root);
-  return found ? flattenText(raw).length : null;
+  return found ? counter.count() : null;
+}
+
+/**
+ * Flattened-character offsets of several ids at once, in ONE walk of `root`.
+ * Ids that don't resolve are simply absent from the result. One walk matters:
+ * a page-list can name hundreds of fragments in a single chapter, and asking
+ * for them one at a time re-walks the chapter once per page.
+ */
+export function charsBeforeIds(root: Element, ids: Set<string>): Map<string, number> {
+  const out = new Map<string, number>();
+  if (ids.size === 0) return out;
+  const counter = flatCounter();
+  const walk = (node: Node): void => {
+    if (out.size === ids.size) return;
+    if (node.nodeType === 3 /* text */) {
+      counter.push(node.nodeValue ?? '');
+      return;
+    }
+    if (node.nodeType === 1 /* element */) {
+      const id = (node as Element).getAttribute('id');
+      if (id !== null && ids.has(id) && !out.has(id)) out.set(id, counter.count());
+    }
+    for (const child of Array.from(node.childNodes)) walk(child);
+  };
+  walk(root);
+  return out;
+}
+
+/** Flattened-character offset of an element inside `root`; null when outside it. */
+export function charsBeforeElement(root: Element, target: Element): number | null {
+  return charsBeforeMatch(root, (node) => node === target);
+}
+
+/**
+ * Where a structural anchor sits, counted in flattened characters of the
+ * chapter's text. This is the conversion that keeps everything the reader is
+ * TOLD — location, print page, percent, time left — free of layout: the anchor
+ * says which element the viewport starts on, and a character count says how
+ * far into the chapter that element is. Raise the type size and the anchor
+ * still names the same paragraph, so the number does not move; a
+ * scroll-extent fraction would, because a fixed-height image becomes a
+ * different share of a taller chapter.
+ *
+ * Null when the anchor's path doesn't resolve against `root`; callers decide
+ * what to do without it.
+ */
+export function charsBeforeAnchor(root: Element, anchor: PositionAnchor): number | null {
+  if (anchor.path.length === 0) return 0; // "top of chapter"
+  const element = elementAtPath(root, anchor.path);
+  if (!element || element === root) return null;
+  const before = charsBeforeElement(root, element);
+  if (before === null) return null;
+  // The ratio is how far into that one element the viewport starts. Inside a
+  // single block the only honest reading of it is proportional, and a block is
+  // rarely more than a screen tall, so the error is bounded by one paragraph.
+  const own = flattenText(element.textContent ?? '').length;
+  return before + clampRatio(anchor.ratio) * own;
+}
+
+/**
+ * The inverse: the structural anchor at a flattened-character offset into
+ * `root`. Descends to the element that actually holds those characters, so a
+ * jump to a location or a print page lands on the page holding THAT TEXT, at
+ * any type size and in either display mode. Going by a share of the scroll
+ * extent instead lands short or long by however much the layout disagrees with
+ * the text — a whole page at the end of a long chapter, because the paged
+ * scroll extent stops at the last page's start.
+ */
+export function anchorAtChars(root: Element, target: number): PositionAnchor {
+  const path: number[] = [];
+  let current: Element = root;
+  let offset = Math.max(target, 0);
+  for (;;) {
+    const found = childHolding(current, offset);
+    if (!found) break;
+    path.push(found.index);
+    current = found.element;
+    offset = found.into;
+  }
+  if (path.length === 0) return { path: [], ratio: 0 };
+  const own = flattenText(current.textContent ?? '').length;
+  return { path, ratio: own > 0 ? Math.min(Math.max(offset / own, 0), 1) : 0 };
+}
+
+/**
+ * Which structural child of `el` holds the flattened offset, and how far into
+ * it the offset sits. Text directly under `el` (and the text inside overlay
+ * marks, which paths must not see) still counts toward the offsets, or the
+ * coordinates would drift from the ones charsBeforeAnchor reports.
+ */
+function childHolding(
+  el: Element,
+  offset: number,
+): { index: number; element: Element; into: number } | null {
+  const counter = flatCounter();
+  let index = -1;
+  let last: { index: number; element: Element; into: number } | null = null;
+  for (const node of Array.from(el.childNodes)) {
+    if (node.nodeType === 3 /* text */) {
+      counter.push(node.nodeValue ?? '');
+      continue;
+    }
+    if (node.nodeType !== 1 /* element */) continue;
+    const child = node as Element;
+    if (isOverlayMark(child)) {
+      counter.push(rawTextOf(child)); // presentation, not structure
+      continue;
+    }
+    index += 1;
+    const from = counter.count();
+    counter.push(rawTextOf(child));
+    const to = counter.count();
+    last = { index, element: child, into: Math.max(to - from, 0) };
+    if (offset < to) return { index, element: child, into: Math.max(offset - from, 0) };
+  }
+  // Past the end of the text: the last child, at its end.
+  return last;
 }

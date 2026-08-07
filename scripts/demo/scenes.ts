@@ -98,6 +98,34 @@ async function setLayout(page: Page, mode: 'paged' | 'scroll'): Promise<void> {
   await page.waitForTimeout(150);
 }
 
+/**
+ * Every control on the Aa panel that is not fully inside the panel's own box,
+ * horizontally, within a pixel.
+ *
+ * PER-ELEMENT geometry on purpose. The weight row shipped with "Heavy"
+ * rendered as "Hea" while the scene stayed green, because the assertion of the
+ * day clicked the button and checked that the computed weight reached the
+ * text — which a half-drawn button does perfectly well. Document-level
+ * overflow is no better: the panel is a scroll container (`overflow-y: auto`
+ * computes overflow-x to `auto`), so a control clipped by the panel overflows
+ * NOTHING at the document level and `scrollWidth <= innerWidth` stays true.
+ * The only thing that catches a clipped control is measuring the control.
+ */
+function aaClipped(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const panel = document.getElementById('aa-panel') as HTMLElement;
+    const box = panel.getBoundingClientRect();
+    return Array.from(panel.querySelectorAll<HTMLElement>('button'))
+      .map((b) => ({ b, r: b.getBoundingClientRect() }))
+      .filter(({ r }) => r.width > 0 && r.height > 0) // visible controls only
+      .filter(({ r }) => r.left < box.left - 1 || r.right > box.right + 1)
+      .map(
+        ({ b, r }) =>
+          `${b.id || b.className}[${b.textContent}] left ${Math.round(r.left - box.left)}px, right ${Math.round(r.right - box.right)}px vs panel`,
+      );
+  });
+}
+
 scene('import-and-open', async ({ page, base, capture }) => {
   await page.goto(`${base}/?lib=dev`);
   await page.locator('#shelf').waitFor({ state: 'visible' });
@@ -239,9 +267,39 @@ async function statusTap(page: Page): Promise<void> {
   await page.waitForTimeout(60);
 }
 
-/** Is the hairline's progress rule painting at all? (the off state hides it) */
+/**
+ * Is the hairline's progress rule painting at all? Asks about PAINT only. It
+ * used to ask Playwright's isVisible(), which conflated "paints nothing" with
+ * "is not there" — and that conflation is exactly how the off state shipped
+ * with its Page Flip target removed from hit testing. Reachability is asked
+ * separately, by `trackUnderThumb`.
+ */
 function trackVisible(page: Page): Promise<boolean> {
-  return page.locator('#status-track').isVisible();
+  return page.evaluate(() => {
+    const track = document.getElementById('status-track') as HTMLElement;
+    const style = getComputedStyle(track);
+    const r = track.getBoundingClientRect();
+    // Every way of painting nothing, not just the one the off state uses:
+    // narrowing this to `opacity` would weaken the two ON-state callers, which
+    // is the same trade that let the off state ship broken.
+    return (
+      style.display !== 'none' &&
+      style.visibility === 'visible' &&
+      Number(style.opacity) > 0 &&
+      r.width > 0 &&
+      r.height > 0
+    );
+  });
+}
+
+/** Is the rule still the thing a thumb on it would actually hit? */
+function trackUnderThumb(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const track = document.getElementById('status-track') as HTMLElement;
+    const r = track.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return hit === track || track.contains(hit);
+  });
 }
 
 /** Cycle the readout until it reaches a state, or give up after a full lap. */
@@ -359,8 +417,30 @@ scene('status-cycle', async ({ page, base, capture }) => {
   expectEq(await statusLeft(page), '', 'off state shows no text');
   expectEq(await statusRight(page), '', 'off state shows no percent');
   // The cycle really does end in nothing: the rule goes too, so the page is
-  // completely clean. Only the invisible hit target survives.
+  // completely clean. Only the invisible hit target survives — and "invisible
+  // hit target" is two claims, so it takes two assertions. The rule paints
+  // nothing AND is still the thing under a thumb placed on it.
   expect(!(await trackVisible(page)), 'off state hides the progress rule as well');
+  expect(await trackUnderThumb(page), 'and the invisible rule is still the button there');
+
+  // LOAD-BEARING: Page Flip survives the clean page. peek.open() has exactly
+  // two callers — this click, and the bottom-edge swipe, which is paged-only.
+  // A rule that stops taking clicks in the off state therefore strands Page
+  // Flip entirely in scroll mode. The click path carries no mode gate, so
+  // proving the click here proves it for both modes.
+  // A raw coordinate click, not locator.click(): Playwright would wait for the
+  // element to become "visible" and never deliver the input the reader does.
+  const rule = await page.locator('#status-track').boundingBox();
+  expect(rule, 'the off-state rule still occupies its strip');
+  await page.mouse.click(rule.x + rule.width / 2, rule.y + rule.height / 2);
+  await page.waitForTimeout(200);
+  expect(
+    await page.locator('#peek-sheet').isVisible(),
+    'the cleaned-off rule still opens Page Flip',
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(120);
+  expect(await page.locator('#peek-sheet').isHidden(), 'and Escape puts it away again');
 
   await statusTap(page); // one more tap brings it back
   expectEq(
@@ -571,6 +651,21 @@ scene('typography', async ({ page, capture }) => {
   await page.locator('#aa-toggle').click();
   await page.locator('#aa-panel').waitFor({ state: 'visible' });
   expect(!(await chromeHidden(page)), 'chrome stays open under the Aa panel');
+  // The panel is a dialog with a name: a screen reader landing in it must be
+  // told what it landed in, the same courtesy every drawn mark in the bar gets.
+  const aaRole = await page.evaluate(() => {
+    const panel = document.getElementById('aa-panel') as HTMLElement;
+    return { role: panel.getAttribute('role'), name: panel.getAttribute('aria-label') };
+  });
+  expectEq(aaRole.role, 'dialog', 'the Aa panel announces itself as a dialog');
+  expectEq(
+    aaRole.name,
+    'Typography and themes',
+    'and carries the name of the control that opens it',
+  );
+  // Every control on the sheet is drawn whole. A label the reader can only
+  // half-read is not a control, whatever the click handler does.
+  expectEq((await aaClipped(page)).join('; '), '', 'every Aa control is drawn inside the panel');
   await capture('aa-panel');
 
   // Theme -> dark: ONE token source proves itself — the app shell, the meta
@@ -700,6 +795,32 @@ scene('typography', async ({ page, capture }) => {
   style = await chapterParagraphStyle(page);
   expect(style.fontFamily.includes('Atkinson'), 'reload restores the font');
   expectEq(style.fontSizePx, 20.48, 'reload restores the size step (1.28rem)');
+
+  // LOAD-BEARING: the cold-open column is measured against the face the reader
+  // is actually reading. This reload IS a cold open in a saved non-default
+  // face: the faces are `font-display: swap`, so the chapter renders in the
+  // fallback serif and the measure probe — a geometry read — answers for the
+  // fallback's average character width, not Atkinson's. Nothing re-measured,
+  // so the column kept a width computed for a book set in something else, and
+  // in paged mode a wrong column is a wrong page stride: a restored position
+  // lands a page or two off.
+  //
+  // The probe: the column is capped AT the measure, so trimming a few pixels
+  // of window forces a fresh measurement without changing what that
+  // measurement should be. The face is certainly resident by now, so the
+  // re-measured column is the true one. If the cold-open column equals it, the
+  // cold open measured the real face. If it does not, it measured the
+  // fallback — which is precisely the bug.
+  const coldColumn = await columnWidth(page);
+  await page.setViewportSize({ width: 1272, height: 800 });
+  await page.waitForTimeout(400); // the renderer debounces resize by 150ms
+  const trueColumn = await columnWidth(page);
+  await page.setViewportSize({ width: 1280, height: 800 }); // scenes share this page
+  await page.waitForTimeout(400);
+  expect(
+    Math.abs(coldColumn - trueColumn) <= 1,
+    `the cold-open column was measured against the reader's own face (${coldColumn.toFixed(1)}px at open vs ${trueColumn.toFixed(1)}px re-measured)`,
+  );
   await capture('typography-restored');
 
   await centerTap(page);
@@ -929,6 +1050,26 @@ scene('highlight-persistence', async ({ page, capture }) => {
   expectEq(after.scrollLeft, before.scrollLeft, 'the dismissing tap turns no page');
   expect(await chromeHidden(page), 'the dismissing tap leaves chrome hidden');
 
+  // With the edit menu up for one mark, ONE tap on another retargets it: the
+  // capture-phase dismissal lets a tap on a highlight through instead of
+  // swallowing it, so the reader never pays a second tap to be understood.
+  await clickMark(page, firstId);
+  await page.locator('#selection-menu').waitFor({ state: 'visible' });
+  expectEq(
+    await page.locator('#selection-menu .hl-dot[aria-pressed="true"]').getAttribute('data-color'),
+    'yellow',
+    'the edit menu opened on the yellow highlight',
+  );
+  await clickMark(page, secondId);
+  expect(await page.locator('#selection-menu').isVisible(), 'one tap moves the menu to the other');
+  expectEq(
+    await page.locator('#selection-menu .hl-dot[aria-pressed="true"]').getAttribute('data-color'),
+    'pink',
+    'and it is the pink highlight’s menu, not a second tap away',
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(80);
+
   // Attach a note to the first highlight through the edit menu.
   await clickMark(page, firstId);
   await page.locator('#selection-menu').waitFor({ state: 'visible' });
@@ -940,6 +1081,29 @@ scene('highlight-persistence', async ({ page, capture }) => {
   marks = await marksIn(page);
   expect(marks.find((m) => m.id === firstId)?.hasNote, 'the note marker rides the yellow mark');
   await capture('highlights-created');
+
+  // A tap on the backdrop dismisses the note sheet. #note-editor is only the
+  // positioning frame and spans the full width of the reader; the sheet is
+  // .note-card inside it, and everything beside the card is outside.
+  await clickMark(page, firstId);
+  await page.locator('#selection-menu').waitFor({ state: 'visible' });
+  await page.locator('#sel-note').click();
+  await page.locator('#note-editor').waitFor({ state: 'visible' });
+  const backdrop = await page.evaluate(() => {
+    const frame = (document.getElementById('note-editor') as HTMLElement).getBoundingClientRect();
+    const card = (
+      document.querySelector('#note-editor .note-card') as HTMLElement
+    ).getBoundingClientRect();
+    return { x: (frame.left + card.left) / 2, y: card.top + card.height / 2, gap: card.left };
+  });
+  expect(backdrop.gap > 8, `there is backdrop beside the card to tap (${backdrop.gap}px)`);
+  await page.mouse.click(backdrop.x, backdrop.y);
+  await page.waitForTimeout(150);
+  expect(await page.locator('#note-editor').isHidden(), 'a backdrop tap dismisses the note sheet');
+  expect(
+    (await marksIn(page)).find((m) => m.id === firstId)?.hasNote,
+    'and abandons nothing: the saved note is still on the mark',
+  );
 
   // RELOAD: both highlights and the note marker restore from the sidecar.
   await page.waitForTimeout(600); // let the sidecar writes flush
@@ -1159,7 +1323,7 @@ async function openNotebook(page: Page): Promise<void> {
   await page.locator('#notebook').waitFor({ state: 'visible' });
 }
 
-scene('notebook-and-links', async ({ page, capture }) => {
+scene('notebook-and-links', async ({ page, base, capture }) => {
   // A third highlight, in ANOTHER chapter: the notebook has to name each
   // chapter from the toc, and a jump has to really cross chapters.
   await tocNav(page, 'Three: An End');
@@ -1281,6 +1445,8 @@ scene('notebook-and-links', async ({ page, capture }) => {
   await tocNav(page, 'One: A Beginning');
   await centerTap(page);
   await page.waitForTimeout(500); // let the position write land
+  const parked = await fetchSidecar(base);
+  expectEq(parked.position?.chapter, 0, 'the reader’s place is parked in chapter 1');
 
   const fresh = await page.context().newPage();
   await fresh.goto(copied);
@@ -1299,6 +1465,22 @@ scene('notebook-and-links', async ({ page, capture }) => {
     'the address bar keeps the deep link (still copyable)',
   );
   await fresh.close();
+
+  // LOAD-BEARING: following a link is a look, not a move. A year-old link to
+  // a chapter-2 highlight, opened from 80% of a book, must not collapse the
+  // synced position back to chapter 2 — that is silent and has no undo.
+  await page.waitForTimeout(1200); // longer than the position save debounce
+  const afterLink = await fetchSidecar(base);
+  expectEq(
+    afterLink.position?.chapter,
+    0,
+    'LOAD-BEARING: a cold-opened deep link left the saved position untouched',
+  );
+  expectEq(
+    afterLink.position?.updatedAt,
+    parked.position?.updatedAt,
+    'and did not even bump its timestamp (latest-wins sync would spread it)',
+  );
 
   // The same link in the page we have been driving, for the evidence shot.
   await page.goto(copied);
@@ -1529,6 +1711,25 @@ scene('go-to', async ({ page, capture }) => {
   const m = await metrics(page);
   expectEq(m.scrollLeft, 0, 'and to its first page');
 
+  // Cover AGAIN, from the cover, goes nowhere — so it leaves nothing behind.
+  // A jump that moved no one has no way back to offer, and pushing one raises
+  // a pill that returns the reader to where they are already standing.
+  const pillAfterCover = await page.locator('#jump-back').textContent();
+  await openGoTo(page);
+  await page.locator('#goto-cover').click();
+  await page.waitForTimeout(250);
+  expectEq(
+    await page.locator('#jump-back').textContent(),
+    pillAfterCover,
+    'a no-op jump pushes nothing: the pill still names the last real one',
+  );
+  await page.locator('#jump-back').click();
+  await page.waitForTimeout(250);
+  expect(
+    (await chapterNumber(page)) !== '1',
+    'and one tap leaves the cover, because no entry pointing back at it was pushed',
+  );
+
   // Beginning: this fixture declares no bodymatter landmark, so it honestly
   // falls back to the same place rather than guessing at front matter.
   await openGoTo(page);
@@ -1566,14 +1767,18 @@ scene('go-to', async ({ page, capture }) => {
 });
 
 /** Click the fixture's footnote marker inside the chapter shadow. */
-async function clickNoteref(page: Page): Promise<void> {
-  const point = await page.evaluate(() => {
+function noterefPoint(page: Page): Promise<{ x: number; y: number }> {
+  return page.evaluate(() => {
     const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
     const link = shadow?.getElementById('nr1');
     if (!link) throw new Error('no noteref in the rendered chapter');
     const r = link.getClientRects()[0] ?? link.getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   });
+}
+
+async function clickNoteref(page: Page): Promise<void> {
+  const point = await noterefPoint(page);
   await page.mouse.click(point.x, point.y);
   await page.waitForTimeout(150);
 }
@@ -1623,6 +1828,10 @@ scene('footnotes', async ({ page, capture }) => {
   expect(await chromeHidden(page), 'Escape spent itself on the popover; chrome stays hidden');
 
   // "Go to note" is the real jump, for readers who want it in context.
+  const pillBefore = await page.evaluate(() => {
+    const pill = document.getElementById('jump-back') as HTMLElement;
+    return { hidden: pill.hidden, label: pill.textContent ?? '' };
+  });
   await clickNoteref(page);
   await page.locator('#footnote-goto').click();
   await page.waitForTimeout(200);
@@ -1636,17 +1845,45 @@ scene('footnotes', async ({ page, capture }) => {
     return r.right > vr.left && r.left < vr.right;
   });
   expect(onScreen, '“Go to note” brings the note itself on screen');
-  expect(
-    await page.locator('#jump-back').isVisible(),
-    'and leaves the pill to carry the reader back',
+  expectEq(await chapterNumber(page), '1', 'without leaving the chapter it lives in');
+  // This fixture's chapter one is one page long, so the note is already beside
+  // its reference and "Go to note" moves no one. A jump that moved no one
+  // leaves nothing behind: no new way back, and the pill says what it said.
+  expectEq(
+    (await metrics(page)).scrollLeft,
+    before.scrollLeft,
+    'the reader is still on the page the note was referenced from',
+  );
+  expectEq(
+    await page.evaluate(() => {
+      const pill = document.getElementById('jump-back') as HTMLElement;
+      return JSON.stringify({ hidden: pill.hidden, label: pill.textContent ?? '' });
+    }),
+    JSON.stringify(pillBefore),
+    'and the jump-back pill is exactly as it was: nothing was pushed',
   );
   await capture('footnote-jumped');
-  await page.locator('#jump-back').click();
-  await page.waitForTimeout(200);
-  expect(
-    (await metrics(page)).scrollLeft === before.scrollLeft,
-    'the pill returns to the page the note was referenced from',
-  );
+
+  // LOAD-BEARING (one turn rule, three input paths): with the popover up, a
+  // key and a tap must do the SAME thing. Both spend themselves closing it,
+  // and neither turns the page out from under the note being read.
+  // Chapter one is a single page here, so a stray turn shows up as a CHAPTER
+  // change, not as scrollLeft moving: both go into the reading.
+  const place = async (): Promise<string> =>
+    `ch${await chapterNumber(page)}@${(await metrics(page)).scrollLeft}`;
+  const here = await place();
+  await clickNoteref(page);
+  await page.locator('#footnote-popover').waitFor({ state: 'visible' });
+  await page.keyboard.press(' ');
+  await page.waitForTimeout(150);
+  expect(await page.locator('#footnote-popover').isHidden(), 'Space closes the open popover');
+  expectEq(await place(), here, 'and does not turn the page underneath it');
+  // The next one turns, as in pure text. Chapter one is a single page in this
+  // fixture, so "turned" is the chapter advancing, not scrollLeft growing.
+  await page.keyboard.press(' ');
+  await page.waitForTimeout(300);
+  expectEq(await chapterNumber(page), '2', 'the next Space turns, as in pure text');
+  await zoneClick(page, 'back');
 });
 
 interface SearchRow {
@@ -2086,5 +2323,485 @@ scene('phone', async ({ base, onPhone }) => {
     expectEq(bars.stripVisible, 'visible', 'the hairline stays up with the chrome open');
     expect(bars.titleHidden, 'the title steps aside rather than being squeezed');
     await capture('phone-chrome');
+
+    // --- everything below is driven with a FINGER, not page.mouse ---
+    //
+    // Mouse-driven scenes cannot see the touch code paths at all: the
+    // selection menu was inert on a phone for want of a compatibility click,
+    // and taps and swipes reached the turn handler with no click event to
+    // dismiss anything. Both are invisible to page.mouse.click.
+
+    const scrollLeft = (): Promise<number> =>
+      page.evaluate(() => document.getElementById('viewport')?.scrollLeft ?? 0);
+
+    const tapAt = async (x: number, y: number): Promise<void> => {
+      await page.touchscreen.tap(x, y);
+      await page.waitForTimeout(250);
+    };
+    const tapOn = async (selector: string): Promise<void> => {
+      const target = await page.locator(selector).boundingBox();
+      expect(target, `${selector} is on screen for the thumb`);
+      await tapAt(target.x + target.width / 2, target.y + target.height / 2);
+    };
+    /** A finger drag on the viewport: the touchstart/touchend pair the app sees. */
+    const swipeViewport = async (
+      dx: number,
+      dy: number,
+      from: { x: number; y: number } = { x: 0.5, y: 0.5 },
+    ): Promise<void> => {
+      await page.evaluate(
+        (drag) => {
+          const v = document.getElementById('viewport') as HTMLElement;
+          const r = v.getBoundingClientRect();
+          const x0 = r.left + r.width * drag.fx;
+          const y0 = r.top + r.height * drag.fy;
+          const fire = (type: string, x: number, y: number): void => {
+            const touch = new Touch({ identifier: 1, target: v, clientX: x, clientY: y });
+            const list = type === 'touchend' ? [] : [touch];
+            v.dispatchEvent(
+              new TouchEvent(type, {
+                bubbles: true,
+                cancelable: true,
+                touches: list,
+                targetTouches: list,
+                changedTouches: [touch],
+              }),
+            );
+          };
+          fire('touchstart', x0, y0);
+          fire('touchend', x0 + drag.dx, y0 + drag.dy);
+        },
+        { dx, dy, fx: from.x, fy: from.y },
+      );
+      await page.waitForTimeout(300);
+    };
+
+    /** The top bar is translated away while hidden, so its marks need it back. */
+    const revealChrome = async (): Promise<void> => {
+      if (await chromeHidden(page)) await tapAt(box.x + box.width / 2, box.y + box.height / 2);
+    };
+
+    // Somewhere with prose to mark. (Chrome is open from the block above.)
+    await revealChrome();
+    await tapOn('#toc-toggle');
+    await page.locator('#toc a', { hasText: 'Two: The Long Middle' }).first().tap();
+    await page.waitForTimeout(400);
+    await tapAt(box.x + box.width / 2, box.y + box.height / 2); // chrome away
+
+    // LOAD-BEARING (product law 5): the selection menu works with a finger.
+    // Every control here is wired on `click`, so a preventDefaulted touchstart
+    // suppressed the compatibility click and NOTHING on this menu ever fired
+    // on a phone.
+    await selectTextIn(page, 'p5', 'jumps over the lazy dog');
+    await capture('phone-selection-menu');
+    await tapOn('#selection-menu [data-color="yellow"]');
+    expect(
+      (await marksIn(page)).some(
+        (m) => m.text === 'jumps over the lazy dog' && m.classes.includes('hl-yellow'),
+      ),
+      'a thumb on a colour dot really highlights',
+    );
+
+    // The rest of the menu answers a finger too: Note opens its sheet.
+    await selectTextIn(page, 'p6', 'position anchors have real work');
+    await tapOn('#sel-note');
+    expect(await page.locator('#note-editor').isVisible(), 'and Note opens the editor sheet');
+    await tapOn('#note-cancel');
+    expect(await page.locator('#note-editor').isHidden(), 'which Cancel dismisses');
+
+    // A swipe with the menu up must not move the page: the selection was
+    // serialized against THIS layout, and a turn underneath it corrupts the
+    // range the reader is about to act on.
+    await selectTextIn(page, 'p6', 'deliberately and at length');
+    const held = await scrollLeft();
+    await swipeViewport(-140, 0);
+    expectEq(await scrollLeft(), held, 'a swipe under the selection menu turns no page');
+    expect(await page.locator('#selection-menu').isVisible(), 'and the menu is still there');
+    await tapAt(box.x + box.width / 2, box.y + box.height * 0.3); // dismiss it
+
+    // With nothing open, the same swipe is an ordinary page turn.
+    const rest = await scrollLeft();
+    await swipeViewport(-140, 0);
+    expect((await scrollLeft()) > rest, 'with nothing open, a swipe turns the page');
+
+    // A transient overlay and a swipe: the swipe is spent closing it, and the
+    // page stays put. A touchend carries no click, so the popover's own
+    // capture-phase dismissal never runs — the turn gate is the only thing
+    // standing between the reader and a popover pinned to the page they left.
+    await revealChrome();
+    await tapOn('#toc-toggle');
+    await page.locator('#toc a', { hasText: 'One: A Beginning' }).first().tap();
+    await page.waitForTimeout(400);
+    await tapAt(box.x + box.width / 2, box.y + box.height / 2); // chrome away
+    const noteref = await noterefPoint(page);
+    await tapAt(noteref.x, noteref.y);
+    expect(await page.locator('#footnote-popover').isVisible(), 'a thumb opens the note popover');
+    const atNote = await scrollLeft();
+    await swipeViewport(-140, 0);
+    expect(await page.locator('#footnote-popover').isHidden(), 'a swipe closes the popover');
+    expectEq(await scrollLeft(), atNote, 'and does NOT turn the page out from under it');
+    expectEq(await chapterNumber(page), '1', 'nor carry the reader into the next chapter');
+
+    // Page Flip by thumb, then back to reading: the swipe suppresses its own
+    // phantom click, but that suppression must not eat the NEXT real tap.
+    await revealChrome();
+    await tapOn('#toc-toggle');
+    await page.locator('#toc a', { hasText: 'Two: The Long Middle' }).first().tap();
+    await page.waitForTimeout(400);
+    await tapAt(box.x + box.width / 2, box.y + box.height / 2); // chrome away
+    await swipeViewport(0, -120, { x: 0.5, y: 0.97 });
+    expect(await page.locator('#peek-sheet').isVisible(), 'a swipe up from the edge peeks');
+    await tapOn('#peek-back');
+    expect(await page.locator('#peek-sheet').isHidden(), 'and the chip puts it away');
+    const afterPeek = await scrollLeft();
+    await tapAt(box.x + box.width * 0.85, box.y + box.height / 2);
+    expect((await scrollLeft()) > afterPeek, 'the very next tap in the forward zone turns');
+    await capture('phone-touch-annotations');
+
+    // LOAD-BEARING: the BOTTOM ROW of a panel belongs to the panel, not to the
+    // hairline underneath it. The strip is z-index 5, always up, and its Page
+    // Flip rule is a 44px target spanning the width — so a thumb aimed at the
+    // last row of a bottom sheet opened the peek and changed nothing. Layout is
+    // the last group on the Aa sheet, so it is the row that proves the band.
+    await revealChrome();
+    await tapOn('#aa-toggle');
+    await page.locator('#aa-panel').waitFor({ state: 'visible' });
+    // The sheet is taller than its max-height, so the last group is only
+    // reachable scrolled: this is the reader who has scrolled down to Layout.
+    await page.evaluate(() => {
+      const panel = document.getElementById('aa-panel') as HTMLElement;
+      panel.scrollTop = panel.scrollHeight;
+    });
+    await page.waitForTimeout(120);
+    expectEq(
+      (await aaClipped(page)).join('; '),
+      '',
+      'every Aa control is drawn inside the sheet at 390px too',
+    );
+    // The fingertip check has only ever run against the shelf and the top bar.
+    // The Aa sheet carries the densest controls in the app, so the panel being
+    // open is exactly the state where the 44px floor is worth proving.
+    expectEq(
+      (await undersized()).join(', '),
+      '',
+      'Aa panel open: every control is still a fingertip target',
+    );
+    expectEq((await metrics(page)).overflowY, 'hidden', 'the sheet opens over a paged book');
+    await tapOn('#aa-layout-scroll');
+    // Both of these discriminate. Without the band the thumb lands on the
+    // strip, which is OUTSIDE the panel: the panel's own outside-click swallow
+    // fires first, so the sheet shuts and the setting never changes. (Go To and
+    // the notebook swallow nothing, so there the same tap opens Page Flip
+    // instead — same band, same cause, a louder symptom.)
+    expect(
+      await page.locator('#aa-panel').isVisible(),
+      'the tap lands INSIDE the sheet, which stays open',
+    );
+    expectEq(
+      (await metrics(page)).overflowY,
+      'auto',
+      'it reaches the Layout control the reader aimed at',
+    );
+    await tapOn('#aa-layout-paged'); // leave the book as this scene found it
+    await page.waitForTimeout(150);
+    await capture('phone-aa-sheet');
+  });
+});
+
+/**
+ * A window that gets NARROWER mid-chapter.
+ *
+ * Relayout across a resize had no scene at all, and the shrinking direction is
+ * the one that bites. Paged mode forces the columns to overflow their host
+ * with a spacer parked at `pages * stride`; that spacer is itself part of
+ * `scrollWidth`, which is what the page count is read from. Re-measure without
+ * collapsing the spacer first and it holds the extent open at the OLD width:
+ * the book keeps a page it no longer has text for, the reader turns onto blank
+ * paper at the end of the chapter, and every page-count readout is off by one
+ * until something else forces a fresh layout. The renderer collapses the
+ * spacer before measuring for exactly this reason; nothing was checking.
+ *
+ * Two shrinks, because the measure cap (A5) makes them behave differently and
+ * only the second one can grow the page count:
+ *
+ *   1280 -> 900   surplus width, so the column is capped at the measure and
+ *                 only the MARGINS give. The column is untouched, so the page
+ *                 count must not move. "Fewer pixels means more pages" is the
+ *                 wrong intuition here and asserting it fails against correct
+ *                 behavior.
+ *   900 -> 400    now the window is far narrower than the measure, the column
+ *                 itself gives, and the page count genuinely grows. It has to
+ *                 be a decisive narrowing: shaving ten percent off the column
+ *                 lengthens the text by less than the slack in the last
+ *                 column, so the count can legitimately not move at all.
+ *
+ * What has to hold through both: the extent stays an exact multiple of the
+ * page width, the last page the extent claims has text on it, and the reader
+ * keeps the paragraph they were reading. The numbers come off the live
+ * geometry rather than from the app's own `pageCount()`, so a bug in that
+ * formula cannot hide behind itself.
+ */
+scene('resize-relayout', async ({ page, capture }) => {
+  await tocNav(page, 'Two: The Long Middle');
+  await zoneClick(page, 'forward');
+  await zoneClick(page, 'forward');
+
+  /** Extent, page width and page count, with the whole-pages invariant checked. */
+  const survey = async (label: string): Promise<{ pages: number; column: number }> => {
+    const m = await metrics(page);
+    expectEq(m.scrollWidth % m.clientWidth, 0, `${label}: the extent is a whole number of pages`);
+    expectEq(m.scrollLeft % m.clientWidth, 0, `${label}: the reader sits on a page boundary`);
+    return { pages: m.scrollWidth / m.clientWidth, column: await columnWidth(page) };
+  };
+
+  const anchorId = await firstVisibleParagraph(page);
+  expect(anchorId, 'a paragraph is at the page start before the resize');
+  const wide = await survey('1280px');
+
+  // Shrink one: into the surplus. 400ms because the renderer debounces resize
+  // by 150ms; the typography scene already waits the same way for the same
+  // reason.
+  await page.setViewportSize({ width: 900, height: 800 });
+  await page.waitForTimeout(400);
+  const mid = await survey('900px');
+  expectEq(
+    mid.column,
+    wide.column,
+    `the measure cap holds the column steady while the margins absorb the loss (${wide.column}px)`,
+  );
+  expectEq(mid.pages, wide.pages, `so the same text still occupies the same ${wide.pages} pages`);
+  expectEq(
+    await firstVisibleParagraph(page),
+    anchorId,
+    'and the reader keeps their paragraph across the margin-only relayout',
+  );
+
+  // Shrink two: past the measure, where the column itself has to give.
+  await page.setViewportSize({ width: 400, height: 800 });
+  await page.waitForTimeout(400);
+  const narrow = await survey('400px');
+  expect(
+    narrow.column < mid.column,
+    `below the measure the column really narrows (${mid.column}px -> ${narrow.column}px)`,
+  );
+  expect(
+    narrow.pages > mid.pages,
+    `a narrower column means more pages (${mid.pages} -> ${narrow.pages} pages)`,
+  );
+  expectEq(
+    await firstVisibleParagraph(page),
+    anchorId,
+    'LOAD-BEARING: the reader keeps the paragraph they were reading across the reflow',
+  );
+
+  // THE PHANTOM PAGE: go to the last page the extent claims exists and look
+  // for text on it. A spacer left at its old, wider setting shows itself here
+  // and nowhere else.
+  await page.evaluate(() => {
+    const v = document.getElementById('viewport') as HTMLElement;
+    v.scrollLeft = v.scrollWidth - v.clientWidth;
+  });
+  await page.waitForTimeout(120);
+  expect(
+    await firstVisibleParagraph(page),
+    'the last page the narrowed extent claims has text on it, not blank paper',
+  );
+  await capture('resize-narrower');
+
+  // Widen back. The scenes share this page, so the viewport is restored before
+  // this one returns; the round trip is also the assertion that the shrink
+  // left nothing behind.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.waitForTimeout(400);
+  const restored = await survey('back at 1280px');
+  expectEq(restored.column, wide.column, 'widening back restores the column');
+  expectEq(restored.pages, wide.pages, 'and the page count it had before the shrink');
+});
+
+// --- the offline promises -------------------------------------------------
+//
+// These three ran as standalone scripts that nothing invoked: no package.json
+// script, no CI job. Unrun, they also rotted — both drove the reader with a
+// "Next ›" button and a "‹ Library" link that the chrome rework deleted, so
+// they would have failed on their first line had anything ever called them.
+// Folded into the registry, in the one suite CI runs in full, and rewritten
+// against the vocabulary the rest of the scenes use.
+//
+// Each takes a fresh device rather than the shared page: a first visit needs a
+// service worker that has never installed, an empty cache to watch fill, and
+// the network cut, none of which the page the other scenes read on survives.
+// They come LAST because the write-queue scene deliberately mutates the shared
+// book's sidecar.
+
+scene('pwa-shell', async ({ base, onFreshDevice }) => {
+  await onFreshDevice(async ({ page, capture, setOffline }) => {
+    // 1. First visit online: the worker installs, claims, and precaches.
+    await page.goto(`${base}/`);
+    await page.locator('#welcome:not([hidden])').waitFor();
+    await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
+    const cached = await page.evaluate(async () => {
+      const names = (await caches.keys()).filter((k) => k.startsWith('shell-'));
+      if (names.length !== 1) return [];
+      const cache = await caches.open(names[0] as string);
+      return (await cache.keys()).map((req) => new URL(req.url).pathname).sort();
+    });
+    for (const p of ['/', '/app.js', '/styles.css', '/manifest.webmanifest']) {
+      expect(cached.includes(p), `the worker precached ${p}`);
+    }
+
+    // 2 + 3. Cut the network; a fresh navigation must still open, and fast.
+    await setOffline(true);
+    await page.reload();
+    await page.locator('#welcome:not([hidden])').waitFor();
+    const interactive = await page.evaluate(() => {
+      const entry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
+      return entry.domContentLoadedEventEnd;
+    });
+    await capture('pwa-shell-offline');
+    expect(interactive > 0, 'the offline navigation produced real timings, not zeroes');
+    expect(
+      interactive < 1000,
+      `offline cold-open beats the one-second product law (${interactive.toFixed(0)}ms to interactive)`,
+    );
+  });
+});
+
+scene('book-cache', async ({ base, onFreshDevice }) => {
+  await onFreshDevice(async ({ page, capture, setOffline }) => {
+    // 1. Online: open the book and let the device cache fill. The library is
+    // the one the earlier scenes have been reading, so the book opens wherever
+    // it was left — which is resume working, and why the assertion is "the
+    // chapter is rendered", not "chapter one".
+    await page.goto(`${base}/?lib=dev`);
+    await page.getByText(TITLE).click();
+    await page.locator('#viewport .chapter-host').waitFor();
+    await page.waitForFunction(
+      async () => (await (await caches.open('books-v1')).keys()).length >= 1,
+    );
+    await page.waitForFunction(
+      () =>
+        new Promise((resolve) => {
+          const req = indexedDB.open('reader-42', 1);
+          req.onupgradeneeded = (): void => {
+            req.result.createObjectStore('files');
+          };
+          req.onsuccess = (): void => {
+            const get = req.result.transaction('files').objectStore('files').getAllKeys();
+            get.onsuccess = (): void => resolve(get.result.length >= 3); // index, sidecar, epub
+            get.onerror = (): void => resolve(false);
+          };
+          req.onerror = (): void => resolve(false);
+        }),
+    );
+    expect(true, 'opening online cached the epub (Cache API) and the sidecars (IndexedDB)');
+
+    // 2 + 3. Network cut, cold navigation STRAIGHT INTO the book.
+    await setOffline(true);
+    const started = Date.now();
+    await page.reload();
+    await page.locator('#viewport .chapter-host').waitFor();
+    const openToReading = Date.now() - started;
+    await capture('book-cache-offline-reading');
+    expect(
+      openToReading < 1000,
+      `offline open-to-reading beats the one-second product law (${openToReading}ms)`,
+    );
+
+    // 4. The shelf works offline too, off the cached index and sidecars.
+    // The book opened straight into its text (product law 2), so the chrome
+    // holding the back control has to be asked for before it can be used.
+    await centerTap(page);
+    await page.locator('#back-to-shelf').click();
+    await page.locator('.book-title', { hasText: TITLE }).waitFor();
+    await capture('book-cache-offline-shelf');
+    expect(true, 'the shelf rendered offline from the cached index');
+  });
+});
+
+scene('offline-writes', async ({ base, onFreshDevice }) => {
+  // The riskiest promise in the storage design: a write made while the
+  // transport is unreachable is never lost and never clobbers another device.
+  const index = (await (await fetch(`${base}/lib/library.json`)).json()) as {
+    books: { dir: string }[];
+  };
+  const dir = index.books[0]?.dir;
+  expect(dir, 'the dev library has a book to write to');
+  const sidecarUrl = `${base}/lib/${dir}/book.json`;
+  interface DiskSidecar {
+    position?: { chapter: number };
+    /** Only the id is read here; the rest of a highlight rides along untouched. */
+    highlights?: { id: string; [field: string]: unknown }[];
+  }
+  const onDisk = async (): Promise<DiskSidecar> =>
+    (await (await fetch(sidecarUrl)).json()) as DiskSidecar;
+
+  /** Poll a condition against the FOLDER, which is the contract. */
+  const untilOnDisk = async (label: string, ok: (s: DiskSidecar) => boolean): Promise<void> => {
+    for (let i = 0; i < 60; i++) {
+      if (ok(await onDisk())) {
+        console.log(`  ok: ${label}`);
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error(`assert failed (timed out): ${label}`);
+  };
+
+  await onFreshDevice(async ({ page, capture, setOffline }) => {
+    await page.goto(`${base}/?lib=dev`);
+    await page.getByText(TITLE).click();
+    await page.locator('#viewport .chapter-host').waitFor();
+    await page.waitForTimeout(300);
+
+    // 1. Online reading reaches the folder. Park on a known chapter first, so
+    // the assertions do not depend on where the earlier scenes left the book.
+    await tocNav(page, 'One: A Beginning');
+    await untilOnDisk(
+      'an online page turn saved the position to the folder',
+      (s) => s.position?.chapter === 0,
+    );
+
+    // 2. Network cut: the next turn queues on the device instead of failing,
+    // and the folder provably does not move.
+    await setOffline(true);
+    await tocNav(page, 'Three: An End');
+    await page.waitForTimeout(1200); // longer than the debounce: every chance to land
+    expectEq(
+      (await onDisk()).position?.chapter,
+      0,
+      'the offline turn did NOT reach the folder; it queued on the device',
+    );
+    await capture('offline-writes-reading-offline');
+
+    // 3. Meanwhile another device highlights the same book, writing the
+    // sidecar directly (that device's transport is working).
+    const other = (await (await fetch(sidecarUrl)).json()) as DiskSidecar & Record<string, unknown>;
+    other.highlights = [
+      ...(other.highlights ?? []),
+      {
+        id: 'hl-other-device',
+        chapter: 0,
+        start: { path: [1], offset: 0 },
+        end: { path: [1], offset: 20 },
+        text: 'The first chapter is short.',
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    const put = await fetch(sidecarUrl, {
+      method: 'PUT',
+      body: `${JSON.stringify(other, null, 2)}\n`,
+    });
+    expect(put.ok, "the other device's highlight landed in the folder");
+
+    // 4. Reconnect: the queue flushes and merges field-wise, losing neither.
+    await setOffline(false);
+    await untilOnDisk(
+      "the flush kept THIS device's newer position",
+      (s) => s.position?.chapter === 2,
+    );
+    await untilOnDisk(
+      "and the OTHER device's highlight, so the merge is a union and not a clobber",
+      (s) => (s.highlights ?? []).some((h) => h.id === 'hl-other-device'),
+    );
   });
 });

@@ -8,6 +8,7 @@
 // Persistence goes through the sidecar callbacks the shell provides; this
 // module never talks to storage directly.
 
+import { newRecordId } from '../library/identity.ts';
 import { HIGHLIGHT_COLORS, type Highlight, type HighlightColor } from '../library/types.ts';
 import {
   applyHighlight,
@@ -55,6 +56,16 @@ export interface AnnotationsUI {
   dispose(): void;
 }
 
+/** The highlight mark an event passed through, if any. */
+function markIn(path: (EventTarget | undefined)[]): HTMLElement | null {
+  return (
+    path.find(
+      (n): n is HTMLElement =>
+        n instanceof Element && n.tagName === 'MARK' && n.classList.contains('hl'),
+    ) ?? null
+  );
+}
+
 type NoteContext =
   | { mode: 'create'; pending: NonNullable<ReturnType<typeof serializeRange>> }
   | { mode: 'edit'; id: string };
@@ -63,6 +74,8 @@ export function createAnnotationsUI(deps: AnnotationsDeps): AnnotationsUI {
   const now = deps.now ?? ((): string => new Date().toISOString());
   const menu = el<HTMLElement>('selection-menu');
   const editor = el<HTMLElement>('note-editor');
+  /** The sheet itself; #note-editor around it is only the positioning frame. */
+  const noteCard = editor.querySelector('.note-card');
   const noteText = el<HTMLTextAreaElement>('note-text');
   let menuMode: 'create' | 'edit' | null = null;
   let selectionTimer: ReturnType<typeof setTimeout> | null = null;
@@ -95,7 +108,18 @@ export function createAnnotationsUI(deps: AnnotationsDeps): AnnotationsUI {
   const onDocClick = (event: MouseEvent): void => {
     const path = event.composedPath();
     if (!menu.hidden && path.includes(menu)) return;
-    if (!editor.hidden && path.includes(editor)) return;
+    // The CARD, not #note-editor: the editor is the positioning wrapper and
+    // spans the full width of the reader, so testing it treated a tap on the
+    // backdrop beside the card as a tap inside it, and nothing dismissed.
+    if (!editor.hidden && noteCard && path.includes(noteCard)) return;
+    // A tap on ANOTHER highlight retargets this menu rather than merely
+    // dismissing it. Swallowing it here cost the reader a second tap to reach
+    // the mark they were already pointing at; letting it through reaches the
+    // viewport handler below, which opens the edit menu for that mark.
+    if (editor.hidden && markIn(path)) {
+      closeMenu();
+      return;
+    }
     event.stopPropagation();
     event.preventDefault();
     closeMenu();
@@ -236,11 +260,6 @@ export function createAnnotationsUI(deps: AnnotationsDeps): AnnotationsUI {
 
   // --- highlight operations ---
 
-  function randomId(): string {
-    const bytes = crypto.getRandomValues(new Uint8Array(4));
-    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-  }
-
   function createHighlight(
     serialized: NonNullable<ReturnType<typeof serializeRange>>,
     color: HighlightColor,
@@ -249,7 +268,7 @@ export function createAnnotationsUI(deps: AnnotationsDeps): AnnotationsUI {
     const root = wrapper();
     if (!root) return;
     const hl: Highlight = {
-      id: randomId(),
+      id: newRecordId(),
       chapter: deps.chapterIndex(),
       start: serialized.start,
       end: serialized.end,
@@ -333,11 +352,18 @@ export function createAnnotationsUI(deps: AnnotationsDeps): AnnotationsUI {
     closeEditor();
   };
 
-  // Keep the book selection alive while tapping menu buttons: without this,
-  // the mousedown on the menu collapses it before the action can serialize.
-  const onMenuPointerDown = (event: Event): void => event.preventDefault();
-  menu.addEventListener('mousedown', onMenuPointerDown);
-  menu.addEventListener('touchstart', onMenuPointerDown, { passive: false });
+  // Keep the book selection visible while a MOUSE clicks a menu button: the
+  // mousedown would otherwise collapse it under the reader's own cursor.
+  //
+  // Touch gets no preventDefault, ever. Cancelling a touchstart suppresses the
+  // compatibility mouse events the buttons are wired on, so every control here
+  // — the colour dots, Note, Look up, Copy — was inert on a phone. Nothing is
+  // lost by letting the touch through: openCreateMenu captured `serialized`
+  // when the menu was built, and evaluateSelection is 250ms behind the tap.
+  const onMenuPointerDown = (event: PointerEvent): void => {
+    if (event.pointerType === 'mouse') event.preventDefault();
+  };
+  menu.addEventListener('pointerdown', onMenuPointerDown);
 
   // --- selection and mark-tap watching ---
 
@@ -371,12 +397,7 @@ export function createAnnotationsUI(deps: AnnotationsDeps): AnnotationsUI {
   };
 
   const onViewportClick = (event: MouseEvent): void => {
-    const mark = event
-      .composedPath()
-      .find(
-        (n): n is HTMLElement =>
-          n instanceof Element && n.tagName === 'MARK' && n.classList.contains('hl'),
-      );
+    const mark = markIn(event.composedPath());
     if (!mark) return;
     const id = mark.dataset.hl;
     const root = shadow();
@@ -431,8 +452,7 @@ export function createAnnotationsUI(deps: AnnotationsDeps): AnnotationsUI {
       document.removeEventListener('pointerup', onPointerUp);
       document.removeEventListener('click', onDocClick, true);
       deps.viewport.removeEventListener('click', onViewportClick);
-      menu.removeEventListener('mousedown', onMenuPointerDown);
-      menu.removeEventListener('touchstart', onMenuPointerDown);
+      menu.removeEventListener('pointerdown', onMenuPointerDown);
       menu.hidden = true;
       editor.hidden = true;
     },

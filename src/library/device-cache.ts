@@ -52,6 +52,8 @@ export class DeviceCacheTransport implements LibraryTransport {
   private pinnedLoaded = false;
   private pending: Set<string> | null = null;
   private flushing = false;
+  /** Tail of the pin write chain; keeps concurrent pins in call order. */
+  private pinWrite: Promise<unknown> = Promise.resolve();
 
   constructor(inner: LibraryTransport, store: DeviceStore) {
     this.inner = inner;
@@ -172,11 +174,21 @@ export class DeviceCacheTransport implements LibraryTransport {
    * Pin the book the reader has open: it joins the desired set immediately
    * (synchronously, so the open flow's own reads populate the cache without
    * a second fetch) and survives reloads.
+   *
+   * The writes are chained rather than raced. Flicking through the shelf fires
+   * one pin per book while the previous open is still suspended on its reads;
+   * unordered puts could leave the STORE naming a book the reader never landed
+   * on, while memory named the right one, and the next reload would prefetch
+   * the wrong book. Last caller wins, in call order, on both sides.
    */
   async pin(dir: string): Promise<void> {
     this.pinnedDir = dir;
     this.pinnedLoaded = true;
-    await this.store.put(PINNED_KEY, new TextEncoder().encode(dir));
+    const write = this.pinWrite.then(() =>
+      this.store.put(PINNED_KEY, new TextEncoder().encode(dir)),
+    );
+    this.pinWrite = write.catch(() => undefined);
+    await write;
   }
 
   /**

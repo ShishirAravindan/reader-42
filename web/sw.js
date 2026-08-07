@@ -64,35 +64,44 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET' || url.origin !== location.origin) return;
   if (url.pathname.startsWith('/lib/')) return; // library bytes are the transport's business
   if (url.pathname.startsWith('/dict/')) {
-    event.respondWith(dictCacheFirst(event.request));
+    event.respondWith(dictCacheFirst(event));
     return;
   }
   // Hash routing means every navigation is the shell document.
   const path = event.request.mode === 'navigate' ? '/' : url.pathname;
   if (!SHELL.includes(path)) return;
-  event.respondWith(fromCacheThenRefresh(path));
+  event.respondWith(fromCacheThenRefresh(event, path));
 });
 
 // Cache-first, stored on the first successful fetch: after that, dictionary
 // lookups work fully offline and never re-download the artifact.
-async function dictCacheFirst(request) {
+//
+// The write goes through event.waitUntil, which is the whole point at this
+// size: respondWith settles as soon as the response is handed back, and the
+// browser is then free to terminate an idle worker. A 5 MB cache.put left
+// running loose is a 5 MB re-download on the next lookup, every time.
+async function dictCacheFirst(event) {
+  const request = event.request;
   const cache = await caches.open(DICT_CACHE);
   const cached = await cache.match(request);
   if (cached) return cached;
   const res = await fetch(request);
-  if (res.ok) cache.put(request, res.clone());
+  if (res.ok) event.waitUntil(cache.put(request, res.clone()));
   return res;
 }
 
-async function fromCacheThenRefresh(path) {
+async function fromCacheThenRefresh(event, path) {
   const cache = await caches.open(VERSION);
   const cached = await cache.match(path);
+  // Same reasoning as above: the background refresh outlives the response, so
+  // it has to be held open explicitly or the shell never picks up a deploy.
   const refresh = fetch(path)
-    .then((res) => {
-      if (res.ok) cache.put(path, res.clone());
+    .then(async (res) => {
+      if (res.ok) await cache.put(path, res.clone());
       return res;
     })
     .catch(() => null);
+  event.waitUntil(refresh);
   if (cached) return cached;
   const fresh = await refresh;
   if (fresh) return fresh;

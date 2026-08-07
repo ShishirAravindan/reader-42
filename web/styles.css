@@ -313,7 +313,7 @@ button:hover {
 #top-bar {
   top: 0;
   border-bottom: 1px solid var(--line);
-  box-shadow: 0 1px 10px rgba(36, 33, 27, 0.07);
+  box-shadow: 0 1px 10px var(--scrim);
 }
 #reader.chrome-hidden .chrome-bar {
   opacity: 0;
@@ -447,8 +447,15 @@ button:hover {
 #status-line.status-off #status-cycle {
   color: transparent;
 }
+/* Hide the PAINT, not the button. `visibility: hidden` also removes the
+   element from hit testing, and this rule is a 44px-tall Page Flip target:
+   with the readout cycled off it took the whole strip out of reach, and
+   `peek.open()` has only two callers — this click and the bottom-edge swipe,
+   which is paged-only. In scroll mode that left Page Flip unreachable by any
+   input at all. Opacity paints nothing and stays a button, which is also what
+   the cycle already promises: "only the invisible hit target survives". */
 #status-line.status-off #status-track {
-  visibility: hidden;
+  opacity: 0;
 }
 
 /* The dog-ear ribbon (G1): a folded corner over the top-right of the page,
@@ -504,7 +511,7 @@ button:hover {
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 8px 40px rgba(36, 33, 27, 0.16);
+  box-shadow: 0 8px 40px var(--scrim);
   padding: 1.8rem 2.2rem;
   text-align: center;
   max-width: min(22rem, 85vw);
@@ -667,7 +674,7 @@ button:hover {
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 8px 40px rgba(36, 33, 27, 0.16);
+  box-shadow: 0 8px 40px var(--scrim);
   padding: 0.9rem 1rem 1rem;
   display: flex;
   flex-direction: column;
@@ -685,7 +692,12 @@ button:hover {
     border-bottom: none;
     padding-left: calc(1rem + env(safe-area-inset-left));
     padding-right: calc(1rem + env(safe-area-inset-right));
-    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+    /* The hairline's band (see the panel rule near #search-panel): as a bottom
+       sheet this panel reaches the bottom edge, so its last row — Layout —
+       sat under the Page Flip target and could not be tapped. The desktop
+       popover is anchored under the top bar and never reaches the strip, so it
+       keeps its ordinary padding. */
+    padding-bottom: calc(44px + env(safe-area-inset-bottom));
   }
 }
 .aa-group {
@@ -699,8 +711,21 @@ button:hover {
   text-transform: uppercase;
   color: var(--muted);
 }
+/* A row of controls, and the row must never cost the reader a label. The
+   buttons are `nowrap`, so a flex item can not shrink below its longest word:
+   four weight steps (the widest is "Semibold") wanted 335px inside a 304px
+   panel, the row overflowed, and since the panel is a scroll container the
+   surplus was simply clipped — "Heavy" shipped drawn as "Hea".
+
+   Two rules, in order of who does the work. `flex-wrap` is the GUARANTEE: a
+   control that does not fit drops to the next line instead of being cut in
+   half, whatever the face, the base size, or the label's language. The
+   tightened side padding is what keeps the wrap a safety net rather than the
+   everyday look — the weight row fits on one line again at the stock size,
+   with room to spare. */
 .aa-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem;
 }
@@ -708,6 +733,8 @@ button:hover {
   flex: 1;
   font-size: 0.9rem;
   white-space: nowrap;
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
 }
 #aa-panel button[aria-pressed="true"] {
   border-color: var(--link);
@@ -1129,6 +1156,19 @@ button:hover {
   flex-direction: column;
   gap: 0.6rem;
 }
+/* The hairline's band, claimed by every panel that reaches the bottom edge.
+   The strip is z-index 5 and always up, and its rule is a 44px-tall hit target
+   spanning the width — so a control sitting in the last 44px of a panel is not
+   the reader's to tap: the thumb opens Page Flip instead, and the setting they
+   aimed at never changes. Reserving the band is what makes the bottom row of a
+   panel reachable. #peek-sheet has always done this; these three now do too.
+   (Declared after all three rules so it wins over their padding shorthands.) */
+#goto-panel,
+#notebook,
+#search-panel {
+  padding-bottom: calc(44px + env(safe-area-inset-bottom));
+}
+
 .search-form {
   display: flex;
 }

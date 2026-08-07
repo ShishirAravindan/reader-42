@@ -24,6 +24,13 @@ export interface Dictionary {
  * then plural folds (-s, -es, ies→y), then -ed/-ing with dropped-e restore
  * (taking→take) and consonant undoubling (travelling→travel), then ll→l.
  * The first candidate present in the dictionary wins.
+ *
+ * Order inside the -ed/-ing fold is load-bearing. The dropped-e restore comes
+ * BEFORE the bare stem, because English drops that e far more often than it
+ * leaves a real word behind: with the bare stem first, "caring" resolves to
+ * `car` ("a small vehicle moved on wheels"), "used" to `us`, "hoped" to `hop`.
+ * Every one of those shorter headwords exists, so nothing downstream can tell
+ * the wrong answer from the right one — the order is the whole decision.
  */
 export function foldCandidates(term: string): string[] {
   let w = term.toLowerCase().trim();
@@ -43,8 +50,8 @@ export function foldCandidates(term: string): string[] {
   for (const suffix of ['ed', 'ing'] as const) {
     if (!w.endsWith(suffix) || w.length <= suffix.length + 1) continue;
     const base = w.slice(0, -suffix.length);
+    push(`${base}e`); // taking -> take, judged -> judge, caring -> care
     push(base);
-    push(`${base}e`); // taking -> take, judged -> judge
     if (base.length > 2 && base[base.length - 1] === base[base.length - 2]) {
       push(base.slice(0, -1)); // travelling -> travel, stopped -> stop
     }
@@ -105,7 +112,17 @@ export function createDictionary(fetchBytes: () => Promise<Uint8Array>): Diction
   };
 }
 
+/**
+ * The artifact is a .gz, but whether it arrives compressed is the host's
+ * business, not ours: a static host that serves `.gz` with
+ * `Content-Encoding: gzip` has the browser inflate it before the fetch
+ * resolves, and handing already-JSON bytes to DecompressionStream throws —
+ * which the card reports as "could not be loaded" forever. So sniff the two
+ * magic bytes and decompress only what is actually gzip.
+ */
 async function gunzipToText(bytes: Uint8Array): Promise<string> {
-  const stream = new Blob([bytes.slice()]).stream().pipeThrough(new DecompressionStream('gzip'));
+  const blob = new Blob([bytes.slice()]);
+  if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) return await new Response(blob).text();
+  const stream = blob.stream().pipeThrough(new DecompressionStream('gzip'));
   return await new Response(stream).text();
 }

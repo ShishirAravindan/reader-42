@@ -1,5 +1,7 @@
-# Visual captures for the PWA shell, via shot-scraper (https://github.com/simonw/shot-scraper).
-# Assertions live in pwa-shell.ts; these are the human-eyeball frames.
+# Visual captures of the welcome screen, via shot-scraper (https://github.com/simonw/shot-scraper).
+# Nothing here asserts anything: the assertions live in the acceptance suite
+# (`bun run demo`, the `pwa-shell` scene), and these are the human-eyeball
+# frames at two widths. Optional, and not part of the gate.
 #
 #   bun scripts/dev.ts &        # serves on :4242
 #   shot-scraper multi scripts/demo/pwa-shell.shots.yml

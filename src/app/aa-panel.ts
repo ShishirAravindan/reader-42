@@ -155,7 +155,17 @@ export function createAaPanel(
     });
   }
 
-  /** Write a pref, then reflow: the position survives via the anchor cycle. */
+  /**
+   * Write a pref, then reflow: the position survives via the anchor cycle.
+   *
+   * A face switch is the interesting one, and it is deliberately NOT awaited
+   * here. The chosen face loads asynchronously, so this reflow measures the
+   * column against whatever is on screen at this instant — which, the first
+   * time a face is chosen, is still the fallback. The second pass belongs to
+   * the renderer (`relayoutWhenFaceArrives` in render.ts), where it also
+   * covers the cold open and any future caller; a wait bolted on here would be
+   * the same mechanism written twice, and would still miss the cold open.
+   */
   const reflow = (write: () => void): void => {
     write();
     deps.relayout();

@@ -2,10 +2,14 @@ import { describe, expect, test } from 'bun:test';
 import { buildFixtureEpub, buildZip } from '../../test/fixture-epub.ts';
 import { Book } from '../epub/book.ts';
 import {
+  type BookMetrics,
   LOCATION_SPAN,
+  anchorAtChars,
   bookMetrics,
-  charsBeforeId,
+  charsBeforeAnchor,
+  charsBeforeIds,
   excerptAt,
+  excerptAtAnchor,
   flattenText,
   pageAnchors,
   rawOffsetForFlat,
@@ -166,6 +170,28 @@ describe('chapterText and chapterBody', () => {
   });
 });
 
+describe('excerptAtAnchor', () => {
+  const bodies = ['<h1>One</h1>\n<p>Alpha beta gamma.</p>\n<p>Delta epsilon zeta.</p>'];
+
+  test('describes the place a structural anchor names, without rendering it', async () => {
+    const m = bookMetrics(await Book.open(knownEpub(bodies)));
+    expect(excerptAtAnchor(m, 0, [1], 30)).toStartWith('Alpha beta gamma.');
+    expect(excerptAtAnchor(m, 0, [2], 30)).toBe('Delta epsilon zeta.');
+    expect(excerptAtAnchor(m, 0, [0], 30)).toStartWith('One Alpha');
+  });
+
+  test('a path that resolves to nothing falls back to the chapter start', async () => {
+    const m = bookMetrics(await Book.open(knownEpub(bodies)));
+    // Stale bookmarks must describe SOMETHING, never crash the Go To panel.
+    expect(excerptAtAnchor(m, 0, [99], 20)).toStartWith('One Alpha');
+  });
+
+  test('a chapter that does not exist has nothing at all in it', async () => {
+    const m = bookMetrics(await Book.open(knownEpub(bodies)));
+    expect(excerptAtAnchor(m, 7, [0], 20)).toBe('');
+  });
+});
+
 describe('excerptAt', () => {
   const text = 'The quick brown fox jumps over the lazy dog, deliberately and at length.';
 
@@ -206,18 +232,107 @@ describe('rawOffsetOfElement', () => {
   });
 });
 
-describe('charsBeforeId', () => {
-  test('counts flattened chars strictly before the element, in document order', () => {
-    const doc = new DOMParser().parseFromString(
+describe('charsBeforeIds', () => {
+  const body = (): HTMLElement =>
+    new DOMParser().parseFromString(
       '<body><h1 id="top">Title</h1><p>One  two</p><p id="mark">three</p></body>',
       'text/html',
-    );
-    const body = doc.body;
-    expect(charsBeforeId(body, 'top')).toBe(0);
+    ).body;
+
+  test('counts flattened chars strictly before each element, in document order', () => {
+    const at = charsBeforeIds(body(), new Set(['top', 'mark', 'ghost']));
+    expect(at.get('top')).toBe(0);
     // textContent semantics: adjacent blocks concatenate with no separator,
     // matching how the chapter totals are counted.
-    expect(charsBeforeId(body, 'mark')).toBe('TitleOne two'.length);
-    expect(charsBeforeId(body, 'ghost')).toBeNull();
+    expect(at.get('mark')).toBe('TitleOne two'.length);
+    expect(at.has('ghost')).toBe(false); // an id that doesn't resolve is absent
+  });
+
+  test('one walk answers every id, and asking nothing costs nothing', () => {
+    expect(charsBeforeIds(body(), new Set()).size).toBe(0);
+    const one = charsBeforeIds(body(), new Set(['mark']));
+    const many = charsBeforeIds(body(), new Set(['top', 'mark']));
+    expect(one.get('mark')).toBe(many.get('mark'));
+  });
+});
+
+describe('charsBeforeAnchor', () => {
+  const body = (): HTMLElement => {
+    const doc = new DOMParser().parseFromString(
+      '<body><h1>Title</h1><p>One  two</p><p>three four</p></body>',
+      'text/html',
+    );
+    return doc.body;
+  };
+
+  test('an anchor becomes a character offset, layout never consulted', () => {
+    const root = body();
+    expect(charsBeforeAnchor(root, { path: [], ratio: 0 })).toBe(0); // top of chapter
+    expect(charsBeforeAnchor(root, { path: [1], ratio: 0 })).toBe('Title'.length);
+    expect(charsBeforeAnchor(root, { path: [2], ratio: 0 })).toBe('TitleOne two'.length);
+  });
+
+  test('the ratio counts proportionally into the anchored element', () => {
+    const root = body();
+    // Half way into "three four" (10 flattened chars) is 5 more characters.
+    expect(charsBeforeAnchor(root, { path: [2], ratio: 0.5 })).toBe('TitleOne two'.length + 5);
+    // Ratios captured slightly outside the element clamp, as on restore.
+    expect(charsBeforeAnchor(root, { path: [2], ratio: -1 })).toBe('TitleOne two'.length);
+    expect(charsBeforeAnchor(root, { path: [2], ratio: 2 })).toBe('TitleOne two'.length + 10);
+  });
+
+  test('an unresolvable path reports nothing rather than guessing', () => {
+    expect(charsBeforeAnchor(body(), { path: [99], ratio: 0 })).toBeNull();
+  });
+
+  test('offsets agree with the chapter totals the location index counts', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const m = bookMetrics(book);
+    const chapter = m.chapterBody(1) as Element;
+    const last = chapter.children.length - 1;
+    const end = charsBeforeAnchor(chapter, { path: [last], ratio: 1 }) ?? 0;
+    const total = m.chapterChars[1] as number;
+    // Within one character: a prefix count trims the whitespace run before the
+    // element, where the chapter total keeps it as a single space.
+    expect(Math.abs(end - total)).toBeLessThanOrEqual(1);
+    expect(charsBeforeAnchor(chapter, { path: [0], ratio: 0 })).toBe(0);
+  });
+});
+
+describe('anchorAtChars', () => {
+  test('finds the element holding an offset, and how far into it', () => {
+    const doc = new DOMParser().parseFromString(
+      '<body><h1>Title</h1><p>One  two</p><p>three four</p></body>',
+      'text/html',
+    );
+    const root = doc.body;
+    expect(anchorAtChars(root, 0)).toEqual({ path: [0], ratio: 0 });
+    expect(anchorAtChars(root, 5)).toEqual({ path: [1], ratio: 0 });
+    expect(anchorAtChars(root, 'TitleOne two'.length)).toEqual({ path: [2], ratio: 0 });
+    expect(anchorAtChars(root, 'TitleOne two'.length + 5)).toEqual({ path: [2], ratio: 0.5 });
+    // Past the end lands at the end of the last element, never outside it.
+    expect(anchorAtChars(root, 99_999)).toEqual({ path: [2], ratio: 1 });
+  });
+
+  test('descends through a wrapper element instead of stopping at it', () => {
+    const doc = new DOMParser().parseFromString(
+      '<body><div><p>aaaa</p><p>bbbb</p><p>cccc</p></div></body>',
+      'text/html',
+    );
+    expect(anchorAtChars(doc.body, 5)).toEqual({ path: [0, 1], ratio: 0.25 });
+  });
+
+  test('round-trips against charsBeforeAnchor across a real chapter', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const m = bookMetrics(book);
+    const chapter = m.chapterBody(1) as Element;
+    const total = m.chapterChars[1] as number;
+    for (const at of [0, 137, 1024, Math.floor(total / 2), total - 1]) {
+      const back = charsBeforeAnchor(chapter, anchorAtChars(chapter, at)) ?? -1;
+      // Within a couple of characters: prefix counts trim the whitespace run
+      // before an element where the running total keeps it as one space.
+      expect(Math.abs(back - at)).toBeLessThanOrEqual(2);
+    }
   });
 });
 
@@ -236,6 +351,25 @@ describe('pageAnchors', () => {
     expect(anchors[0]?.globalChar).toBe(0);
     expect(anchors[5]?.globalChar).toBeGreaterThanOrEqual(m.charsBefore(2));
     expect(anchors[5]?.globalChar).toBeLessThanOrEqual(m.totalChars);
+  });
+
+  // Product law 2 gives resume a one-second budget. Resolving the page-list by
+  // parsing each chapter again means parsing the whole book twice at open.
+  test('resolves without parsing the book a second time', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const metrics = bookMetrics(book);
+    const guarded: BookMetrics = {
+      ...metrics,
+      chapterBody: (): Element | null => {
+        throw new Error('pageAnchors re-parsed a chapter bookMetrics had already parsed');
+      },
+    };
+    expect(pageAnchors(book, guarded).map((a) => a.label)).toEqual(['1', '2', '3', '4', '5', '6']);
+  });
+
+  test('a fragment the book never names is dropped, not guessed at', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    expect(bookMetrics(book).charsBeforeFragment(0, 'nowhere')).toBeNull();
   });
 
   test('a book without a page-list yields no anchors', async () => {

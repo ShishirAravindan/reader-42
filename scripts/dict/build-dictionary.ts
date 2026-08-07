@@ -11,8 +11,8 @@
 //
 // Source: Webster's Unabridged Dictionary (1913), public domain in the United
 // States and long out of copyright. The JSON repackaging used here is
-// matthewreagan/WebstersEnglishDictionary, MIT-licensed; see
-// web/dict/SOURCE.md for the full provenance and terms.
+// matthewreagan/WebstersEnglishDictionary, whose terms are NOT settled — see
+// web/dict/SOURCE.md, which records the open question and the ways out.
 
 const SOURCE =
   'https://raw.githubusercontent.com/matthewreagan/WebstersEnglishDictionary/master/dictionary_compact.json';

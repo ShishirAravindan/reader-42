@@ -19,10 +19,23 @@
 
 import type { BookSidecar, Bookmark, Highlight, LibraryIndex, ReadingSession } from './types.ts';
 
+/**
+ * An ISO timestamp as a number, with an unreadable one treated as the oldest
+ * clock there is. A device with a broken clock, a hand-edited file, or a field
+ * from a future version all yield NaN — and NaN loses every comparison, so an
+ * unguarded compare falls through to `NaN > NaN ? a : b` and always answers
+ * `b`. That is not a rule: it makes the merge depend on argument order, so two
+ * devices that saw the same writes stop converging.
+ */
+function clockOf(iso: string): number {
+  const at = Date.parse(iso);
+  return Number.isFinite(at) ? at : 0;
+}
+
 /** Compare ISO timestamps; ties fall through to a deterministic value compare. */
 function laterOf<T>(a: T, aClock: string, b: T, bClock: string): T {
-  const at = Date.parse(aClock);
-  const bt = Date.parse(bClock);
+  const at = clockOf(aClock);
+  const bt = clockOf(bClock);
   if (at !== bt) return at > bt ? a : b;
   return JSON.stringify(a) >= JSON.stringify(b) ? a : b;
 }
@@ -36,8 +49,8 @@ function laterOf<T>(a: T, aClock: string, b: T, bClock: string): T {
  * then the deterministic value compare inside laterOf.
  */
 function preferHighlight(a: Highlight, b: Highlight): Highlight {
-  const aClock = Date.parse(a.editedAt ?? a.createdAt);
-  const bClock = Date.parse(b.editedAt ?? b.createdAt);
+  const aClock = clockOf(a.editedAt ?? a.createdAt);
+  const bClock = clockOf(b.editedAt ?? b.createdAt);
   if (aClock !== bClock) return aClock > bClock ? a : b;
   if (a.note && !b.note) return a;
   if (b.note && !a.note) return b;
@@ -51,7 +64,7 @@ function mergeHighlights(a: Highlight[], b: Highlight[]): Highlight[] {
     byId.set(hl.id, seen ? preferHighlight(seen, hl) : hl);
   }
   return [...byId.values()].sort(
-    (x, y) => Date.parse(x.createdAt) - Date.parse(y.createdAt) || (x.id < y.id ? -1 : 1),
+    (x, y) => clockOf(x.createdAt) - clockOf(y.createdAt) || (x.id < y.id ? -1 : 1),
   );
 }
 
@@ -69,7 +82,7 @@ function mergeBookmarks(a: Bookmark[], b: Bookmark[]): Bookmark[] {
     byId.set(bm.id, seen ? laterOf(seen, seen.createdAt, bm, bm.createdAt) : bm);
   }
   return [...byId.values()].sort(
-    (x, y) => Date.parse(x.createdAt) - Date.parse(y.createdAt) || (x.id < y.id ? -1 : 1),
+    (x, y) => clockOf(x.createdAt) - clockOf(y.createdAt) || (x.id < y.id ? -1 : 1),
   );
 }
 
@@ -79,7 +92,7 @@ function mergeSessions(a: ReadingSession[], b: ReadingSession[]): ReadingSession
     byValue.set(`${s.endedAt}|${s.seconds}`, s);
   }
   return [...byValue.values()].sort(
-    (x, y) => Date.parse(x.endedAt) - Date.parse(y.endedAt) || x.seconds - y.seconds,
+    (x, y) => clockOf(x.endedAt) - clockOf(y.endedAt) || x.seconds - y.seconds,
   );
 }
 
@@ -108,8 +121,8 @@ export function mergeSidecars(a: BookSidecar, b: BookSidecar): BookSidecar {
 
   // Import metadata: the earliest addition is the origin.
   const addedWinner =
-    Date.parse(a.addedAt) !== Date.parse(b.addedAt)
-      ? Date.parse(a.addedAt) < Date.parse(b.addedAt)
+    clockOf(a.addedAt) !== clockOf(b.addedAt)
+      ? clockOf(a.addedAt) < clockOf(b.addedAt)
         ? a
         : b
       : laterOf(a, a.addedAt, b, b.addedAt);

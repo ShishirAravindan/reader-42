@@ -173,7 +173,10 @@ function findNavByType(doc: Document, type: string): Element | null {
     if (!nav) continue;
     // epub:type lives in the ops namespace; some files leave it unprefixed.
     const epubType = nav.getAttributeNS(NS_EPUB_OPS, 'type') ?? nav.getAttribute('epub:type');
-    if (epubType === type) return nav;
+    // A space-separated token list, not a single value: `epub:type="page-list
+    // landmarks"` is legal, and matching the whole string loses that nav
+    // entirely — no print page numbers, no "Beginning".
+    if (epubType?.split(/\s+/).includes(type)) return nav;
   }
   return null;
 }
