@@ -101,3 +101,9 @@ The bundled reading face is also the chrome's face, across the library, the pane
 ## 2026-08-01 — One acceptance suite, and CI runs all of it
 
 Acceptance scenes live in one registered suite that CI runs on every pull request. The per-feature demo scripts that predate it are migrated into the suite or deleted, not left beside it. Why: two verification conventions with only one of them gated means the ungated half rots silently and its assertions become decoration, which is the failure mode the suite exists to prevent. An assertion nothing runs is worse than no assertion, because it reads as coverage.
+
+## 2026-08-07 — A merge into `main` carries an end-to-end demo
+
+Every pull request that merges `dev` into `main` carries an end-to-end demo of the reader as its evidence: a recording that opens a book and reads it, not a set of frames. Feature pull requests into `dev` keep the existing rule, a screenshot or short recording of the behavior they touch.
+
+Why the asymmetry: `main` is the stable reference and the thing that gets picked up and read, so the question it has to answer is whether the reader works end to end, which no individual feature capture answers. The acceptance suite proves the assertions and the demo proves the experience; they are different evidence and the merge to `main` is where the second one is worth the effort.
