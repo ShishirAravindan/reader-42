@@ -13,17 +13,21 @@ export class Book {
   readonly metadata: BookMetadata;
   readonly chapters: Chapter[];
   readonly toc: TocEntry[];
+  /** Spine page-progression-direction; drives tap-zone/swipe mirroring. */
+  readonly direction: 'ltr' | 'rtl';
   private readonly resources: Map<string, Resource>;
 
   private constructor(
     metadata: BookMetadata,
     chapters: Chapter[],
     toc: TocEntry[],
+    direction: 'ltr' | 'rtl',
     resources: Map<string, Resource>,
   ) {
     this.metadata = metadata;
     this.chapters = chapters;
     this.toc = toc;
+    this.direction = direction;
     this.resources = resources;
   }
 
@@ -57,7 +61,7 @@ export class Book {
       }
     }
 
-    return new Book(opf.metadata, chapters, toc, resources);
+    return new Book(opf.metadata, chapters, toc, opf.pageProgression ?? 'ltr', resources);
   }
 
   resolveResource(path: string): Resource | null {

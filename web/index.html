@@ -37,22 +37,17 @@
     </section>
 
     <section id="reader" hidden>
-      <header class="reader-header">
+      <div id="viewport"></div>
+      <header id="top-bar" class="chrome-bar">
         <button id="back-to-shelf" type="button" aria-label="Back to library">‹ Library</button>
-        <div class="reader-title">
-          <span id="reader-book-title"></span>
-          <span id="reader-chapter-label" class="muted"></span>
-        </div>
+        <span id="reader-book-title"></span>
         <button id="toc-toggle" type="button" aria-label="Table of contents">Contents</button>
       </header>
-      <div class="reader-body">
-        <nav id="toc" hidden></nav>
-        <div id="viewport"></div>
-      </div>
-      <footer class="reader-footer">
-        <button id="prev-chapter" type="button">‹ Previous</button>
+      <nav id="toc" hidden></nav>
+      <footer id="bottom-bar" class="chrome-bar">
+        <button id="mode-toggle" type="button" aria-label="Display mode">Paged</button>
         <span id="progress-label" class="muted"></span>
-        <button id="next-chapter" type="button">Next ›</button>
+        <span id="reader-chapter-label" class="muted"></span>
       </footer>
     </section>
   </main>
