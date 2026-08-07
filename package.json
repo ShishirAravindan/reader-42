@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun scripts/dev.ts",
+    "demo": "bun scripts/demo/run.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "format": "biome check --write .",
