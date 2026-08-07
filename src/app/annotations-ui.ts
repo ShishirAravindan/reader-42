@@ -36,6 +36,8 @@ export interface AnnotationsDeps {
   setHighlights(next: Highlight[]): void;
   /** Open the dictionary card for a word or short phrase. */
   lookup(text: string): void;
+  /** Open in-book search with the selected text as the query (parity E2). */
+  searchInBook(text: string): void;
   /** Absolute deep-link URL for a highlight. */
   linkFor(id: string): string;
   now?(): string;
@@ -189,6 +191,11 @@ export function createAnnotationsUI(deps: AnnotationsDeps): AnnotationsUI {
           action('sel-lookup', 'Look up', () => {
             closeMenu();
             deps.lookup(serialized.text);
+          }),
+          action('sel-search', 'Search', () => {
+            closeMenu();
+            clearBookSelection();
+            deps.searchInBook(serialized.text);
           }),
           action('sel-copy', 'Copy', () => {
             void navigator.clipboard?.writeText(serialized.text);

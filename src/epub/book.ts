@@ -8,6 +8,7 @@
 import {
   buildChapters,
   parseContainer,
+  parseLandmarks,
   parseNav,
   parseNcx,
   parseOpf,
@@ -24,6 +25,12 @@ export class Book {
   readonly pageList: PageTarget[];
   /** Spine page-progression-direction; drives tap-zone/swipe mirroring. */
   readonly direction: 'ltr' | 'rtl';
+  /**
+   * Where the book proper begins (parity H1's "Beginning"): the spine index
+   * of the publisher's own `bodymatter` landmark, or 0 when the book never
+   * says. A fallback, never a guess at what looks like front matter.
+   */
+  readonly beginning: number;
   private readonly resources: Map<string, Resource>;
 
   private constructor(
@@ -32,6 +39,7 @@ export class Book {
     toc: TocEntry[],
     pageList: PageTarget[],
     direction: 'ltr' | 'rtl',
+    beginning: number,
     resources: Map<string, Resource>,
   ) {
     this.metadata = metadata;
@@ -39,6 +47,7 @@ export class Book {
     this.toc = toc;
     this.pageList = pageList;
     this.direction = direction;
+    this.beginning = beginning;
     this.resources = resources;
   }
 
@@ -63,10 +72,17 @@ export class Book {
 
     let toc: TocEntry[] = [];
     let pageList: PageTarget[] = [];
+    let beginning = 0;
     const navItem = opf.navId ? opf.manifest.get(opf.navId) : undefined;
     if (navItem && resources.has(navItem.path)) {
-      toc = parseNav(text(resources, navItem.path), navItem.path);
-      pageList = parsePageList(text(resources, navItem.path), navItem.path);
+      const navXml = text(resources, navItem.path);
+      toc = parseNav(navXml, navItem.path);
+      pageList = parsePageList(navXml, navItem.path);
+      const bodymatter = parseLandmarks(navXml, navItem.path).find((l) =>
+        l.type.split(/\s+/).includes('bodymatter'),
+      );
+      const at = bodymatter ? chapters.findIndex((c) => c.path === bodymatter.path) : -1;
+      if (at > 0) beginning = at;
     } else {
       const ncxItem = opf.ncxId ? opf.manifest.get(opf.ncxId) : undefined;
       if (ncxItem && resources.has(ncxItem.path)) {
@@ -74,7 +90,15 @@ export class Book {
       }
     }
 
-    return new Book(opf.metadata, chapters, toc, pageList, opf.pageProgression ?? 'ltr', resources);
+    return new Book(
+      opf.metadata,
+      chapters,
+      toc,
+      pageList,
+      opf.pageProgression ?? 'ltr',
+      beginning,
+      resources,
+    );
   }
 
   resolveResource(path: string): Resource | null {

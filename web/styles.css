@@ -84,6 +84,8 @@
   --hl-pink: #f4bccb;
   --hl-blue: #b1d4f2;
   --hl-orange: #f5c491;
+  /* Find hits (H5): a distinct, quieter tint than any highlight color. */
+  --find-hit: #cfe3b0;
 }
 [data-theme="white"] {
   --bg: #ffffff;
@@ -98,6 +100,7 @@
   --hl-pink: #f8c5d3;
   --hl-blue: #b8daf8;
   --hl-orange: #f9cb97;
+  --find-hit: #d3e8b4;
 }
 [data-theme="sepia"] {
   --bg: #f3e7d0;
@@ -112,6 +115,7 @@
   --hl-pink: #ecb6bd;
   --hl-blue: #b3cde2;
   --hl-orange: #eebe85;
+  --find-hit: #d6dda2;
 }
 [data-theme="dark"] {
   --bg: #121212;
@@ -128,6 +132,7 @@
   --hl-pink: #5c2f3d;
   --hl-blue: #23405e;
   --hl-orange: #5c3d1e;
+  --find-hit: #384a24;
 }
 
 * {
@@ -333,6 +338,47 @@ button:hover {
   visibility: hidden;
 }
 
+/* The dog-ear ribbon (G1): a folded corner over the top-right of the page,
+   shown whenever the visible page carries a bookmark. Purely an indicator —
+   the corner GESTURE lives on the viewport, so the ribbon never eats a tap.
+   Two triangles: the accent fold, and a lighter notch that reads as the page
+   turning back on itself in every theme. */
+#bookmark-ribbon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  width: 1.6rem;
+  height: 2.1rem;
+  pointer-events: none;
+  background: var(--link);
+  opacity: 0.75;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+}
+#reader:not(.chrome-hidden) #bookmark-ribbon {
+  /* Under the top bar while chrome is open; the bar owns that band. */
+  opacity: 0;
+}
+
+/* The jump-back pill (H3): a small offer, bottom-left, just above the status
+   strip. It appears on any in-book jump and settles away once the reader has
+   turned a few pages — the way back stays, the nagging does not. */
+#jump-back {
+  position: absolute;
+  left: calc(1rem + env(safe-area-inset-left));
+  bottom: calc(2rem + env(safe-area-inset-bottom));
+  z-index: 4;
+  font-size: 0.82rem;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  background: var(--bg);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.14);
+}
+#reader:not(.chrome-hidden) #jump-back {
+  /* The bottom bar owns that band while chrome is open. */
+  bottom: calc(3.6rem + env(safe-area-inset-bottom));
+}
+
 /* End-of-book nudge (B6): a quiet centered card in the app's paper tones.
    It is a panel: Escape closes it before touching anything else. */
 #finish-nudge {
@@ -374,17 +420,112 @@ button:hover {
   font-size: 0.85rem;
   white-space: nowrap;
 }
-#toc {
+/* The Go To panel (H1): Cover/Beginning, a page-or-location box, the book's
+   contents, and every bookmarked page — one panel that answers "take me
+   somewhere". The TOC list keeps its own id and behavior inside it. */
+#goto-panel {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 0;
-  width: min(20rem, 100%);
+  width: min(22rem, 100%);
   z-index: 2;
   overflow-y: auto;
   background: var(--bg);
   border-right: 1px solid var(--line);
-  padding: 4rem 1rem;
+  padding: calc(3.4rem + env(safe-area-inset-top)) 1rem calc(1rem + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.goto-quick {
+  display: flex;
+  gap: 0.4rem;
+}
+.goto-quick button {
+  flex: 1;
+}
+.goto-entry {
+  display: flex;
+  gap: 0.4rem;
+}
+#goto-location {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--fg);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+}
+.goto-error:empty {
+  display: none;
+}
+.goto-error {
+  font-size: 0.8rem;
+}
+.goto-heading {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 0.4rem;
+}
+.goto-bm-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.3rem;
+  border-bottom: 1px solid var(--line);
+}
+.goto-bm-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  text-align: left;
+  border: none;
+  border-radius: 0;
+  padding: 0.55rem 0.15rem;
+}
+.goto-bm-main:hover {
+  background: var(--hover);
+  border-color: transparent;
+}
+.goto-bm-chapter {
+  font-size: 0.9rem;
+}
+.goto-bm-snippet {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.goto-bm-date {
+  font-size: 0.72rem;
+}
+.goto-bm-delete {
+  flex: 0 0 auto;
+  border: none;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0 0.5rem;
+}
+.goto-bm-delete:hover {
+  color: var(--fg);
+  border-color: transparent;
+}
+.goto-empty {
+  margin: 0.6rem 0.15rem;
+  font-size: 0.85rem;
+}
+#toc {
+  margin: 0;
 }
 #toc ol {
   list-style: none;
@@ -726,6 +867,58 @@ button:hover {
   white-space: nowrap;
 }
 
+/* The footnote popover (H2): the note floats over the page near its marker,
+   clamped inside the reader; a bottom sheet on phones. The page beneath does
+   not move — reading the note is not leaving the page. */
+#footnote-popover {
+  position: absolute;
+  left: var(--fn-x, 50%);
+  top: var(--fn-y, 30%);
+  z-index: 7;
+  width: min(28rem, calc(100% - 2rem));
+  max-height: 60%;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.2);
+  padding: 0.9rem 1rem 0.7rem;
+}
+#footnote-body {
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+#footnote-body p {
+  margin: 0 0 0.5rem;
+}
+#footnote-body p:last-child {
+  margin-bottom: 0;
+}
+.fn-actions {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+  margin-top: 0.6rem;
+  padding-top: 0.55rem;
+}
+#footnote-goto {
+  font-size: 0.85rem;
+}
+@media (max-width: 40rem) {
+  #footnote-popover {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    border-radius: 12px 12px 0 0;
+    border-bottom: none;
+    padding-left: calc(1rem + env(safe-area-inset-left));
+    padding-right: calc(1rem + env(safe-area-inset-right));
+    padding-bottom: calc(0.7rem + env(safe-area-inset-bottom));
+  }
+}
+
 /* The note editor (F2): a small sheet, chrome-independent, thumb-friendly. */
 #note-editor {
   position: absolute;
@@ -804,4 +997,73 @@ button:hover {
   padding-left: calc(1.5rem + env(safe-area-inset-left));
   padding-right: calc(1.5rem + env(safe-area-inset-right));
   padding-bottom: calc(2rem + env(safe-area-inset-bottom));
+}
+
+/* Search panel (H5): the notebook's shape, a query box instead of chips. */
+#search-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: min(24rem, 100%);
+  z-index: 2;
+  overflow-y: auto;
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+  padding: calc(3.4rem + env(safe-area-inset-top)) 1rem calc(1rem + env(safe-area-inset-bottom))
+    1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.search-form {
+  display: flex;
+}
+#search-input {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  width: 100%;
+  min-height: 44px;
+}
+#search-input:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 1px;
+}
+.search-summary {
+  margin: 0;
+  font-size: 0.8rem;
+}
+.search-results {
+  display: flex;
+  flex-direction: column;
+}
+.search-chapter {
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0.7rem 0 0.3rem;
+}
+.search-hit {
+  text-align: left;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.6rem 0.25rem;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  /* Long books have long snippets; the row wraps rather than truncating the
+     match out of view. */
+  white-space: normal;
+}
+.search-hit:hover {
+  background: var(--hover);
+}
+.search-hit strong {
+  background: var(--find-hit);
+  font-weight: 600;
 }

@@ -222,17 +222,21 @@ async function statusTap(page: Page): Promise<void> {
   await page.waitForTimeout(60);
 }
 
+interface SyncedSidecar {
+  progress: number;
+  state: string;
+  position?: { chapter: number; updatedAt: string };
+  bookmarks?: { id: string; chapter: number; anchor: { path: number[]; ratio: number } }[];
+}
+
 /** The synced sidecar, read back through the dev lib endpoint (files are the contract). */
-async function fetchSidecar(base: string): Promise<{ progress: number; state: string }> {
+async function fetchSidecar(base: string): Promise<SyncedSidecar> {
   const index = (await (await fetch(`${base}/lib/library.json`)).json()) as {
     books: { dir: string }[];
   };
   const dir = index.books[0]?.dir;
   if (!dir) throw new Error('no book in the dev library');
-  return (await (await fetch(`${base}/lib/${dir}/book.json`)).json()) as {
-    progress: number;
-    state: string;
-  };
+  return (await (await fetch(`${base}/lib/${dir}/book.json`)).json()) as SyncedSidecar;
 }
 
 scene('chrome-rules', async ({ page, capture }) => {
@@ -1153,4 +1157,485 @@ scene('notebook-and-links', async ({ page, capture }) => {
   await page.waitForTimeout(150);
   expect((await markState(page, orangeId)).present, 'the deep link restores the highlight’s mark');
   await capture('notebook-deep-link');
+});
+
+// --- Epic 5: navigation and chrome ---
+
+/** Tap the top-right bookmark corner of the page (parity G1). */
+async function cornerTap(page: Page): Promise<void> {
+  const point = await page.evaluate(() => {
+    const r = (document.getElementById('viewport') as HTMLElement).getBoundingClientRect();
+    return { x: r.right - 20, y: r.top + 20 };
+  });
+  await page.mouse.click(point.x, point.y);
+  await page.waitForTimeout(120);
+}
+
+function ribbonShown(page: Page): Promise<boolean> {
+  return page.evaluate(() => !(document.getElementById('bookmark-ribbon') as HTMLElement).hidden);
+}
+
+scene('bookmarks', async ({ page, base, capture }) => {
+  // Off the previous scene's deep link and back onto the plain book route, so
+  // a reload later in this scene resumes rather than re-following the link.
+  await page.evaluate(() => {
+    location.hash = location.hash.replace(/\/hl\/[0-9a-f]+$/, '');
+  });
+  await page.waitForTimeout(300);
+  await tocNav(page, 'Two: The Long Middle');
+  await centerTap(page); // tocNav leaves chrome open; the corner lives on the page
+  expect(!(await ribbonShown(page)), 'no dog-ear on an unbookmarked page');
+
+  // The corner gesture: a tap where a forward turn would otherwise happen.
+  const before = await metrics(page);
+  await cornerTap(page);
+  expect(await ribbonShown(page), 'a corner tap raises the dog-ear ribbon');
+  const after = await metrics(page);
+  expectEq(after.scrollLeft, before.scrollLeft, 'the corner tap never turns the page');
+
+  await zoneClick(page, 'forward');
+  expect(!(await ribbonShown(page)), 'turning away from the page hides the ribbon');
+  await zoneClick(page, 'back');
+  expect(await ribbonShown(page), 'turning back to the bookmarked page brings it back');
+  await capture('bookmark-ribbon');
+
+  // Tapping the corner again removes it (Kindle's toggle).
+  await cornerTap(page);
+  expect(!(await ribbonShown(page)), 'a second corner tap removes the bookmark');
+  await cornerTap(page); // and back on, to keep for the Go To panel
+
+  // A second bookmark, two pages on.
+  await zoneClick(page, 'forward');
+  await zoneClick(page, 'forward');
+  await cornerTap(page);
+  expect(await ribbonShown(page), 'a second page carries its own bookmark');
+
+  // LOAD-BEARING: bookmarks are place, so they live in the SYNCED sidecar.
+  await page.waitForTimeout(1200); // bookmark writes are immediate; the position save is debounced
+  const sidecar = await fetchSidecar(base);
+  expectEq(sidecar.bookmarks?.length, 2, 'both bookmarks reached the synced sidecar');
+  expect(
+    sidecar.bookmarks?.every((b) => b.chapter === 1 && Array.isArray(b.anchor.path)),
+    'each bookmark carries its chapter and a structural anchor',
+  );
+
+  // Reload: the dog-ear comes back with the page, from the sidecar.
+  await page.reload();
+  await page.getByRole('heading', { name: 'Two: The Long Middle' }).waitFor();
+  await page.waitForTimeout(250);
+  expect(await ribbonShown(page), 'the ribbon restores after reload on the same page');
+  await zoneClick(page, 'back');
+  expect(!(await ribbonShown(page)), 'and is absent on the page before it');
+  await capture('bookmark-restored');
+});
+
+async function openGoTo(page: Page): Promise<void> {
+  if (await chromeHidden(page)) await centerTap(page);
+  await page.locator('#toc-toggle').click();
+  await page.locator('#goto-panel').waitFor({ state: 'visible' });
+}
+
+/** The status line's location number, cycling the strip to it if needed. */
+async function statusLocation(page: Page): Promise<number> {
+  if (!(await chromeHidden(page))) await centerTap(page);
+  for (let i = 0; i < 7; i++) {
+    const match = (await statusLeft(page)).match(/^Loc ([\d,]+) of ([\d,]+)$/);
+    if (match) return Number(match[1]?.replace(/,/g, ''));
+    await statusTap(page);
+  }
+  throw new Error('status never reached the location state');
+}
+
+interface BookmarkRow {
+  id: string;
+  chapter: string;
+  snippet: string;
+  date: string;
+}
+
+function bookmarkRows(page: Page): Promise<BookmarkRow[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>('#goto-bookmarks .goto-bm-row')).map(
+      (row) => ({
+        id: row.dataset.bookmark ?? '',
+        chapter: row.querySelector('.goto-bm-chapter')?.textContent ?? '',
+        snippet: row.querySelector('.goto-bm-snippet')?.textContent ?? '',
+        date: row.querySelector('.goto-bm-date')?.textContent ?? '',
+      }),
+    ),
+  );
+}
+
+scene('go-to', async ({ page, capture }) => {
+  const fromLoc = await statusLocation(page); // where the reader is before any jump
+  await openGoTo(page);
+  expect(
+    await page.locator('#toc a', { hasText: 'Two: The Long Middle' }).isVisible(),
+    'the contents still live in the panel, unchanged',
+  );
+  await capture('go-to-panel');
+
+  // Bookmarks: the two set in the previous scene, each described by what is
+  // actually on that page — resolved from the anchor without rendering it.
+  const rows = await bookmarkRows(page);
+  expectEq(rows.length, 2, 'both bookmarks are listed');
+  expectEq(rows[0]?.chapter, 'Two: The Long Middle', 'each row names its chapter, not an index');
+  expect(
+    (rows[0]?.snippet ?? '').includes('Paragraph'),
+    `the row shows the text at the bookmark (got "${rows[0]?.snippet}")`,
+  );
+  expect(/^\d+ \w+ \d{4}$/.test(rows[1]?.date ?? ''), `rows carry a date (got "${rows[1]?.date}")`);
+  expect(rows[0]?.snippet !== rows[1]?.snippet, 'the two bookmarks describe different pages');
+
+  // Location entry. A page spans many locations, so landing "at" location 40
+  // means landing on the PAGE that holds it: the status reads at or before it,
+  // and one more turn reads past it.
+  const target = 40;
+  await page.locator('#goto-location').fill(String(target));
+  await page.locator('#goto-location-go').click();
+  await page.waitForTimeout(250);
+  expect(await page.locator('#goto-panel').isHidden(), 'the panel closes behind the jump');
+  const landed = await statusLocation(page);
+  await zoneClick(page, 'forward');
+  const nextPage = await statusLocation(page);
+  expect(
+    landed <= target && nextPage > target,
+    `location entry lands on the page holding location ${target} (${landed} ≤ ${target} < ${nextPage})`,
+  );
+  await zoneClick(page, 'back');
+  await capture('go-to-location');
+
+  // The jump-back pill (H3): the jump left a way back, named by where it
+  // started, and tapping it really returns.
+  expectEq(
+    await page.locator('#jump-back').textContent(),
+    `Back to Loc ${fromLoc.toLocaleString('en-US')}`,
+    'the jump offers a way back, named by the place it started from',
+  );
+  await page.locator('#jump-back').click();
+  await page.waitForTimeout(250);
+  const returned = await statusLocation(page);
+  expect(
+    Math.abs(returned - fromLoc) <= 1,
+    `the pill returns to the pre-jump page (left ${fromLoc}, back at ${returned})`,
+  );
+  expect(
+    await page.locator('#jump-back').isHidden(),
+    'with nothing left on the stack the pill goes quiet',
+  );
+
+  // The fixture carries a page-list, so a print page label wins over reading
+  // the same characters as a location number.
+  await openGoTo(page);
+  await page.locator('#goto-location').fill('5');
+  await page.locator('#goto-location-go').click();
+  await page.waitForTimeout(250);
+  await centerTap(page);
+  // The fixture's print page 5 starts at #p55, so landing with that paragraph
+  // on screen means the label branch won. Read as a LOCATION instead, "5"
+  // would have landed near the very start of the book.
+  expect(
+    (await visibleParagraphs(page)).includes('p55'),
+    'entering “5” goes to PRINT page 5, not to location 5',
+  );
+
+  // Reading on settles the pill away — the stack survives, the nagging does not.
+  expect(
+    await page.locator('#jump-back').isVisible(),
+    'the print-page jump offers its own way back',
+  );
+  for (let i = 0; i < 3; i++) await zoneClick(page, 'forward');
+  expect(
+    await page.locator('#jump-back').isHidden(),
+    'three page turns later the reader has settled and the pill withdraws',
+  );
+
+  // A bookmark row jumps to its page — proven by the dog-ear reappearing.
+  await openGoTo(page);
+  const first = (await bookmarkRows(page))[0];
+  expect(first, 'a bookmark row to jump to');
+  await page
+    .locator(`#goto-bookmarks .goto-bm-row[data-bookmark="${first.id}"] .goto-bm-main`)
+    .click();
+  await page.waitForTimeout(250);
+  await centerTap(page); // the jump left chrome open; back to pure text
+  expect(await ribbonShown(page), 'the bookmark row landed on the bookmarked page');
+  await capture('go-to-bookmark');
+
+  // Cover: the top of the first chapter, wherever you were.
+  await openGoTo(page);
+  await page.locator('#goto-cover').click();
+  await page.waitForTimeout(250);
+  expectEq(await chapterLabel(page), '1 of 3', 'Cover goes to the first spine chapter');
+  const m = await metrics(page);
+  expectEq(m.scrollLeft, 0, 'and to its first page');
+
+  // Beginning: this fixture declares no bodymatter landmark, so it honestly
+  // falls back to the same place rather than guessing at front matter.
+  await openGoTo(page);
+  await page.locator('#goto-beginning').click();
+  await page.waitForTimeout(250);
+  expectEq(
+    await chapterLabel(page),
+    '1 of 3',
+    'Beginning falls back to chapter 1 with no landmark',
+  );
+
+  // A location the book does not have is refused in place, with the panel open.
+  await openGoTo(page);
+  await page.locator('#goto-location').fill('99999');
+  await page.locator('#goto-location-go').click();
+  await page.waitForTimeout(120);
+  expect(await page.locator('#goto-panel').isVisible(), 'a bad entry leaves the panel open');
+  expect(
+    ((await page.locator('#goto-error').textContent()) ?? '').includes('99999'),
+    'and says plainly that there is nothing there',
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(80);
+  expect(await page.locator('#goto-panel').isHidden(), 'Escape closes the Go To panel');
+  await centerTap(page);
+});
+
+/** Click the fixture's footnote marker inside the chapter shadow. */
+async function clickNoteref(page: Page): Promise<void> {
+  const point = await page.evaluate(() => {
+    const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
+    const link = shadow?.getElementById('nr1');
+    if (!link) throw new Error('no noteref in the rendered chapter');
+    const r = link.getClientRects()[0] ?? link.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  await page.mouse.click(point.x, point.y);
+  await page.waitForTimeout(150);
+}
+
+scene('footnotes', async ({ page, capture }) => {
+  await tocNav(page, 'One: A Beginning');
+  await centerTap(page);
+  expectEq(await chapterLabel(page), '1 of 3', 'in the chapter that carries the note');
+
+  // LOAD-BEARING: the note appears without the page moving under the reader.
+  const before = await metrics(page);
+  await clickNoteref(page);
+  await page.locator('#footnote-popover').waitFor({ state: 'visible' });
+  const noteText = (await page.locator('#footnote-body').textContent()) ?? '';
+  expect(
+    noteText.includes('Marginalia belongs at the foot'),
+    `the popover shows the note text (got "${noteText.slice(0, 40)}…")`,
+  );
+  const after = await metrics(page);
+  expectEq(after.scrollLeft, before.scrollLeft, 'reading the note turned no page');
+  expectEq(await chapterLabel(page), '1 of 3', 'and changed no chapter');
+  expect(await chromeHidden(page), 'and left the chrome alone');
+  await capture('footnote-popover');
+
+  // The note's own id never leaves the chapter: the popover holds a clone.
+  const cloned = await page.evaluate(() => ({
+    inPopover: document.querySelector('#footnote-body [id]') !== null,
+    stillInChapter:
+      document.querySelector('#viewport .chapter-host')?.shadowRoot?.getElementById('fn1') !== null,
+  }));
+  expect(!cloned.inPopover, 'the clone carries no ids to collide with the app');
+  expect(cloned.stillInChapter, 'the note itself stays in the chapter, untouched');
+
+  // An outside tap closes it, and is swallowed: no page turn, no chrome.
+  await page.mouse.click(1100, 400);
+  await page.waitForTimeout(120);
+  expect(await page.locator('#footnote-popover').isHidden(), 'an outside tap closes the popover');
+  expectEq((await metrics(page)).scrollLeft, before.scrollLeft, 'the closing tap turns no page');
+  expect(await chromeHidden(page), 'the closing tap leaves chrome hidden');
+
+  // Escape closes it too, ahead of everything else in the chain.
+  await clickNoteref(page);
+  await page.locator('#footnote-popover').waitFor({ state: 'visible' });
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(80);
+  expect(await page.locator('#footnote-popover').isHidden(), 'Escape closes the popover first');
+  expect(await chromeHidden(page), 'Escape spent itself on the popover; chrome stays hidden');
+
+  // "Go to note" is the real jump, for readers who want it in context.
+  await clickNoteref(page);
+  await page.locator('#footnote-goto').click();
+  await page.waitForTimeout(200);
+  expect(await page.locator('#footnote-popover').isHidden(), 'the popover closes behind the jump');
+  const onScreen = await page.evaluate(() => {
+    const v = document.getElementById('viewport') as HTMLElement;
+    const note = v.querySelector('.chapter-host')?.shadowRoot?.getElementById('fn1');
+    if (!note) return false;
+    const r = note.getBoundingClientRect();
+    const vr = v.getBoundingClientRect();
+    return r.right > vr.left && r.left < vr.right;
+  });
+  expect(onScreen, '“Go to note” brings the note itself on screen');
+  expect(
+    await page.locator('#jump-back').isVisible(),
+    'and leaves the pill to carry the reader back',
+  );
+  await capture('footnote-jumped');
+  await page.locator('#jump-back').click();
+  await page.waitForTimeout(200);
+  expect(
+    (await metrics(page)).scrollLeft === before.scrollLeft,
+    'the pill returns to the page the note was referenced from',
+  );
+});
+
+interface SearchRow {
+  index: number;
+  before: string;
+  match: string;
+  after: string;
+}
+
+function searchRows(page: Page): Promise<SearchRow[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>('#search-results .search-hit')).map(
+      (row) => ({
+        index: Number(row.dataset.hit ?? -1),
+        before: row.children[0]?.textContent ?? '',
+        match: row.querySelector('strong')?.textContent ?? '',
+        after: row.children[2]?.textContent ?? '',
+      }),
+    ),
+  );
+}
+
+/** The chapter headings the result list groups hits under, in order. */
+function searchChapters(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll<HTMLElement>('#search-results .search-chapter')).map(
+      (h) => h.textContent ?? '',
+    ),
+  );
+}
+
+/** Every find mark on the rendered page, with its result index. */
+function findHits(page: Page): Promise<{ index: number; text: string }[]> {
+  return page.evaluate(() => {
+    const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
+    if (!shadow) return [];
+    return Array.from(shadow.querySelectorAll<HTMLElement>('mark.find-hit')).map((m) => ({
+      index: Number(m.dataset.find ?? -1),
+      text: m.textContent ?? '',
+    }));
+  });
+}
+
+async function runSearch(page: Page, query: string): Promise<void> {
+  if (await chromeHidden(page)) await centerTap(page);
+  if (await page.locator('#search-panel').isHidden()) {
+    await page.locator('#search-toggle').click();
+    await page.locator('#search-panel').waitFor({ state: 'visible' });
+  }
+  await page.locator('#search-input').fill(query);
+  await page.locator('#search-input').press('Enter');
+  await page.waitForTimeout(150);
+}
+
+scene('search', async ({ page, capture }) => {
+  await tocNav(page, 'One: A Beginning');
+  await centerTap(page);
+
+  // LOAD-BEARING (salvage §7, first half): the phrase crosses an <em>, which
+  // the v1 finder could not see because it matched inside single text nodes.
+  await runSearch(page, 'chapters do, quietly');
+  const spanning = await searchRows(page);
+  expectEq(spanning.length, 1, 'a phrase spanning an inline tag is found');
+  expectEq(spanning[0]?.match, 'chapters do, quietly', 'and the match is the whole phrase');
+  expectEq(
+    (await searchChapters(page)).join(' | '),
+    'Three: An End',
+    'results are grouped under human chapter titles, never spine indices',
+  );
+
+  // A query across the whole book: every chapter that holds it, every hit.
+  await runSearch(page, 'chapter');
+  const chapters = await searchChapters(page);
+  expect(chapters.length >= 3, `the query spans the book (grouped under ${chapters.length})`);
+  const rows = await searchRows(page);
+  expect(rows.length > 60, `every occurrence is listed, not one per chapter (${rows.length})`);
+  expect(
+    (await page.locator('#search-summary').textContent())?.includes(String(rows.length)),
+    'the panel says how many matches there are',
+  );
+  expect((rows[0]?.after ?? '').length > 0, 'each row shows the words around its hit');
+  await capture('search-results');
+
+  // Tapping a result lands on its page with the hit lit and pulsed.
+  const inMiddle = rows.find((r) => r.before.includes('so that this'));
+  expect(inMiddle, 'a hit inside the long chapter to jump to');
+  await page.locator(`.search-hit[data-hit="${inMiddle.index}"]`).click();
+  await page.waitForTimeout(300);
+  expect(await page.locator('#search-panel').isHidden(), 'the panel steps aside for the page');
+  expectEq(await chapterLabel(page), '2 of 3', 'the jump landed in the hit’s chapter');
+
+  // LOAD-BEARING (salvage §7, second half): ALL occurrences on the page are
+  // marked, and the one that was chosen is on screen.
+  const hits = await findHits(page);
+  expect(hits.length > 1, `every occurrence on the page is marked (${hits.length})`);
+  expect(
+    hits.some((h) => h.index === inMiddle.index),
+    'including the one that was tapped',
+  );
+  const onScreen = await page.evaluate((index: number) => {
+    const v = document.getElementById('viewport') as HTMLElement;
+    const mark = v
+      .querySelector('.chapter-host')
+      ?.shadowRoot?.querySelector<HTMLElement>(`mark.find-hit[data-find="${index}"]`);
+    if (!mark) return false;
+    const r = mark.getBoundingClientRect();
+    const vr = v.getBoundingClientRect();
+    return r.right > vr.left && r.left < vr.right;
+  }, inMiddle.index);
+  expect(onScreen, 'the chosen hit is on the visible page');
+  await capture('search-hit-marked');
+
+  // Find marks are overlay marks, so locators are blind to them: the position
+  // saved while the page is lit restores identically once they are gone.
+  const litParagraph = await firstVisibleParagraph(page);
+  await page.waitForTimeout(1200); // debounced position save (800ms) + write
+  // The hash still names the book, so the reload re-enters the reader itself.
+  await page.reload();
+  await page.getByRole('heading', { name: 'Two: The Long Middle' }).waitFor();
+  await page.waitForTimeout(250);
+  expectEq(
+    await firstVisibleParagraph(page),
+    litParagraph,
+    'a position saved under find marks restores to the same paragraph',
+  );
+  expectEq((await findHits(page)).length, 0, 'and the marks themselves did not persist');
+
+  // Escape closes the panel and takes the marks with it.
+  await runSearch(page, 'quick brown');
+  expect((await findHits(page)).length === 0, 'searching alone does not mark the current page');
+  const firstHit = (await searchRows(page))[0];
+  expect(firstHit, 'a hit to jump to');
+  await page.locator(`.search-hit[data-hit="${firstHit.index}"]`).click();
+  await page.waitForTimeout(250);
+  expect((await findHits(page)).length > 0, 'the jump lit the page');
+  if (await chromeHidden(page)) await centerTap(page);
+  await page.locator('#search-toggle').click(); // reopen
+  await page.waitForTimeout(80);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(120);
+  expect(await page.locator('#search-panel').isHidden(), 'Escape closes the search panel');
+  expectEq((await findHits(page)).length, 0, 'and clears the find marks with it');
+
+  // Selecting text and choosing Search prefills the query (parity E2).
+  await centerTap(page);
+  await selectTextIn(page, 'p1', 'lazy dog');
+  await page.locator('#sel-search').click();
+  await page.waitForTimeout(300);
+  expect(await page.locator('#search-panel').isVisible(), 'the selection opened search');
+  expectEq(
+    await page.locator('#search-input').inputValue(),
+    'lazy dog',
+    'with the selected text as the query',
+  );
+  expect((await searchRows(page)).length > 0, 'and the results are already there');
+  await capture('search-from-selection');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(100);
+  await centerTap(page);
 });

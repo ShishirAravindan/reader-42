@@ -1,7 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 import { buildFixtureEpub, buildZip } from '../../test/fixture-epub.ts';
 import { Book } from '../epub/book.ts';
-import { LOCATION_SPAN, bookMetrics, charsBeforeId, flattenText, pageAnchors } from './metrics.ts';
+import {
+  LOCATION_SPAN,
+  bookMetrics,
+  charsBeforeId,
+  excerptAt,
+  flattenText,
+  pageAnchors,
+  rawOffsetOfElement,
+} from './metrics.ts';
 
 /** A minimal epub whose chapter texts are exactly known. */
 function knownEpub(bodies: string[]): Uint8Array {
@@ -98,6 +106,102 @@ describe('bookMetrics', () => {
     expect(m.totalChars).toBe(0);
     expect(m.totalLocations).toBe(1);
     expect(m.locationOf(0, 0.5)).toBe(1);
+  });
+});
+
+describe('placeAtLocation / placeAtChar', () => {
+  test('round-trips the location index: every location maps back to itself', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const m = bookMetrics(book);
+    for (const loc of [1, 2, 17, Math.floor(m.totalLocations / 2), m.totalLocations]) {
+      const place = m.placeAtLocation(loc);
+      expect(m.locationOf(place.chapter, place.fraction)).toBe(loc);
+    }
+  });
+
+  test('out-of-range input clamps into the book instead of escaping it', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const m = bookMetrics(book);
+    expect(m.placeAtLocation(0)).toEqual(m.placeAtLocation(1));
+    expect(m.placeAtLocation(m.totalLocations + 999)).toEqual(m.placeAtLocation(m.totalLocations));
+    expect(m.placeAtChar(-5)).toEqual({ chapter: 0, fraction: 0 });
+  });
+
+  test('a char offset lands in the chapter that contains it', async () => {
+    const book = await Book.open(knownEpub(['<p>aaaa</p>', '<p>bbbbbbbb</p>', '<p>cc</p>']));
+    const m = bookMetrics(book);
+    expect(m.placeAtChar(0)).toEqual({ chapter: 0, fraction: 0 });
+    expect(m.placeAtChar(4)).toEqual({ chapter: 1, fraction: 0 });
+    expect(m.placeAtChar(8)).toEqual({ chapter: 1, fraction: 0.5 });
+    expect(m.placeAtChar(12)).toEqual({ chapter: 2, fraction: 0 });
+    expect(m.placeAtChar(99)).toEqual({ chapter: 2, fraction: 1 });
+  });
+});
+
+describe('chapterText and chapterBody', () => {
+  test('chapterText is the raw text-node data the renderer will mount', async () => {
+    const book = await Book.open(knownEpub(['<p>the <em>quick</em> brown</p>']));
+    const m = bookMetrics(book);
+    // Raw, NOT collapsed: this is the coordinate system highlight boundaries
+    // and search offsets speak against the live wrapper.
+    expect(m.chapterText(0)).toBe('the quick brown');
+    expect(m.chapterText(9)).toBe('');
+  });
+
+  test('active content is stripped before counting, as the renderer strips it', async () => {
+    const book = await Book.open(knownEpub(['<p>kept</p><script>var gone = 1;</script>']));
+    const m = bookMetrics(book);
+    expect(m.chapterText(0)).toBe('kept');
+    expect(m.chapterChars[0]).toBe(4);
+  });
+
+  test('chapterBody resolves structural paths without rendering', async () => {
+    const book = await Book.open(knownEpub(['<h1>Title</h1><p>body text</p>']));
+    const m = bookMetrics(book);
+    const body = m.chapterBody(0);
+    expect(body?.children.length).toBe(2);
+    expect(m.chapterBody(0)).toBe(body); // cached, not re-parsed
+    expect(m.chapterBody(5)).toBeNull();
+  });
+});
+
+describe('excerptAt', () => {
+  const text = 'The quick brown fox jumps over the lazy dog, deliberately and at length.';
+
+  test('collapses whitespace and starts at the offset', () => {
+    expect(excerptAt('a\n\n  b   c d', 0, 40)).toBe('a b c d');
+    expect(excerptAt(text, 4, 11)).toBe('quick brown…');
+  });
+
+  test('cuts at a word boundary with an ellipsis', () => {
+    const out = excerptAt(text, 0, 20);
+    expect(out.endsWith('…')).toBe(true);
+    expect(out.length).toBeLessThanOrEqual(21);
+    expect(text.startsWith(out.slice(0, -1))).toBe(true);
+    expect(out.slice(0, -1).trimEnd()).toBe(out.slice(0, -1)); // no dangling space
+  });
+
+  test('a short tail needs no ellipsis', () => {
+    expect(excerptAt(text, text.length - 7, 40)).toBe('length.');
+    expect(excerptAt(text, 999, 40)).toBe('');
+  });
+});
+
+describe('rawOffsetOfElement', () => {
+  test('counts raw text-node data strictly before the element', () => {
+    const doc = new DOMParser().parseFromString(
+      '<body><h1 id="top">Title</h1><p>One  two</p><p id="mark">three</p></body>',
+      'text/html',
+    );
+    const body = doc.body;
+    const at = (id: string): number | null => {
+      const el = body.querySelector(`#${id}`);
+      return el ? rawOffsetOfElement(body, el) : null;
+    };
+    expect(at('top')).toBe(0);
+    // Raw, so the double space inside "One  two" counts as two.
+    expect(at('mark')).toBe('TitleOne  two'.length);
+    expect(rawOffsetOfElement(body, doc.createElement('p'))).toBeNull();
   });
 });
 

@@ -182,6 +182,27 @@ export function applyHighlight(
   hl: { id: string; color: HighlightColor; note?: string },
   range: Range,
 ): void {
+  const marks = wrapRange(wrapper, range, (doc) => {
+    const mark = doc.createElement('mark');
+    mark.className = `hl hl-${hl.color}`;
+    mark.dataset.hl = hl.id;
+    return mark;
+  });
+  const lastMark = marks[marks.length - 1];
+  if (hl.note && lastMark) lastMark.classList.add('has-note');
+}
+
+/**
+ * Wrap every text-node segment a range intersects in its own mark element,
+ * returning them in document order. Shared by highlights and find hits: both
+ * are overlay marks, and both must be applied segment-by-segment for the same
+ * reason. `make` builds each wrapper so the caller owns the class and data.
+ */
+export function wrapRange(
+  wrapper: HTMLElement,
+  range: Range,
+  make: (doc: Document) => HTMLElement,
+): HTMLElement[] {
   const doc = wrapper.ownerDocument;
   // Snapshot the segments before mutating: wrapping splits text nodes.
   const segments: { node: Text; start: number; end: number }[] = [];
@@ -193,22 +214,37 @@ export function applyHighlight(
     if (t.data.slice(start, end).trim().length === 0) continue;
     segments.push({ node: t, start, end });
   }
-  let lastMark: HTMLElement | null = null;
+  const marks: HTMLElement[] = [];
   for (const seg of segments) {
     try {
       const target = seg.start > 0 ? seg.node.splitText(seg.start) : seg.node;
       if (seg.end - seg.start < target.data.length) target.splitText(seg.end - seg.start);
-      const mark = doc.createElement('mark');
-      mark.className = `hl hl-${hl.color}`;
-      mark.dataset.hl = hl.id;
+      const mark = make(doc);
       target.parentNode?.insertBefore(mark, target);
       mark.appendChild(target);
-      lastMark = mark;
+      marks.push(mark);
     } catch {
-      // Skip the unwrappable segment; the rest of the highlight still shows.
+      // Skip the unwrappable segment; the rest of the overlay still shows.
     }
   }
-  if (hl.note && lastMark) lastMark.classList.add('has-note');
+  return marks;
+}
+
+/**
+ * Unwrap every mark matching a selector and normalize() the affected parents,
+ * so the DOM returns to its pre-overlay shape and text nodes re-fuse. The
+ * shared half of highlight removal and find-mark clearing.
+ */
+export function unwrapMarks(wrapper: HTMLElement, selector: string): void {
+  const parents = new Set<Node>();
+  for (const mark of Array.from(wrapper.querySelectorAll<HTMLElement>(selector))) {
+    const parent = mark.parentNode;
+    if (!parent) continue;
+    while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+    mark.remove();
+    parents.add(parent);
+  }
+  for (const parent of parents) parent.normalize();
 }
 
 /** Every mark segment of a highlight, in document order. */
@@ -222,15 +258,7 @@ export function highlightMarks(wrapper: HTMLElement, id: string): HTMLElement[] 
  * later serializations against clean structure.
  */
 export function removeHighlight(wrapper: HTMLElement, id: string): void {
-  const parents = new Set<Node>();
-  for (const mark of highlightMarks(wrapper, id)) {
-    const parent = mark.parentNode;
-    if (!parent) continue;
-    while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
-    mark.remove();
-    parents.add(parent);
-  }
-  for (const parent of parents) parent.normalize();
+  unwrapMarks(wrapper, `mark.hl[data-hl="${id}"]`);
 }
 
 /** Client rects of a highlight's segments; empty for stale/unrendered ids. */
