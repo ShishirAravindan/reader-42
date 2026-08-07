@@ -38,7 +38,7 @@ Code layout gets established by the rewrite's first PRs against the decisions.
 
 - **Branches:** `feat/`, `fix/`, `refactor/`, `chore/`, `docs/`, `test/`, `perf/`, `build/` + 2-4 kebab-case words. Never `claude/<wacky>`.
 - **Commits:** conventional, single-line preferred, atomic. No trailers, no `Co-Authored-By`.
-- **PRs:** one per feature, against `dev`, squash-merged; title = the squash commit message. Keep bodies short and plain. PRs touching user-visible behavior attach a screenshot or short recording; build/refactor/docs PRs don't. Never overwrite a PR body the owner has edited; fetch the current body first and apply the minimal delta in their style.
+- **PRs:** one per feature, against `dev`, squash-merged; title = the squash commit message. Keep bodies short and plain. PRs touching user-visible behavior attach a screenshot or short recording; build/refactor/docs PRs don't. A PR merging `dev` into `main` attaches an end-to-end demo recording of the reader. Never overwrite a PR body the owner has edited; fetch the current body first and apply the minimal delta in their style.
 
 ## Definition of done
 
