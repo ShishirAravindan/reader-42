@@ -5,6 +5,7 @@
 import { Book } from '../epub/book.ts';
 import type { TocEntry } from '../epub/types.ts';
 import type { DeviceCacheTransport } from '../library/device-cache.ts';
+import { slugify } from '../library/identity.ts';
 import type { Library } from '../library/store.ts';
 import type { BookSidecar } from '../library/types.ts';
 import { ReaderController } from '../reader/controller.ts';
@@ -19,6 +20,7 @@ import { type AnnotationsUI, createAnnotationsUI } from './annotations-ui.ts';
 import { createChrome } from './chrome.ts';
 import { createDictionaryCard } from './dictionary-card.ts';
 import { el } from './dom.ts';
+import { chapterTitles, createNotebook, logseqOutline, sortHighlights } from './notebook.ts';
 import {
   getDisplayMode,
   getMeasureRem,
@@ -46,6 +48,8 @@ let detachEscape: (() => void) | null = null;
 let disposeAnnotations: (() => void) | null = null;
 /** Closes the dictionary card and detaches its outside-click listener. */
 let disposeDictCard: (() => void) | null = null;
+/** Closes the notebook panel on teardown. */
+let closeNotebook: (() => void) | null = null;
 
 // One dictionary for the app's lifetime: the 5 MB artifact is fetched on the
 // FIRST lookup only (never at book open) and the parsed map stays resident,
@@ -70,7 +74,12 @@ const MIN_SESSION_SEC = 30;
 // taste (prefs), re-read on every open and read at call time by the renderer.
 let displayMode: DisplayMode = 'paged';
 
-export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
+export async function openReader(
+  deps: ReaderDeps,
+  id: string,
+  /** Deep-link target (F5): jump to this highlight and flash it after open. */
+  highlightId: string | null = null,
+): Promise<void> {
   const { library, deviceCache } = deps;
   closeReader();
 
@@ -221,6 +230,11 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
     metrics.chapterChars,
   );
 
+  // Deep-link URLs keep the transport query (?lib=…) so a pasted link boots
+  // the same library the copier was reading from.
+  const linkFor = (hid: string): string =>
+    `${location.origin}${location.pathname}${location.search}#/book/${id}/hl/${hid}`;
+
   // The dictionary card (E1): opened by double-clicking a word (the native
   // long-press word selection routes through the same selection path on
   // touch) and by the selection menu's Look up.
@@ -250,11 +264,21 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
       void library.saveSidecar(openSidecar);
     },
     lookup: (text) => dictCard.show(text),
-    linkFor: (hid) => `${location.origin}${location.pathname}#/book/${id}/hl/${hid}`,
+    linkFor,
   });
   disposeAnnotations = annotations.dispose;
 
   controller.open(sidecar.position);
+
+  // A deep link (F5) lands on its highlight, flashed; the address bar keeps
+  // the copyable link (salvage §4) — routing never rewrites it.
+  if (highlightId) {
+    const target = openSidecar?.highlights.find((h) => h.id === highlightId);
+    if (target) {
+      controller.goToChapter(target.chapter);
+      annotations.reveal(target.id);
+    }
+  }
 
   // The status line (B3): live values read straight off the controller and
   // metrics, so it renders correctly immediately on open — no waiting for
@@ -316,8 +340,46 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
   const toc = el<HTMLElement>('toc');
   renderToc(toc, book.toc);
   el<HTMLButtonElement>('toc-toggle').onclick = () => {
+    notebook.close();
     toc.hidden = !toc.hidden;
   };
+
+  // The Notebook (F4): every highlight in book order with human chapter
+  // titles (never spine indices — salvage §5), color filters, jump-and-flash
+  // rows, and the Logseq outline export.
+  const titles = chapterTitles(book.toc, book.chapters.length, (p) => book.chapterIndexByPath(p));
+  const chapterTitleFor = (chapter: number): string => titles[chapter] ?? `Chapter ${chapter + 1}`;
+  const notebook = createNotebook(
+    el<HTMLElement>('notebook'),
+    el<HTMLButtonElement>('notebook-toggle'),
+    {
+      highlights: () => openSidecar?.highlights ?? [],
+      chapterTitle: chapterTitleFor,
+      jumpTo: (hl) => {
+        // Through the controller first: the chapter renders (and its marks
+        // re-apply) before any geometry is resolved for the flash.
+        controller?.goToChapter(hl.chapter);
+        annotations?.reveal(hl.id);
+      },
+      exportFile: () => ({
+        name: `${slugify(openSidecar?.title ?? 'book')}-highlights.md`,
+        content: logseqOutline(
+          openSidecar?.title ?? '',
+          sortHighlights(openSidecar?.highlights ?? []).map((hl) => ({
+            text: hl.text,
+            chapterTitle: chapterTitleFor(hl.chapter),
+            link: linkFor(hl.id),
+            ...(hl.note ? { note: hl.note } : {}),
+          })),
+        ),
+      }),
+      onOpen: () => {
+        toc.hidden = true;
+        aaPanel.close();
+      },
+    },
+  );
+  closeNotebook = notebook.close;
 
   // The Aa panel (C1-C6/D1): controls write device-local prefs; reflowing
   // ones call relayout(), which re-reads the ReaderView accessors above.
@@ -328,6 +390,7 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
     },
     onOpen: () => {
       toc.hidden = true;
+      notebook.close();
     },
   });
   closeAaPanel = aaPanel.close;
@@ -337,6 +400,7 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
     onTurn: (d) => {
       // A page turn drops you back into pure text (parity I1).
       toc.hidden = true;
+      notebook.close();
       chrome.hide();
       if (d === 'forward') controller?.turnForward();
       else controller?.turnBack();
@@ -365,6 +429,10 @@ export async function openReader(deps: ReaderDeps, id: string): Promise<void> {
       return;
     }
     if (annotations?.handleEscape()) return;
+    if (notebook.isOpen()) {
+      notebook.close();
+      return;
+    }
     if (aaPanel.isOpen()) {
       aaPanel.close();
       return;
@@ -408,6 +476,8 @@ export function closeReader(): void {
   disposeAnnotations = null;
   disposeDictCard?.();
   disposeDictCard = null;
+  closeNotebook?.();
+  closeNotebook = null;
   closeAaPanel?.();
   closeAaPanel = null;
   teardownSession?.(); // flush the session before the sidecar goes away
