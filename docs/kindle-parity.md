@@ -246,3 +246,37 @@ continuity.
 Epics 1–3 are the "can I actually read a book comfortably" core and should land
 first. Epic 4 is the annotation layer. Epic 5 is navigation depth, with Page
 Flip (H4) as the most involved single item.
+
+## What shipped
+
+The rebuild landed all six epics. Every line item above is implemented except
+where noted; each carries at least one assertion in the acceptance script
+(`bun run demo`, 17 scenes), and the whole spec above stays as the record of
+*why* each behavior is shaped the way it is.
+
+| Epic | Shipped | Notes |
+|---|---|---|
+| 0 Rendering unit | one chapter at a time | See the kickoff resolutions above. |
+| 1 Page model | A1–A6 | Paged default; stride is exactly the viewport width; anchors survive the mode switch. |
+| 2 Position, progress, time | B1–B6 | Locations are 128 flattened characters; print pages come from the EPUB page-list; progress is character-weighted. |
+| 3 Typography and themes | C1–C6, C8, D1 | **C7 (orientation lock, reading ruler) deliberately not built.** Theme tokens now have exactly one source. |
+| 4 Selection, dictionary, highlights | E1, E2, F1–F5 | **E3 (custom selection handles) uses the platform's own handles.** Dictionary is Webster 1913, 102k entries, lazily cached. |
+| 5 Navigation and chrome | G1–G2, H1–H5, I1–I3, J1–J2 | Page Flip is a location slider with a live text excerpt, per the kickoff resolution — not a thumbnail grid. |
+
+Deliberate refusals and adaptations, so they are not mistaken for gaps:
+
+- **C7 orientation lock / reading ruler.** Not built. Orientation lock is an OS
+  affordance a web app should not fight; the ruler is an accessibility feature
+  that wants its own design pass rather than a parity checkbox.
+- **E3 selection handles.** Kindle draws its own drag handles. We use the
+  platform's, which are the ones the reader's thumb already knows.
+- **H4 Page Flip thumbnails.** Replaced by the location slider + excerpt (see
+  the kickoff resolutions): a 3×3 pixel grid needs the whole book laid out at
+  once, which the rendering unit deliberately does not do.
+- **Translation tab (E-series).** Refused: cloud-dependent. The dictionary is
+  local; Wikipedia is an explicit outbound link, not an embedded panel.
+
+Two debts from `salvage.md` §7 were paid here rather than carried: in-book
+search now matches across inline tags and marks every occurrence (not one per
+chapter), and bookmarks live in the synced sidecar instead of device-local
+storage.

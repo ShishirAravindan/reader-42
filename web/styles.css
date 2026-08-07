@@ -1025,6 +1025,15 @@ button:hover {
   padding-bottom: calc(2rem + env(safe-area-inset-bottom));
 }
 
+/* Full-height side panels sit ABOVE the page, so they need to look like it:
+   without an edge shadow the text they cover reads as clipped mid-word rather
+   than as text behind a panel. */
+#search-panel,
+#notebook,
+#goto-panel {
+  box-shadow: -10px 0 28px var(--scrim);
+}
+
 /* Search panel (H5): the notebook's shape, a query box instead of chips. */
 #search-panel {
   position: absolute;

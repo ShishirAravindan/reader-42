@@ -1,36 +1,31 @@
 // Reader shell: everything that wires one open book to the reader chrome.
 // main.ts owns boot/transport/routing/shelf and calls openReader/closeReader;
-// this module owns the controller, the TOC, and position persistence.
+// this module owns the controller, the panels' wiring, and position persistence.
+//
+// Rules of their own live in modules beside this one — the Escape chain, the
+// reading-session clock, the finish nudge, in-book links, the find overlay —
+// so what is left here is only how one open book is wired together, and how
+// it comes apart.
 
 import { Book } from '../epub/book.ts';
-import type { TocEntry } from '../epub/types.ts';
 import type { DeviceCacheTransport } from '../library/device-cache.ts';
 import { slugify } from '../library/identity.ts';
 import type { Library } from '../library/store.ts';
 import type { BookSidecar, Bookmark } from '../library/types.ts';
 import { ReaderController } from '../reader/controller.ts';
 import { type Dictionary, createDictionary } from '../reader/dictionary.ts';
-import { epubType, isFootnoteRef } from '../reader/footnotes.ts';
 import { attachReadingInput } from '../reader/input.ts';
 import { elementAtPath } from '../reader/locator.ts';
 import {
   type BookMetrics,
   bookMetrics,
   excerptAt,
-  flattenText,
   pageAnchors,
   rawOffsetForFlat,
   rawOffsetOfElement,
 } from '../reader/metrics.ts';
 import type { DisplayMode } from '../reader/mode.ts';
-import { MAX_SAMPLE_SEC, createPace } from '../reader/pace.ts';
-import {
-  applyFindMarks,
-  clearFindMarks,
-  createBookSearch,
-  findMarks,
-  flashFindMark,
-} from '../reader/search.ts';
+import { createBookSearch } from '../reader/search.ts';
 import { readerSelection, wordFromSelection } from '../reader/selection.ts';
 import { createAaPanel } from './aa-panel.ts';
 import { type AnnotationsUI, createAnnotationsUI } from './annotations-ui.ts';
@@ -38,9 +33,13 @@ import { type Ribbon, bookmarkOnPage, createRibbon, newBookmarkId } from './book
 import { createChrome } from './chrome.ts';
 import { createDictionaryCard } from './dictionary-card.ts';
 import { el } from './dom.ts';
+import { type Dismissible, handleEscape } from './escape-chain.ts';
+import { createFindOverlay } from './find-overlay.ts';
+import { createFinishNudge } from './finish-nudge.ts';
 import { createFootnotePopover } from './footnote-popover.ts';
 import { createGoToPanel } from './goto-panel.ts';
 import { createJumpBack, jumpBackLabel } from './jumpback.ts';
+import { attachInBookLinks } from './links.ts';
 import { chapterTitles, createNotebook, logseqOutline, sortHighlights } from './notebook.ts';
 import { type Peek, createPeek } from './peek.ts';
 import {
@@ -53,6 +52,7 @@ import {
   setStatusMode,
 } from './prefs.ts';
 import { type SearchPanel, createSearchPanel } from './search-panel.ts';
+import { trackReadingSession } from './session.ts';
 import { type StatusLine, createStatusLine, pageAt } from './status.ts';
 import { currentTypography } from './typography.ts';
 
@@ -65,22 +65,12 @@ export interface ReaderDeps {
 
 let controller: ReaderController | null = null;
 let openSidecar: BookSidecar | null = null;
-let detachInput: (() => void) | null = null;
-let detachEscape: (() => void) | null = null;
-/** Tears down the annotation overlays (menu, note editor) and their listeners. */
-let disposeAnnotations: (() => void) | null = null;
-/** Closes the dictionary card and detaches its outside-click listener. */
-let disposeDictCard: (() => void) | null = null;
-/** Closes the notebook panel on teardown. */
-let closeNotebook: (() => void) | null = null;
-/** Closes the Go To panel on teardown. */
-let closeGoTo: (() => void) | null = null;
-/** Closes the footnote popover and detaches its outside-click listener. */
-let disposeFootnotes: (() => void) | null = null;
-/** Closes the search panel and clears its find marks on teardown. */
-let closeSearch: (() => void) | null = null;
-/** Closes the Page Flip peek on teardown. */
-let closePeek: (() => void) | null = null;
+/**
+ * How one open book comes apart: closeReader() drains this in order. The shell
+ * owns the lifecycle, so every listener, overlay and clock that openReader
+ * brings up registers its undo here and nowhere else.
+ */
+const teardown: (() => void)[] = [];
 
 // One dictionary for the app's lifetime: the 5 MB artifact is fetched on the
 // FIRST lookup only (never at book open) and the parsed map stays resident,
@@ -94,13 +84,7 @@ function appDictionary(): Dictionary {
   });
   return dictionary;
 }
-/** Closes the Aa panel (detaching its outside-click listener) on teardown. */
-let closeAaPanel: (() => void) | null = null;
-/** Flushes the reading-session clock and detaches its listeners. */
-let teardownSession: (() => void) | null = null;
 
-/** A stretch under this long is a peek, not a reading session (salvage §5). */
-const MIN_SESSION_SEC = 30;
 // Kindle parity: paginated is the default; the current value is device-local
 // taste (prefs), re-read on every open and read at call time by the renderer.
 let displayMode: DisplayMode = 'paged';
@@ -130,51 +114,19 @@ export async function openReader(
   // progress weights, the location index, and time-left (parity B1/B4/B5).
   const metrics = bookMetrics(book);
 
-  // Reading pace (B5): device-local, per book, fed with character offsets
-  // (never pixels) at each position emission. Sessions (salvage §5) reuse the
-  // same activity clock: time between emissions counts as reading unless the
-  // gap is long enough to be an idle.
-  const pace = createPace(getPace(id));
-  let sessionSec = 0;
-  let lastActiveMs: number | null = Date.now();
-
-  const tickActivity = (nowMs: number): void => {
-    if (lastActiveMs !== null) {
-      const dt = (nowMs - lastActiveMs) / 1000;
-      if (dt > 0 && dt <= MAX_SAMPLE_SEC) sessionSec += dt;
-    }
-    lastActiveMs = nowMs;
-  };
-
-  const flushSession = (): void => {
-    if (sessionSec >= MIN_SESSION_SEC && openSidecar) {
-      openSidecar = {
-        ...openSidecar,
-        sessions: [
-          ...openSidecar.sessions,
-          { seconds: Math.round(sessionSec), endedAt: new Date().toISOString() },
-        ],
-      };
+  // Reading pace and sessions (B5, salvage §5): one activity clock, fed with
+  // character offsets (never pixels) at each position emission. Pace stays on
+  // the device; sessions go to the sidecar through the same save path as
+  // position updates.
+  const session = trackReadingSession({
+    savedPace: getPace(id),
+    savePace: (state) => setPace(id, state),
+    addSession: (row) => {
+      if (!openSidecar) return;
+      openSidecar = { ...openSidecar, sessions: [...openSidecar.sessions, row] };
       void library.saveSidecar(openSidecar);
-    }
-    sessionSec = 0;
-  };
-
-  const onVisibility = (): void => {
-    if (document.hidden) {
-      tickActivity(Date.now());
-      flushSession();
-      lastActiveMs = null; // hidden time never counts
-    } else {
-      lastActiveMs = Date.now();
-    }
-  };
-  document.addEventListener('visibilitychange', onVisibility);
-  teardownSession = () => {
-    document.removeEventListener('visibilitychange', onVisibility);
-    tickActivity(Date.now());
-    flushSession();
-  };
+    },
+  });
 
   deps.showReader();
   el<HTMLElement>('reader-book-title').textContent = sidecar.title;
@@ -184,35 +136,19 @@ export async function openReader(
   chrome.hide();
   displayMode = getDisplayMode();
 
-  // End-of-book nudge (B6): one more forward turn on the last page offers
-  // the finished state. Never re-nudges a finished book; never forces an
-  // exit — the reader stays in the book either way.
-  const finishNudge = el<HTMLElement>('finish-nudge');
-  finishNudge.hidden = true; // a previous open may have left it up
-  const closeFinish = (): void => {
-    finishNudge.hidden = true;
-  };
-  const showFinish = (): void => {
-    if (!openSidecar || openSidecar.state === 'finished') return;
-    el<HTMLElement>('finish-book-title').textContent = openSidecar.title;
-    el<HTMLElement>('finish-actions').hidden = false;
-    el<HTMLElement>('finish-confirm').hidden = true;
-    finishNudge.hidden = false;
-  };
-  el<HTMLButtonElement>('finish-not-yet').onclick = closeFinish;
-  el<HTMLButtonElement>('finish-yes').onclick = () => {
-    if (!openSidecar) return;
-    openSidecar = {
-      ...openSidecar,
-      state: 'finished',
-      stateChangedAt: new Date().toISOString(),
-    };
-    void library.saveSidecar(openSidecar);
-    // A quiet confirmation, then the card slips away.
-    el<HTMLElement>('finish-actions').hidden = true;
-    el<HTMLElement>('finish-confirm').hidden = false;
-    setTimeout(closeFinish, 1400);
-  };
+  const finishNudge = createFinishNudge({
+    book: () =>
+      openSidecar ? { title: openSidecar.title, finished: openSidecar.state === 'finished' } : null,
+    markFinished: () => {
+      if (!openSidecar) return;
+      openSidecar = {
+        ...openSidecar,
+        state: 'finished',
+        stateChangedAt: new Date().toISOString(),
+      };
+      void library.saveSidecar(openSidecar);
+    },
+  });
 
   const viewport = el<HTMLElement>('viewport');
   // Declared before the controller: its hooks fire during open(), and must
@@ -222,30 +158,12 @@ export async function openReader(
   let ribbon: Ribbon | null = null;
   let searchPanel: SearchPanel | null = null;
 
-  // Find marks (H5) live on whichever chapter is rendered, addressed by their
-  // index in the active result list. They are overlay marks, so locators are
-  // blind to them: a position saved while the page is lit restores identically
-  // once they are gone (salvage §1).
-  const findOverlay = {
-    applyChapter(): void {
-      const view = controller?.chapterView();
-      if (!view) return;
-      clearFindMarks(view.wrapper);
-      const hits = searchPanel?.hits() ?? [];
-      if (hits.length > 0) applyFindMarks(view.wrapper, hits, controller?.currentChapter() ?? 0);
-    },
-    clear(): void {
-      const view = controller?.chapterView();
-      if (view) clearFindMarks(view.wrapper);
-    },
-    reveal(index: number): void {
-      const view = controller?.chapterView();
-      const mark = view ? findMarks(view.wrapper, index)[0] : undefined;
-      if (!view || !mark) return;
-      view.revealElement(mark);
-      flashFindMark(view.wrapper, index);
-    },
-  };
+  const findOverlay = createFindOverlay({
+    view: () => controller?.chapterView() ?? null,
+    chapter: () => controller?.currentChapter() ?? 0,
+    hits: () => searchPanel?.hits() ?? [],
+  });
+
   controller = new ReaderController(
     book,
     viewport,
@@ -265,7 +183,7 @@ export async function openReader(
         ribbon?.refresh();
       },
       onBoundary: (edge) => {
-        if (edge === 'end') showFinish();
+        if (edge === 'end') finishNudge.show();
       },
       onPosition: ({ position, progress }) => {
         if (!openSidecar) return;
@@ -279,12 +197,9 @@ export async function openReader(
         };
         void library.saveSidecar(openSidecar);
         // Pace sample: the position as a global character offset.
-        const now = Date.now();
-        tickActivity(now);
         const chars = metrics.chapterChars[position.chapter] ?? 0;
         const fraction = controller?.currentFraction() ?? 0;
-        pace.record(metrics.charsBefore(position.chapter) + fraction * chars, now);
-        setPace(id, pace.state());
+        session.record(metrics.charsBefore(position.chapter) + fraction * chars, Date.now());
         status?.refresh();
         ribbon?.refresh();
       },
@@ -303,7 +218,6 @@ export async function openReader(
   const dictCard = createDictionaryCard(appDictionary(), {
     passThrough: () => [el<HTMLElement>('selection-menu')],
   });
-  disposeDictCard = dictCard.dispose;
   viewport.ondblclick = (): void => {
     const view = controller?.chapterView();
     const range = view ? readerSelection(view.shadow) : null;
@@ -329,7 +243,6 @@ export async function openReader(
     searchInBook: (text) => searchPanel?.open(text),
     linkFor,
   });
-  disposeAnnotations = annotations.dispose;
 
   // Bookmarks (G1/G2): the corner gesture toggles the visible page's mark and
   // the dog-ear ribbon shows it. Everything reads the SYNCED sidecar — there
@@ -442,7 +355,7 @@ export async function openReader(
           scope === 'chapter'
             ? (1 - (controller?.currentFraction() ?? 0)) * (metrics.chapterChars[chapter] ?? 0)
             : metrics.totalChars - currentChars();
-        return pace.minutesFor(remaining);
+        return session.paceMinutesFor(remaining);
       },
     },
     getStatusMode(),
@@ -474,12 +387,15 @@ export async function openReader(
   // The Go To panel (H1/G2): Cover, Beginning, page-or-location entry, the
   // contents, and the bookmark list. The panel resolves what the reader asked
   // for; every jump goes through the shell so the back stack sees it.
-  const toc = el<HTMLElement>('toc');
   const gotoPanel = createGoToPanel(
     el<HTMLElement>('goto-panel'),
     el<HTMLButtonElement>('toc-toggle'),
     {
-      contents: toc,
+      contents: el<HTMLElement>('toc'),
+      toc: book.toc,
+      goToTocEntry: (tocEntry) => {
+        jumpFrom(() => controller?.goToPath(tocEntry.path, tocEntry.fragment));
+      },
       bookmarks,
       chapterTitle: chapterTitleFor,
       snippet: (bm) => bookmarkSnippet(metrics, bm),
@@ -514,8 +430,6 @@ export async function openReader(
       },
     },
   );
-  closeGoTo = gotoPanel.close;
-  renderToc(toc, book.toc, gotoPanel.close, jumpFrom);
   const notebook = createNotebook(
     el<HTMLElement>('notebook'),
     el<HTMLButtonElement>('notebook-toggle'),
@@ -549,7 +463,6 @@ export async function openReader(
       },
     },
   );
-  closeNotebook = notebook.close;
 
   // The Aa panel (C1-C6/D1): controls write device-local prefs; reflowing
   // ones call relayout(), which re-reads the ReaderView accessors above.
@@ -564,7 +477,6 @@ export async function openReader(
       searchPanel?.close();
     },
   });
-  closeAaPanel = aaPanel.close;
 
   // In-book search (H5). The book's text comes from metrics, which parses and
   // sanitizes each chapter exactly as the renderer does — so a hit's offsets
@@ -593,7 +505,6 @@ export async function openReader(
       },
     },
   );
-  closeSearch = () => searchPanel?.close();
 
   // The Page Flip peek (H4). Everything it shows is derived from character
   // metrics, so scrubbing renders nothing and moves nothing: the reading
@@ -625,7 +536,6 @@ export async function openReader(
       chrome.hide();
     },
   });
-  closePeek = peek.close;
   el<HTMLButtonElement>('peek-toggle').onclick = (event): void => {
     event.stopPropagation(); // the bar is chrome, not a tap zone
     if (peek.isOpen()) peek.close();
@@ -640,9 +550,8 @@ export async function openReader(
     el<HTMLButtonElement>('footnote-goto'),
     el<HTMLElement>('reader'),
   );
-  disposeFootnotes = footnotes.dispose;
 
-  detachInput = attachReadingInput(viewport, {
+  const detachInput = attachReadingInput(viewport, {
     dir: () => book.direction,
     onTurn: (d) => {
       // A page turn drops you back into pure text (parity I1).
@@ -676,154 +585,82 @@ export async function openReader(
       !(annotations?.isOpen() ?? false),
   });
 
-  // Escape only ever restores or closes (salvage §4): it closes an open
-  // panel, else reveals hidden chrome; it never hides anything else.
-  // Chain order: dialogs/cards/menus first, then panels, then chrome.
+  // The Escape chain, declared once, in priority order: transient overlays
+  // first, then panels, then (with nothing open) the hidden chrome.
+  const escapeChain: Dismissible[] = [
+    finishNudge,
+    peek, // closing a peek costs nothing: the position never moved
+    footnotes,
+    dictCard,
+    {
+      // The annotation layer owns its own sub-order (menu, then note editor):
+      // handleEscape() closes the topmost overlay and reports that it spent
+      // the press — true in exactly the cases where isOpen() is.
+      isOpen: (): boolean => annotations?.isOpen() ?? false,
+      close: (): void => {
+        annotations?.handleEscape();
+      },
+    },
+    {
+      isOpen: (): boolean => searchPanel?.isOpen() ?? false,
+      close: (): void => searchPanel?.close(),
+    },
+    notebook,
+    aaPanel,
+    gotoPanel,
+  ];
   const onEscape = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape' || el<HTMLElement>('reader').hidden) return;
-    if (!finishNudge.hidden) {
-      closeFinish();
-      return;
-    }
-    if (peek.isOpen()) {
-      peek.close(); // closing a peek costs nothing: the position never moved
-      return;
-    }
-    if (footnotes.isOpen()) {
-      footnotes.close();
-      return;
-    }
-    if (dictCard.isOpen()) {
-      dictCard.close();
-      return;
-    }
-    if (annotations?.handleEscape()) return;
-    if (searchPanel?.isOpen()) {
-      searchPanel.close();
-      return;
-    }
-    if (notebook.isOpen()) {
-      notebook.close();
-      return;
-    }
-    if (aaPanel.isOpen()) {
-      aaPanel.close();
-      return;
-    }
-    if (gotoPanel.isOpen()) {
-      gotoPanel.close();
-      return;
-    }
-    if (!chrome.isOpen()) chrome.reveal();
+    handleEscape(escapeChain, () => {
+      if (!chrome.isOpen()) chrome.reveal();
+    });
   };
   document.addEventListener('keydown', onEscape);
-  detachEscape = () => document.removeEventListener('keydown', onEscape);
 
-  // Internal links inside the chapter shadow jump within the book.
-  viewport.onclick = (event) => {
-    const target = event.composedPath().find((n): n is HTMLAnchorElement => {
-      return n instanceof HTMLAnchorElement && n.hasAttribute('href');
-    });
-    if (!target) return;
-    const href = target.getAttribute('href') ?? '';
-    if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return; // external, opens in new tab
-    event.preventDefault();
-    const [path, fragment] = href.split('#');
-    const chapter = book.chapters[controller?.currentChapter() ?? 0];
-    if (!chapter) return;
-    if (!path && fragment) {
-      // A same-chapter note shows in place (H2) rather than navigating: the
-      // reading position never moves, so there is nothing to come back from.
-      const view = controller?.chapterView();
-      const note = view?.shadow.getElementById(fragment) ?? null;
-      if (
-        view &&
-        note &&
-        isFootnoteRef({
-          linkType: epubType(target),
-          linkText: target.textContent ?? '',
-          targetTag: note.localName.toLowerCase(),
-          targetType: epubType(note),
-          targetTextLength: flattenText(note.textContent ?? '').length,
-        })
-      ) {
-        const here = controller?.currentChapter() ?? 0;
-        footnotes.show(target.getBoundingClientRect(), note, () => {
-          jumpFrom(() => controller?.goToChapter(here, fragment));
-        });
-        return;
-      }
-      jumpFrom(() => controller?.goToChapter(controller.currentChapter(), fragment));
-      return;
-    }
-    const resolved = resolveHref(chapter.path, path ?? '');
-    jumpFrom(() => controller?.goToPath(resolved, fragment ?? null));
-  };
+  const detachLinks = attachInBookLinks(viewport, {
+    currentView: () => controller?.chapterView() ?? null,
+    currentChapter: () => controller?.currentChapter() ?? 0,
+    chapterPath: (chapter) => book.chapters[chapter]?.path ?? null,
+    footnotes,
+    jumpFrom,
+    goToChapter: (chapter, fragment) => {
+      controller?.goToChapter(chapter, fragment);
+    },
+    goToPath: (path, fragment) => {
+      controller?.goToPath(path, fragment);
+    },
+  });
+
+  // The undo of everything above, in the order closeReader drains it: the
+  // input and Escape listeners stop reaching the overlays before those go, and
+  // the session flushes while its sidecar is still open.
+  teardown.push(
+    detachInput,
+    () => document.removeEventListener('keydown', onEscape),
+    detachLinks,
+    annotations.dispose,
+    dictCard.dispose,
+    notebook.close,
+    gotoPanel.close,
+    footnotes.dispose,
+    () => searchPanel?.close(),
+    peek.close,
+    aaPanel.close,
+    session.teardown, // flush the session before the sidecar goes away
+  );
 }
 
 export function closeReader(): void {
-  detachInput?.();
-  detachInput = null;
-  detachEscape?.();
-  detachEscape = null;
-  disposeAnnotations?.();
-  disposeAnnotations = null;
-  disposeDictCard?.();
-  disposeDictCard = null;
-  closeNotebook?.();
-  closeNotebook = null;
-  closeGoTo?.();
-  closeGoTo = null;
-  disposeFootnotes?.();
-  disposeFootnotes = null;
-  closeSearch?.();
-  closeSearch = null;
-  closePeek?.();
-  closePeek = null;
+  for (const undo of teardown.splice(0)) undo();
+  // Unconditional, so the chrome that overlays the page is down even when the
+  // router closes a reader that was never opened.
   const pill = document.getElementById('jump-back');
   if (pill) pill.hidden = true;
-  closeAaPanel?.();
-  closeAaPanel = null;
-  teardownSession?.(); // flush the session before the sidecar goes away
-  teardownSession = null;
   const ribbonEl = document.getElementById('bookmark-ribbon');
   if (ribbonEl) ribbonEl.hidden = true;
   controller?.dispose();
   controller = null;
   openSidecar = null;
-}
-
-function renderToc(
-  root: HTMLElement,
-  entries: TocEntry[],
-  close: () => void,
-  jumpFrom: (run: () => void) => void,
-): void {
-  root.replaceChildren();
-  root.appendChild(tocList(entries, close, jumpFrom));
-}
-
-function tocList(
-  entries: TocEntry[],
-  close: () => void,
-  jumpFrom: (run: () => void) => void,
-): HTMLOListElement {
-  const ol = document.createElement('ol');
-  for (const entry of entries) {
-    const li = document.createElement('li');
-    const a = document.createElement('a');
-    a.textContent = entry.label || '(untitled)';
-    a.href = '#';
-    a.addEventListener('click', (event) => {
-      event.preventDefault();
-      close();
-      jumpFrom(() => controller?.goToPath(entry.path, entry.fragment));
-    });
-    li.appendChild(a);
-    if (entry.children.length > 0) li.appendChild(tocList(entry.children, close, jumpFrom));
-    ol.appendChild(li);
-  }
-  return ol;
 }
 
 /**
@@ -843,14 +680,3 @@ function bookmarkSnippet(metrics: BookMetrics, bookmark: Bookmark): string {
 const BOOKMARK_SNIPPET_CHARS = 90;
 /** Three lines of preview: enough to recognize a place, not enough to read. */
 const PEEK_EXCERPT_CHARS = 180;
-
-function resolveHref(basePath: string, href: string): string {
-  const base = basePath.split('/').slice(0, -1);
-  const out = [...base];
-  for (const part of href.split('/')) {
-    if (part === '' || part === '.') continue;
-    if (part === '..') out.pop();
-    else out.push(part);
-  }
-  return out.join('/');
-}
