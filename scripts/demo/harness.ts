@@ -16,7 +16,21 @@ export interface SceneContext {
   base: string;
   /** Screenshot into scripts/demo/out/NN-label.png (gitignored evidence). */
   capture(label: string): Promise<void>;
+  /**
+   * Run a body against a fresh emulated phone (product law 5: the phone is a
+   * reading surface, not a port). Its own context, so touch, scale, and the
+   * device's own storage are real; closed when the body returns.
+   */
+  onPhone(body: (phone: PhoneContext) => Promise<void>): Promise<void>;
 }
+
+export interface PhoneContext {
+  page: Page;
+  capture(label: string): Promise<void>;
+}
+
+/** A mid-size modern phone: the screen the boredom moment actually happens on. */
+const PHONE = { width: 390, height: 844 };
 
 interface Scene {
   name: string;
@@ -82,11 +96,12 @@ export async function runScenes(): Promise<void> {
     // through rather than hard-coding is what lets these scenes run both here
     // and on a runner that never heard of /opt/pw-browsers.
     const pinned = process.env.PW_CHROMIUM || '/opt/pw-browsers/chromium';
-    browser = await chromium.launch({
+    const launched = await chromium.launch({
       ...(existsSync(pinned) ? { executablePath: pinned } : {}),
       headless: !flags.has('--headed'),
     });
-    const context = await browser.newContext({
+    browser = launched;
+    const context = await launched.newContext({
       viewport: { width: 1280, height: 800 },
       ...(flags.has('--video')
         ? { recordVideo: { dir: OUT, size: { width: 1280, height: 800 } } }
@@ -95,14 +110,33 @@ export async function runScenes(): Promise<void> {
     page = await context.newPage();
     const activePage = page;
 
+    const capture = async (target: Page, label: string): Promise<void> => {
+      shot += 1;
+      const file = path.join(OUT, `${String(shot).padStart(2, '0')}-${label}.png`);
+      await target.screenshot({ path: file });
+      console.log(`  shot: ${path.relative(process.cwd(), file)}`);
+    };
+
     const ctx: SceneContext = {
       page: activePage,
       base,
-      capture: async (label: string): Promise<void> => {
-        shot += 1;
-        const file = path.join(OUT, `${String(shot).padStart(2, '0')}-${label}.png`);
-        await activePage.screenshot({ path: file });
-        console.log(`  shot: ${path.relative(process.cwd(), file)}`);
+      capture: (label: string): Promise<void> => capture(activePage, label),
+      onPhone: async (body): Promise<void> => {
+        const phoneContext = await launched.newContext({
+          viewport: PHONE,
+          deviceScaleFactor: 3,
+          isMobile: true,
+          hasTouch: true,
+        });
+        const phonePage = await phoneContext.newPage();
+        try {
+          await body({
+            page: phonePage,
+            capture: (label: string): Promise<void> => capture(phonePage, label),
+          });
+        } finally {
+          await phoneContext.close();
+        }
       },
     };
 

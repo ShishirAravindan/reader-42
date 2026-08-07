@@ -4,6 +4,7 @@ import {
   SWIPE_MIN_PX,
   attachReadingInput,
   isCornerTap,
+  isPeekSwipe,
   swipeTurn,
   turnForKey,
   zoneFor,
@@ -189,5 +190,27 @@ describe('attachReadingInput', () => {
     expect(events).toEqual([]);
     input.remove();
     detach();
+  });
+});
+
+describe('isPeekSwipe', () => {
+  const H = 800;
+  test('a swipe up from the bottom edge opens the peek', () => {
+    expect(isPeekSwipe(0, -90, 780, H)).toBe(true);
+  });
+
+  test('the same swipe higher up the page is not the gesture', () => {
+    // Mid-page belongs to reading: a turn, or a scroll in scroll mode.
+    expect(isPeekSwipe(0, -90, 400, H)).toBe(false);
+  });
+
+  test('too short, downward, or mostly sideways are all refused', () => {
+    expect(isPeekSwipe(0, -20, 790, H)).toBe(false);
+    expect(isPeekSwipe(0, 90, 790, H)).toBe(false);
+    expect(isPeekSwipe(-120, -70, 790, H)).toBe(false);
+  });
+
+  test('a degenerate viewport never claims the gesture', () => {
+    expect(isPeekSwipe(0, -90, 0, 0)).toBe(false);
   });
 });

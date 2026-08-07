@@ -284,15 +284,34 @@ button:hover {
 #reader.chrome-hidden #bottom-bar {
   transform: translateY(35%);
 }
+/* Final bar layout (I2): navigation left, the book's name in the middle,
+   annotation and taste right — each side a group so the title keeps the
+   centre no matter how wide the labels are. */
+.bar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
 #reader-book-title {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  text-align: center;
 }
-/* Aa, Notebook and Contents cluster right; the title keeps the middle. */
-#aa-toggle {
-  margin-left: auto;
+
+/* Phones: the title steps aside rather than being squeezed to an ellipsis —
+   the reader knows which book they are in — and Back keeps its chevron only.
+   Five real fingertip targets fit across 390px this way. */
+@media (max-width: 40rem) {
+  #reader-book-title,
+  .bar-word {
+    display: none;
+  }
+  .chrome-bar {
+    gap: 0.4rem;
+    justify-content: space-between;
+  }
 }
 
 /* Always-visible reading status (parity B3): a slim strip over the page
@@ -315,13 +334,20 @@ button:hover {
   font-size: 0.8rem;
   color: var(--muted);
 }
+/* The cycle target is a 44px fingertip area (product law 5) that does NOT
+   push the strip taller: the button grows upward into the page margin and its
+   text stays pinned to the bottom, exactly where the strip draws it. */
 #status-cycle {
   pointer-events: auto;
   border: none;
   background: none;
-  padding: 0.15rem 0;
+  padding: 0;
   min-width: 3rem;
-  min-height: 1.2rem;
+  min-height: 44px;
+  height: 44px;
+  margin-top: -44px;
+  display: flex;
+  align-items: flex-end;
   text-align: left;
   color: inherit;
   font-size: inherit;
@@ -1066,4 +1092,66 @@ button:hover {
 .search-hit strong {
   background: var(--find-hit);
   font-weight: 600;
+}
+
+/* Page Flip peek (H4): a sheet over the page, which stays exactly where it is.
+   The scrim dims the text so the preview reads as a place you are NOT yet. */
+#peek-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -8px 24px var(--scrim);
+  padding: 0.9rem 1rem calc(0.9rem + env(safe-area-inset-bottom));
+  padding-left: calc(1rem + env(safe-area-inset-left));
+  padding-right: calc(1rem + env(safe-area-inset-right));
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.peek-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-height: 5.2rem;
+}
+.peek-loc {
+  font-size: 0.9rem;
+}
+.peek-chapter {
+  font-size: 0.8rem;
+}
+.peek-excerpt {
+  margin: 0.3rem 0 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  /* Three lines, so the sheet never jumps height as you scrub. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.peek-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+#peek-slider {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--link);
+  /* A thumb a thumb can actually hit. */
+  height: 44px;
+}
+.peek-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+#peek-go {
+  border-color: var(--fg);
 }
