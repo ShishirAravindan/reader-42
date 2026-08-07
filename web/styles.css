@@ -149,7 +149,13 @@ body {
   height: 100%;
   background: var(--bg);
   color: var(--fg);
-  font-family: "Charter", "Iowan Old Style", Georgia, serif;
+  /* Literata first, and not only for one voice across the chrome and the page:
+     the oldstyle figures the hairline asks for exist only in a face that
+     carries them, and a system Charter or the generic serif quietly ignores
+     `onum`. Bundling the face is what makes that rule true rather than
+     decorative. (The Aa panel's "Publisher default" row keeps the system
+     stack, because that row is a preview of exactly that.) */
+  font-family: "Literata", "Charter", "Iowan Old Style", Georgia, serif;
   /* Phones: no auto-inflated text, no gray tap flash. */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -175,6 +181,39 @@ button {
 }
 button:hover {
   border-color: var(--muted);
+}
+
+/* Chrome marks: the reading bar's controls are drawn icons with no border and
+   no background — five bordered words in a row read as a toolbar, and a
+   toolbar is not a book. A 44px target at EVERY width (product law 5 does not
+   begin at a coarse pointer), with the mark drawn at 21px inside it. The
+   bordered `button` base above stays for panels and dialogs. */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  color: var(--fg);
+}
+.btn-icon:hover,
+.btn-icon:focus-visible {
+  background: var(--hover);
+}
+.btn-icon svg {
+  display: block;
+  width: 21px;
+  height: 21px;
+}
+/* Aa is type, so it is set rather than drawn — same target, same quiet. */
+#aa-toggle {
+  font-size: 1.05rem;
 }
 
 /* welcome */
@@ -251,6 +290,13 @@ button:hover {
   inset: 0;
   overflow-y: auto;
 }
+/* The top bar's own height, which every panel that hangs below it offsets by.
+   It must track the bar for real: 0.5rem padding + a 44px target + 0.5rem
+   padding + the hairline border. A stale value shows up as a panel sliding
+   under the bar, so it lives in one place. */
+:root {
+  --bar-h: 3.9rem;
+}
 .chrome-bar {
   position: absolute;
   left: 0;
@@ -269,20 +315,12 @@ button:hover {
   border-bottom: 1px solid var(--line);
   box-shadow: 0 1px 10px rgba(36, 33, 27, 0.07);
 }
-#bottom-bar {
-  bottom: 0;
-  border-top: 1px solid var(--line);
-  box-shadow: 0 -1px 10px rgba(36, 33, 27, 0.07);
-}
 #reader.chrome-hidden .chrome-bar {
   opacity: 0;
   pointer-events: none;
 }
 #reader.chrome-hidden #top-bar {
   transform: translateY(-35%);
-}
-#reader.chrome-hidden #bottom-bar {
-  transform: translateY(35%);
 }
 /* Final bar layout (I2): navigation left, the book's name in the middle,
    annotation and taste right — each side a group so the title keeps the
@@ -301,11 +339,10 @@ button:hover {
 }
 
 /* Phones: the title steps aside rather than being squeezed to an ellipsis —
-   the reader knows which book they are in — and Back keeps its chevron only.
-   Five real fingertip targets fit across 390px this way. */
+   the reader knows which book they are in. The controls need no narrow-screen
+   rule of their own: they are marks at every width. */
 @media (max-width: 40rem) {
-  #reader-book-title,
-  .bar-word {
+  #reader-book-title {
     display: none;
   }
   .chrome-bar {
@@ -314,53 +351,103 @@ button:hover {
   }
 }
 
-/* Always-visible reading status (parity B3): a slim strip over the page
-   bottom, independent of the chrome bars. The strip itself lets taps pass
-   through to the page; only the small cycle target is interactive. Hidden
-   while chrome is open — the bottom bar takes that space. */
+/* The progress hairline: what is left after the bottom bar dissolved. A strip
+   one fingertip tall (product law 5) pinned to the very bottom edge, carrying
+   the cycling readout, a 2px rule, and the percent — "where am I, and let me
+   look elsewhere", and nothing else. It stays up with the chrome too: there is
+   no bar below it to defer to any more. The strip itself lets taps through to
+   the page; only the readout and the rule are interactive. */
 #status-line {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 2;
+  /* Above the peek sheet: the rule is what opened it, and it stays put at the
+     bottom edge instead of vanishing under the thing it summoned. */
+  z-index: 5;
+  height: calc(44px + env(safe-area-inset-bottom));
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: center;
   gap: 1rem;
   pointer-events: none;
-  padding: 0.15rem calc(1rem + env(safe-area-inset-right))
-    calc(0.35rem + env(safe-area-inset-bottom)) calc(1rem + env(safe-area-inset-left));
+  padding: 0 calc(1rem + env(safe-area-inset-right)) env(safe-area-inset-bottom)
+    calc(1rem + env(safe-area-inset-left));
   font-size: 0.8rem;
   color: var(--muted);
 }
-/* The cycle target is a 44px fingertip area (product law 5) that does NOT
-   push the strip taller: the button grows upward into the page margin and its
-   text stays pinned to the bottom, exactly where the strip draws it. */
+/* Oldstyle figures wherever the app states a number in running text: they sit
+   inside the line instead of standing up like signage. Only faces that carry
+   text figures can honour this — the reading faces do; a substituted system
+   serif silently keeps its lining figures. */
+#status-cycle,
+#status-percent,
+.peek-loc,
+.peek-excerpt {
+  font-feature-settings: "onum" 1;
+}
 #status-cycle {
   pointer-events: auto;
+  align-self: stretch;
   border: none;
   background: none;
   padding: 0;
   min-width: 3rem;
-  min-height: 44px;
-  height: 44px;
-  margin-top: -44px;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   text-align: left;
+  white-space: nowrap;
   color: inherit;
   font-size: inherit;
 }
 #status-cycle:hover {
-  border: none;
   color: var(--fg);
 }
-/* Off: the strip disappears, but the invisible hit target still cycles back on. */
+/* The rule: 2px of ink, a faint full-width base (::before, so the fill paints
+   over it) and the read portion filled in. Tapping it opens the Page Flip
+   peek, so the hit area is the whole strip height even though it draws 2px. */
+#status-track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  pointer-events: auto;
+  border: none;
+  background: none;
+  padding: 0;
+}
+#status-track::before,
+#status-progress {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 2px;
+  margin-top: -1px;
+}
+/* A hairline, not a rule: 1px, and the ink held well back. At full strength
+   this line was the loudest thing on the page — heavier than the text it sits
+   under — which is the opposite of what it is for. It should be findable when
+   looked for and invisible when read past. */
+#status-track::before {
+  right: 0;
+  height: 1px;
+  background: var(--line);
+  opacity: 0.7;
+}
+#status-progress {
+  width: var(--progress, 0%);
+  height: 1px;
+  background: var(--muted);
+  opacity: 0.5;
+}
+/* Off: the strip paints nothing — no readout, no rule, no percent — leaving
+   only the invisible cycle target, so a tap brings it all back. Tapping
+   through to a completely clean page is how focus works here: no separate
+   mode, no new state to explain. */
 #status-line.status-off #status-cycle {
   color: transparent;
 }
-#reader:not(.chrome-hidden) #status-line {
+#status-line.status-off #status-track {
   visibility: hidden;
 }
 
@@ -386,23 +473,20 @@ button:hover {
   opacity: 0;
 }
 
-/* The jump-back pill (H3): a small offer, bottom-left, just above the status
-   strip. It appears on any in-book jump and settles away once the reader has
-   turned a few pages — the way back stays, the nagging does not. */
+/* The jump-back pill (H3): a small offer, bottom-left, clear of the hairline
+   strip (which is 44px tall and always up now, chrome or no chrome). It
+   appears on any in-book jump and settles away once the reader has turned a
+   few pages — the way back stays, the nagging does not. */
 #jump-back {
   position: absolute;
   left: calc(1rem + env(safe-area-inset-left));
-  bottom: calc(2rem + env(safe-area-inset-bottom));
+  bottom: calc(44px + 0.5rem + env(safe-area-inset-bottom));
   z-index: 4;
   font-size: 0.82rem;
   padding: 0.35rem 0.8rem;
   border-radius: 999px;
   background: var(--bg);
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.14);
-}
-#reader:not(.chrome-hidden) #jump-back {
-  /* The bottom bar owns that band while chrome is open. */
-  bottom: calc(3.6rem + env(safe-area-inset-bottom));
 }
 
 /* End-of-book nudge (B6): a quiet centered card in the app's paper tones.
@@ -441,11 +525,6 @@ button:hover {
 #finish-confirm {
   margin: 0;
 }
-#reader-chapter-label,
-#progress-label {
-  font-size: 0.85rem;
-  white-space: nowrap;
-}
 /* The Go To panel (H1): Cover/Beginning, a page-or-location box, the book's
    contents, and every bookmarked page — one panel that answers "take me
    somewhere". The TOC list keeps its own id and behavior inside it. */
@@ -459,7 +538,8 @@ button:hover {
   overflow-y: auto;
   background: var(--bg);
   border-right: 1px solid var(--line);
-  padding: calc(3.4rem + env(safe-area-inset-top)) 1rem calc(1rem + env(safe-area-inset-bottom));
+  padding: calc(var(--bar-h) + env(safe-area-inset-top)) 1rem
+    calc(1rem + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -479,6 +559,8 @@ button:hover {
   flex: 1;
   min-width: 0;
   font: inherit;
+  /* Tabular, not oldstyle: typed digits must line up in the box. */
+  font-feature-settings: "tnum" 1;
   font-size: 0.9rem;
   color: var(--fg);
   background: none;
@@ -576,7 +658,7 @@ button:hover {
    on narrow screens. Every control applies live — no Save button. */
 #aa-panel {
   position: absolute;
-  top: calc(3.4rem + env(safe-area-inset-top));
+  top: calc(var(--bar-h) + env(safe-area-inset-top));
   right: 0.75rem;
   z-index: 4;
   width: 21rem;
@@ -695,8 +777,8 @@ button:hover {
   overflow-y: auto;
   background: var(--bg);
   border-left: 1px solid var(--line);
-  padding: calc(3.4rem + env(safe-area-inset-top)) 1rem calc(1rem + env(safe-area-inset-bottom))
-    1rem;
+  padding: calc(var(--bar-h) + env(safe-area-inset-top)) 1rem
+    calc(1rem + env(safe-area-inset-bottom)) 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
@@ -954,7 +1036,8 @@ button:hover {
   z-index: 6;
   display: flex;
   justify-content: center;
-  padding: 0 1rem calc(1rem + env(safe-area-inset-bottom));
+  /* Clear of the hairline strip, which is always up now. */
+  padding: 0 1rem calc(44px + 0.5rem + env(safe-area-inset-bottom));
 }
 .note-card {
   width: min(30rem, 100%);
@@ -1014,11 +1097,6 @@ button:hover {
   padding-left: calc(1rem + env(safe-area-inset-left));
   padding-right: calc(1rem + env(safe-area-inset-right));
 }
-#bottom-bar {
-  padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
-  padding-left: calc(1rem + env(safe-area-inset-left));
-  padding-right: calc(1rem + env(safe-area-inset-right));
-}
 #shelf {
   padding-left: calc(1.5rem + env(safe-area-inset-left));
   padding-right: calc(1.5rem + env(safe-area-inset-right));
@@ -1045,8 +1123,8 @@ button:hover {
   overflow-y: auto;
   background: var(--bg);
   border-left: 1px solid var(--line);
-  padding: calc(3.4rem + env(safe-area-inset-top)) 1rem calc(1rem + env(safe-area-inset-bottom))
-    1rem;
+  padding: calc(var(--bar-h) + env(safe-area-inset-top)) 1rem
+    calc(1rem + env(safe-area-inset-bottom)) 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
@@ -1114,7 +1192,9 @@ button:hover {
   background: var(--bg);
   border-top: 1px solid var(--line);
   box-shadow: 0 -8px 24px var(--scrim);
-  padding: 0.9rem 1rem calc(0.9rem + env(safe-area-inset-bottom));
+  /* Its bottom padding is the hairline's band: the sheet opens ABOVE the rule
+     that summoned it, and the rule keeps drawing at the very bottom edge. */
+  padding: 0.9rem 1rem calc(44px + env(safe-area-inset-bottom));
   padding-left: calc(1rem + env(safe-area-inset-left));
   padding-right: calc(1rem + env(safe-area-inset-right));
   display: flex;

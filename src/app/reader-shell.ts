@@ -44,7 +44,7 @@ import { chapterTitles, createNotebook, logseqOutline, sortHighlights } from './
 import { type Peek, createPeek } from './peek.ts';
 import {
   getDisplayMode,
-  getMeasureRem,
+  getMeasureChars,
   getPace,
   getStatusMode,
   setDisplayMode,
@@ -169,11 +169,14 @@ export async function openReader(
     viewport,
     // Taste read at call time (C8): the Aa panel writes a pref, then calls
     // controller.relayout(), and the renderer re-reads these accessors.
-    { mode: () => displayMode, measureRem: getMeasureRem, typography: currentTypography },
+    { mode: () => displayMode, measureChars: getMeasureChars, typography: currentTypography },
     {
       onChapter: (index) => {
-        el<HTMLElement>('reader-chapter-label').textContent =
-          `${index + 1} of ${book.chapters.length}`;
+        // The chapter number is no longer chrome (the contents panel and the
+        // peek preview both name chapters properly, and while reading a count
+        // earned nothing). It stays on the section as reader state, for styling
+        // and for the acceptance scenes, 1-based as a human would say it.
+        el<HTMLElement>('reader').dataset.chapter = String(index + 1);
         // Every chapter render starts from a mark-free tree; re-apply the
         // sidecar's highlights for it (stale ones silently don't render), and
         // the active query's hits for this chapter.
@@ -331,9 +334,12 @@ export async function openReader(
     return metrics.charsBefore(chapter) + (controller?.currentFraction() ?? 0) * chars;
   };
   status = createStatusLine(
-    el<HTMLElement>('status-line'),
-    el<HTMLButtonElement>('status-cycle'),
-    el<HTMLElement>('status-percent'),
+    {
+      strip: el<HTMLElement>('status-line'),
+      cycle: el<HTMLButtonElement>('status-cycle'),
+      progress: el<HTMLElement>('status-progress'),
+      percent: el<HTMLElement>('status-percent'),
+    },
     {
       progress: () => controller?.progress() ?? 0,
       location: () => {
@@ -364,19 +370,6 @@ export async function openReader(
 
   el<HTMLButtonElement>('back-to-shelf').onclick = () => {
     location.hash = '';
-  };
-
-  const modeToggle = el<HTMLButtonElement>('mode-toggle');
-  const labelModeToggle = (): void => {
-    modeToggle.textContent = displayMode === 'paged' ? 'Paged' : 'Scroll';
-  };
-  labelModeToggle();
-  modeToggle.onclick = () => {
-    displayMode = displayMode === 'paged' ? 'scroll' : 'paged';
-    setDisplayMode(displayMode);
-    labelModeToggle();
-    controller?.relayout();
-    ribbon?.refresh(); // the same bookmark, judged against the new geometry
   };
 
   // Human chapter titles, from the toc (salvage §5: never spine indices).
@@ -471,6 +464,14 @@ export async function openReader(
       controller?.relayout();
       status?.refresh();
     },
+    displayMode: () => displayMode,
+    setDisplayMode: (mode) => {
+      displayMode = mode;
+      setDisplayMode(mode);
+      controller?.relayout();
+      status?.refresh();
+      ribbon?.refresh(); // the same bookmark, judged against the new geometry
+    },
     onOpen: () => {
       gotoPanel.close();
       notebook.close();
@@ -536,8 +537,11 @@ export async function openReader(
       chrome.hide();
     },
   });
-  el<HTMLButtonElement>('peek-toggle').onclick = (event): void => {
-    event.stopPropagation(); // the bar is chrome, not a tap zone
+  // The progress rule IS the way to look elsewhere: tapping the hairline opens
+  // the peek (the swipe-up gesture is unchanged). The readout beside it keeps
+  // its own tap, so the two never trade places.
+  el<HTMLButtonElement>('status-track').onclick = (event): void => {
+    event.stopPropagation(); // never reaches the tap zones: no page turn
     if (peek.isOpen()) peek.close();
     else peek.open();
   };

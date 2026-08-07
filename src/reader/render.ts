@@ -35,11 +35,36 @@ export const DEFAULT_TYPOGRAPHY: ReaderTypography = {
   align: 'left',
 };
 
+/**
+ * Prose the probe measures to find the average character width. Ordinary
+ * English with its ordinary share of spaces: the point is to be typical, not
+ * to be a pangram.
+ */
+const MEASURE_SAMPLE =
+  'The quick brown fox jumps over the lazy dog, and settles in to read a long book by lamplight.';
+
+/**
+ * Word wrap leaves a ragged right edge, so a column sized to exactly N average
+ * characters renders slightly fewer than N per line. This closes that gap, and
+ * it is measured rather than guessed: averaged over a hundred-odd interior
+ * lines of real prose (first and last lines excluded — one carries an indent,
+ * the other is the rag itself), an uncorrected column rendered 60 characters
+ * where it promised 66.
+ *
+ * Measured with the correction in place, the presets land where they say and
+ * stay there: 60 -> 57, 66 -> 63, 74 -> 72 characters, and the 66 preset holds
+ * 63-65 at the default size, two size steps up, and on the widest bundled face
+ * alike. That invariance is the whole point — a line keeps its length when the
+ * type grows, which a measure capped in pixels cannot do.
+ */
+const MEASURE_RAG = 1.1;
+
 export interface ReaderView {
   /** Read at call time, never captured in a closure (salvage §2). */
   mode(): DisplayMode;
-  /** The comfortable text measure (C5), live: relayout() re-reads it. */
-  measureRem(): number;
+  /** The comfortable text measure in CHARACTERS (C5), live: relayout() re-reads it. */
+  /** The measure as a count of characters of prose (see measurePx). */
+  measureChars(): number;
   /** Typography prefs, live: relayout() re-reads and re-applies them. */
   typography(): ReaderTypography;
 }
@@ -120,6 +145,15 @@ export function renderChapter(
   shadow.prepend(style);
   shadow.appendChild(wrapper);
 
+  // The measure probe: only the browser can say what a character of THIS face at
+  // THIS size is worth in pixels, and the column geometry needs pixels. This
+  // element carries exactly the chapter wrapper's type, holds one unwrapped
+  // line of ordinary prose, and is measured once per applyModeCss. It is out of
+  // the flow and never renders anything.
+  const probe = document.createElement('div');
+  probe.className = 'measure-probe';
+  shadow.appendChild(probe);
+
   // Guarantees the paged scroll range covers whole pages: column overflow
   // ends at the last column's right edge, without the trailing side pad, so
   // the last page's stride-aligned offset would otherwise be unreachable
@@ -140,9 +174,35 @@ export function renderChapter(
   const pages = (): number => pageCount(mount.scrollWidth, mount.clientWidth, gap);
   const currentPage = (): number => pageIndexFor(mount.scrollLeft, stride());
 
-  function remPx(): number {
-    const size = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
-    return Number.isFinite(size) && size > 0 ? size : 16;
+  /**
+   * The measure in pixels, read off the probe. Must be called AFTER
+   * applyTypography, so the probe wears the face and size now on screen.
+   *
+   * The obvious unit, `ch`, is the width of "0" — wider than the average
+   * letter, and wider by a different amount in every face. A 66ch column holds
+   * about 80 characters in the serif and over 90 in the widest of the bundled
+   * faces, so the preset would not mean what it says. Measuring a real
+   * sentence instead gives the average width of actual prose, spaces and all,
+   * which makes the presets true character counts on every face at every size.
+   */
+  function measurePx(): number {
+    const chapterStyle = getComputedStyle(wrapper);
+    probe.style.fontFamily = chapterStyle.fontFamily;
+    probe.style.fontSize = chapterStyle.fontSize;
+    probe.style.fontWeight = chapterStyle.fontWeight;
+    probe.style.fontStyle = chapterStyle.fontStyle;
+    probe.textContent = MEASURE_SAMPLE;
+    const perChar = probe.getBoundingClientRect().width / MEASURE_SAMPLE.length;
+    if (perChar > 0) return view.measureChars() * perChar * MEASURE_RAG;
+    // A headless DOM (and a detached mount) measures nothing; fall back to the
+    // classic half-em per character rather than collapsing the column to zero.
+    const fontSize = Number.parseFloat(chapterStyle.fontSize);
+    return (
+      view.measureChars() *
+      0.5 *
+      MEASURE_RAG *
+      (Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 16)
+    );
   }
 
   // Typography rides the same capture -> apply -> restore cycle as a mode
@@ -152,7 +212,6 @@ export function renderChapter(
   // reading position.
   function applyTypography(): void {
     const typo = view.typography();
-    host.style.setProperty('--reader-measure', `${view.measureRem()}rem`);
     host.style.setProperty('--reader-font-size', `${typo.fontSizeRem}rem`);
     host.style.setProperty('--reader-leading', String(typo.leading));
     host.style.setProperty('--reader-weight', String(typo.weight));
@@ -168,8 +227,12 @@ export function renderChapter(
   function applyModeCss(): void {
     applied = view.mode();
     applyTypography();
+    // One measurement per layout, after the type is applied: both modes cap the
+    // line at the same pixel width, so a mode switch never changes the measure.
+    const measure = measurePx();
+    host.style.setProperty('--reader-measure', `${measure}px`);
     if (applied === 'paged') {
-      const geom = columnGeometry(mount.clientWidth, view.measureRem() * remPx());
+      const geom = columnGeometry(mount.clientWidth, measure);
       gap = geom.gap;
       // The mount never scrolls vertically in paged mode; chrome bars overlay
       // the viewport, so showing them must not change this geometry.
@@ -598,12 +661,33 @@ const SHADOW_BASE_CSS = `
     width: 1px;
     height: 1px;
   }
+  /* The measure probe (see measurePx): one unwrapped line of prose, wearing
+     type, out of the flow, painting nothing. */
+  .measure-probe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: inline-block;
+    white-space: pre;
+    visibility: hidden;
+    pointer-events: none;
+  }
   .chapter p { margin: 0 0 1em; }
   .chapter h1, .chapter h2, .chapter h3, .chapter h4 {
     font-family: inherit;
     line-height: 1.25;
     margin: 1.6em 0 0.6em;
     text-wrap: balance;
+  }
+  /* Chapter openings: real air above the heading, and small caps on the FIRST
+     LINE of the paragraph that follows it — the bundled faces carry true small
+     caps, so the strongest "this is a book" cue costs one rule. Scoped to the
+     immediately-following paragraph, so it can only ever hit an opening. No
+     drop caps: they fight too many books and read wrong outside fiction. */
+  .chapter :is(h1, h2, h3) { margin-top: 2.6em; }
+  .chapter :is(h1, h2, h3) + p::first-line {
+    font-variant-caps: small-caps;
+    font-feature-settings: "smcp" 1;
   }
   /* em, not rem: headings scale with the reader's font-size steps. */
   .chapter h1 { font-size: 1.6em; }

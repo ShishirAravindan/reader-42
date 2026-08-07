@@ -7,27 +7,28 @@
 // stays open underneath. Pure step logic lives at the top, unit-tested; the
 // DOM wiring below stays thin and is proven by the demo scene.
 
+import { DISPLAY_MODES, type DisplayMode } from '../reader/mode.ts';
 import type { TextAlign } from '../reader/render.ts';
 import {
   BOLDNESS_STEPS,
   FONT_FAMILIES,
   FONT_SIZE_STEPS_REM,
   LEADING_STEPS,
-  MEASURE_STEPS_REM,
+  MEASURE_STEPS_CHARS,
   THEMES,
   getAlign,
   getBoldness,
   getFontFamily,
   getFontSizeIndex,
   getLeading,
-  getMeasureRem,
+  getMeasureChars,
   getTheme,
   setAlign,
   setBoldness,
   setFontFamily,
   setFontSizeIndex,
   setLeading,
-  setMeasureRem,
+  setMeasureChars,
   setTheme,
 } from './prefs.ts';
 import { applyTheme } from './theme.ts';
@@ -73,19 +74,29 @@ const LEADING_LABELS: Record<(typeof LEADING_STEPS)[number], string> = {
 };
 
 /** Labeled by MARGINS, Kindle-style: the biggest measure is the narrowest margin. */
-const MARGIN_LABELS: Record<(typeof MEASURE_STEPS_REM)[number], string> = {
-  34: 'Wide',
-  38: 'Medium',
-  44: 'Narrow',
+const MARGIN_LABELS: Record<(typeof MEASURE_STEPS_CHARS)[number], string> = {
+  60: 'Wide',
+  66: 'Medium',
+  74: 'Narrow',
 };
 
 const ALIGN_LABELS: Record<TextAlign, string> = { left: 'Left', justify: 'Justified' };
+
+const LAYOUT_LABELS: Record<DisplayMode, string> = { paged: 'Paged', scroll: 'Scroll' };
 
 // --- the panel ---
 
 export interface AaPanelDeps {
   /** Reflow the open book; the renderer preserves the reading position. */
   relayout(): void;
+  /** Paged or scroll: taste, so it lives here with margins and spacing. */
+  displayMode(): DisplayMode;
+  /**
+   * Switch layout. The shell owns the whole switch — it reflows AND re-judges
+   * the bookmark ribbon against the new geometry, in that order — so this one
+   * is NOT wrapped in the panel's reflow helper.
+   */
+  setDisplayMode(mode: DisplayMode): void;
   /** Called when the panel opens (the shell closes the TOC here). */
   onOpen?(): void;
 }
@@ -228,10 +239,10 @@ export function createAaPanel(
   });
 
   const marginButtons = choices({
-    values: MEASURE_STEPS_REM,
+    values: MEASURE_STEPS_CHARS,
     label: (m) => MARGIN_LABELS[m],
-    current: getMeasureRem,
-    apply: (m) => reflow(() => setMeasureRem(m)),
+    current: getMeasureChars,
+    apply: (m) => reflow(() => setMeasureChars(m)),
     decorate: (m, b) => {
       b.id = `aa-margins-${MARGIN_LABELS[m].toLowerCase()}`;
     },
@@ -247,6 +258,16 @@ export function createAaPanel(
     },
   });
 
+  const layoutButtons = choices({
+    values: DISPLAY_MODES,
+    label: (m) => LAYOUT_LABELS[m],
+    current: deps.displayMode,
+    apply: (m) => deps.setDisplayMode(m),
+    decorate: (m, b) => {
+      b.id = `aa-layout-${m}`;
+    },
+  });
+
   panel.replaceChildren(
     group('Theme', row(...themeButtons)),
     group('Font', ...fontButtons.map((b) => row(b))),
@@ -255,6 +276,9 @@ export function createAaPanel(
     group('Spacing', row(...spacingButtons)),
     group('Margins', row(...marginButtons)),
     group('Alignment', row(...alignButtons)),
+    // Last, because it is the coarsest choice on the sheet: paged or scroll is
+    // the shape of the page, not a property of the type.
+    group('Layout', row(...layoutButtons)),
   );
 
   // Outside click closes and is swallowed: it must never also turn the page
