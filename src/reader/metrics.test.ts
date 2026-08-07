@@ -1,0 +1,414 @@
+import { describe, expect, test } from 'bun:test';
+import { buildFixtureEpub, buildZip } from '../../test/fixture-epub.ts';
+import { Book } from '../epub/book.ts';
+import {
+  type BookMetrics,
+  LOCATION_SPAN,
+  anchorAtChars,
+  bookMetrics,
+  charsBeforeAnchor,
+  charsBeforeIds,
+  excerptAt,
+  excerptAtAnchor,
+  flattenText,
+  pageAnchors,
+  rawOffsetForFlat,
+  rawOffsetOfElement,
+} from './metrics.ts';
+
+/** A minimal epub whose chapter texts are exactly known. */
+function knownEpub(bodies: string[]): Uint8Array {
+  const files: [string, string][] = [
+    ['mimetype', 'application/epub+zip'],
+    [
+      'META-INF/container.xml',
+      `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`,
+    ],
+    [
+      'content.opf',
+      `<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">known-1</dc:identifier><dc:title>Known</dc:title>
+  </metadata>
+  <manifest>${bodies
+    .map((_, i) => `<item id="c${i}" href="c${i}.xhtml" media-type="application/xhtml+xml"/>`)
+    .join('')}</manifest>
+  <spine>${bodies.map((_, i) => `<itemref idref="c${i}"/>`).join('')}</spine>
+</package>`,
+    ],
+    ...bodies.map((body, i): [string, string] => [
+      `c${i}.xhtml`,
+      `<html xmlns="http://www.w3.org/1999/xhtml"><head><title>${i}</title></head><body>${body}</body></html>`,
+    ]),
+  ];
+  return buildZip(files);
+}
+
+describe('flattenText', () => {
+  test('collapses whitespace runs and trims', () => {
+    expect(flattenText('  a\n\t b   c ')).toBe('a b c');
+    expect(flattenText('\n \t')).toBe('');
+  });
+});
+
+describe('bookMetrics', () => {
+  test('counts flattened chapter text exactly', async () => {
+    // "Hello world" (11) + the "\n" between tags collapsing to a space + "Again." (6)
+    const book = await Book.open(
+      knownEpub(['<p>Hello   world</p>\n<p>Again.</p>', '<p> Twelve chars </p>']),
+    );
+    const m = bookMetrics(book);
+    expect(m.chapterChars).toEqual(['Hello world Again.'.length, 'Twelve chars'.length]);
+    expect(m.totalChars).toBe(18 + 12);
+    expect(m.charsBefore(0)).toBe(0);
+    expect(m.charsBefore(1)).toBe(18);
+    expect(m.charsBefore(2)).toBe(30);
+  });
+
+  test('one location per LOCATION_SPAN chars, 1-based, never exceeding the total', async () => {
+    const text = 'x'.repeat(LOCATION_SPAN * 3 + 10); // 3 full spans + a stub
+    const book = await Book.open(knownEpub([`<p>${text}</p>`]));
+    const m = bookMetrics(book);
+    expect(m.totalLocations).toBe(4);
+    expect(m.locationOf(0, 0)).toBe(1);
+    expect(m.locationOf(0, 1)).toBe(4);
+    // Fractions slightly out of range clamp instead of escaping the book.
+    expect(m.locationOf(0, 1.2)).toBe(4);
+    expect(m.locationOf(-1, 0)).toBe(1);
+  });
+
+  test('location is monotonic in fraction and chapter', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const m = bookMetrics(book);
+    let last = 0;
+    for (let chapter = 0; chapter < m.chapterChars.length; chapter++) {
+      for (const fraction of [0, 0.25, 0.5, 0.75, 1]) {
+        const loc = m.locationOf(chapter, fraction);
+        expect(loc).toBeGreaterThanOrEqual(last);
+        last = loc;
+      }
+    }
+    expect(last).toBe(m.totalLocations);
+  });
+
+  test('last chapter at fraction 1 is the last location', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const m = bookMetrics(book);
+    expect(m.locationOf(m.chapterChars.length - 1, 1)).toBe(m.totalLocations);
+    expect(m.totalLocations).toBe(Math.max(1, Math.ceil(m.totalChars / LOCATION_SPAN)));
+    // The fixture's long middle chapter dominates: sanity on magnitude.
+    expect(m.totalLocations).toBeGreaterThan(50);
+    expect(m.totalLocations).toBeLessThan(500);
+  });
+
+  test('an empty book still reports one location', async () => {
+    const book = await Book.open(knownEpub(['<p> </p>']));
+    const m = bookMetrics(book);
+    expect(m.totalChars).toBe(0);
+    expect(m.totalLocations).toBe(1);
+    expect(m.locationOf(0, 0.5)).toBe(1);
+  });
+});
+
+describe('placeAtLocation / placeAtChar', () => {
+  test('round-trips the location index: every location maps back to itself', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const m = bookMetrics(book);
+    for (const loc of [1, 2, 17, Math.floor(m.totalLocations / 2), m.totalLocations]) {
+      const place = m.placeAtLocation(loc);
+      expect(m.locationOf(place.chapter, place.fraction)).toBe(loc);
+    }
+  });
+
+  test('out-of-range input clamps into the book instead of escaping it', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const m = bookMetrics(book);
+    expect(m.placeAtLocation(0)).toEqual(m.placeAtLocation(1));
+    expect(m.placeAtLocation(m.totalLocations + 999)).toEqual(m.placeAtLocation(m.totalLocations));
+    expect(m.placeAtChar(-5)).toEqual({ chapter: 0, fraction: 0 });
+  });
+
+  test('a char offset lands in the chapter that contains it', async () => {
+    const book = await Book.open(knownEpub(['<p>aaaa</p>', '<p>bbbbbbbb</p>', '<p>cc</p>']));
+    const m = bookMetrics(book);
+    expect(m.placeAtChar(0)).toEqual({ chapter: 0, fraction: 0 });
+    expect(m.placeAtChar(4)).toEqual({ chapter: 1, fraction: 0 });
+    expect(m.placeAtChar(8)).toEqual({ chapter: 1, fraction: 0.5 });
+    expect(m.placeAtChar(12)).toEqual({ chapter: 2, fraction: 0 });
+    expect(m.placeAtChar(99)).toEqual({ chapter: 2, fraction: 1 });
+  });
+});
+
+describe('chapterText and chapterBody', () => {
+  test('chapterText is the raw text-node data the renderer will mount', async () => {
+    const book = await Book.open(knownEpub(['<p>the <em>quick</em> brown</p>']));
+    const m = bookMetrics(book);
+    // Raw, NOT collapsed: this is the coordinate system highlight boundaries
+    // and search offsets speak against the live wrapper.
+    expect(m.chapterText(0)).toBe('the quick brown');
+    expect(m.chapterText(9)).toBe('');
+  });
+
+  test('active content is stripped before counting, as the renderer strips it', async () => {
+    const book = await Book.open(knownEpub(['<p>kept</p><script>var gone = 1;</script>']));
+    const m = bookMetrics(book);
+    expect(m.chapterText(0)).toBe('kept');
+    expect(m.chapterChars[0]).toBe(4);
+  });
+
+  test('chapterBody resolves structural paths without rendering', async () => {
+    const book = await Book.open(knownEpub(['<h1>Title</h1><p>body text</p>']));
+    const m = bookMetrics(book);
+    const body = m.chapterBody(0);
+    expect(body?.children.length).toBe(2);
+    expect(m.chapterBody(0)).toBe(body); // cached, not re-parsed
+    expect(m.chapterBody(5)).toBeNull();
+  });
+});
+
+describe('excerptAtAnchor', () => {
+  const bodies = ['<h1>One</h1>\n<p>Alpha beta gamma.</p>\n<p>Delta epsilon zeta.</p>'];
+
+  test('describes the place a structural anchor names, without rendering it', async () => {
+    const m = bookMetrics(await Book.open(knownEpub(bodies)));
+    expect(excerptAtAnchor(m, 0, [1], 30)).toStartWith('Alpha beta gamma.');
+    expect(excerptAtAnchor(m, 0, [2], 30)).toBe('Delta epsilon zeta.');
+    expect(excerptAtAnchor(m, 0, [0], 30)).toStartWith('One Alpha');
+  });
+
+  test('a path that resolves to nothing falls back to the chapter start', async () => {
+    const m = bookMetrics(await Book.open(knownEpub(bodies)));
+    // Stale bookmarks must describe SOMETHING, never crash the Go To panel.
+    expect(excerptAtAnchor(m, 0, [99], 20)).toStartWith('One Alpha');
+  });
+
+  test('a chapter that does not exist has nothing at all in it', async () => {
+    const m = bookMetrics(await Book.open(knownEpub(bodies)));
+    expect(excerptAtAnchor(m, 7, [0], 20)).toBe('');
+  });
+});
+
+describe('excerptAt', () => {
+  const text = 'The quick brown fox jumps over the lazy dog, deliberately and at length.';
+
+  test('collapses whitespace and starts at the offset', () => {
+    expect(excerptAt('a\n\n  b   c d', 0, 40)).toBe('a b c d');
+    expect(excerptAt(text, 4, 11)).toBe('quick brown…');
+  });
+
+  test('cuts at a word boundary with an ellipsis', () => {
+    const out = excerptAt(text, 0, 20);
+    expect(out.endsWith('…')).toBe(true);
+    expect(out.length).toBeLessThanOrEqual(21);
+    expect(text.startsWith(out.slice(0, -1))).toBe(true);
+    expect(out.slice(0, -1).trimEnd()).toBe(out.slice(0, -1)); // no dangling space
+  });
+
+  test('a short tail needs no ellipsis', () => {
+    expect(excerptAt(text, text.length - 7, 40)).toBe('length.');
+    expect(excerptAt(text, 999, 40)).toBe('');
+  });
+});
+
+describe('rawOffsetOfElement', () => {
+  test('counts raw text-node data strictly before the element', () => {
+    const doc = new DOMParser().parseFromString(
+      '<body><h1 id="top">Title</h1><p>One  two</p><p id="mark">three</p></body>',
+      'text/html',
+    );
+    const body = doc.body;
+    const at = (id: string): number | null => {
+      const el = body.querySelector(`#${id}`);
+      return el ? rawOffsetOfElement(body, el) : null;
+    };
+    expect(at('top')).toBe(0);
+    // Raw, so the double space inside "One  two" counts as two.
+    expect(at('mark')).toBe('TitleOne  two'.length);
+    expect(rawOffsetOfElement(body, doc.createElement('p'))).toBeNull();
+  });
+});
+
+describe('charsBeforeIds', () => {
+  const body = (): HTMLElement =>
+    new DOMParser().parseFromString(
+      '<body><h1 id="top">Title</h1><p>One  two</p><p id="mark">three</p></body>',
+      'text/html',
+    ).body;
+
+  test('counts flattened chars strictly before each element, in document order', () => {
+    const at = charsBeforeIds(body(), new Set(['top', 'mark', 'ghost']));
+    expect(at.get('top')).toBe(0);
+    // textContent semantics: adjacent blocks concatenate with no separator,
+    // matching how the chapter totals are counted.
+    expect(at.get('mark')).toBe('TitleOne two'.length);
+    expect(at.has('ghost')).toBe(false); // an id that doesn't resolve is absent
+  });
+
+  test('one walk answers every id, and asking nothing costs nothing', () => {
+    expect(charsBeforeIds(body(), new Set()).size).toBe(0);
+    const one = charsBeforeIds(body(), new Set(['mark']));
+    const many = charsBeforeIds(body(), new Set(['top', 'mark']));
+    expect(one.get('mark')).toBe(many.get('mark'));
+  });
+});
+
+describe('charsBeforeAnchor', () => {
+  const body = (): HTMLElement => {
+    const doc = new DOMParser().parseFromString(
+      '<body><h1>Title</h1><p>One  two</p><p>three four</p></body>',
+      'text/html',
+    );
+    return doc.body;
+  };
+
+  test('an anchor becomes a character offset, layout never consulted', () => {
+    const root = body();
+    expect(charsBeforeAnchor(root, { path: [], ratio: 0 })).toBe(0); // top of chapter
+    expect(charsBeforeAnchor(root, { path: [1], ratio: 0 })).toBe('Title'.length);
+    expect(charsBeforeAnchor(root, { path: [2], ratio: 0 })).toBe('TitleOne two'.length);
+  });
+
+  test('the ratio counts proportionally into the anchored element', () => {
+    const root = body();
+    // Half way into "three four" (10 flattened chars) is 5 more characters.
+    expect(charsBeforeAnchor(root, { path: [2], ratio: 0.5 })).toBe('TitleOne two'.length + 5);
+    // Ratios captured slightly outside the element clamp, as on restore.
+    expect(charsBeforeAnchor(root, { path: [2], ratio: -1 })).toBe('TitleOne two'.length);
+    expect(charsBeforeAnchor(root, { path: [2], ratio: 2 })).toBe('TitleOne two'.length + 10);
+  });
+
+  test('an unresolvable path reports nothing rather than guessing', () => {
+    expect(charsBeforeAnchor(body(), { path: [99], ratio: 0 })).toBeNull();
+  });
+
+  test('offsets agree with the chapter totals the location index counts', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const m = bookMetrics(book);
+    const chapter = m.chapterBody(1) as Element;
+    const last = chapter.children.length - 1;
+    const end = charsBeforeAnchor(chapter, { path: [last], ratio: 1 }) ?? 0;
+    const total = m.chapterChars[1] as number;
+    // Within one character: a prefix count trims the whitespace run before the
+    // element, where the chapter total keeps it as a single space.
+    expect(Math.abs(end - total)).toBeLessThanOrEqual(1);
+    expect(charsBeforeAnchor(chapter, { path: [0], ratio: 0 })).toBe(0);
+  });
+});
+
+describe('anchorAtChars', () => {
+  test('finds the element holding an offset, and how far into it', () => {
+    const doc = new DOMParser().parseFromString(
+      '<body><h1>Title</h1><p>One  two</p><p>three four</p></body>',
+      'text/html',
+    );
+    const root = doc.body;
+    expect(anchorAtChars(root, 0)).toEqual({ path: [0], ratio: 0 });
+    expect(anchorAtChars(root, 5)).toEqual({ path: [1], ratio: 0 });
+    expect(anchorAtChars(root, 'TitleOne two'.length)).toEqual({ path: [2], ratio: 0 });
+    expect(anchorAtChars(root, 'TitleOne two'.length + 5)).toEqual({ path: [2], ratio: 0.5 });
+    // Past the end lands at the end of the last element, never outside it.
+    expect(anchorAtChars(root, 99_999)).toEqual({ path: [2], ratio: 1 });
+  });
+
+  test('descends through a wrapper element instead of stopping at it', () => {
+    const doc = new DOMParser().parseFromString(
+      '<body><div><p>aaaa</p><p>bbbb</p><p>cccc</p></div></body>',
+      'text/html',
+    );
+    expect(anchorAtChars(doc.body, 5)).toEqual({ path: [0, 1], ratio: 0.25 });
+  });
+
+  test('round-trips against charsBeforeAnchor across a real chapter', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const m = bookMetrics(book);
+    const chapter = m.chapterBody(1) as Element;
+    const total = m.chapterChars[1] as number;
+    for (const at of [0, 137, 1024, Math.floor(total / 2), total - 1]) {
+      const back = charsBeforeAnchor(chapter, anchorAtChars(chapter, at)) ?? -1;
+      // Within a couple of characters: prefix counts trim the whitespace run
+      // before an element where the running total keeps it as one space.
+      expect(Math.abs(back - at)).toBeLessThanOrEqual(2);
+    }
+  });
+});
+
+describe('pageAnchors', () => {
+  test('maps the fixture page-list to monotonic global char offsets', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const m = bookMetrics(book);
+    const anchors = pageAnchors(book, m);
+    expect(anchors.map((a) => a.label)).toEqual(['1', '2', '3', '4', '5', '6']);
+    for (let i = 1; i < anchors.length; i++) {
+      const prev = anchors[i - 1]?.globalChar ?? 0;
+      const cur = anchors[i]?.globalChar ?? 0;
+      expect(cur).toBeGreaterThan(prev);
+    }
+    // Page 1 starts at the very beginning; page 6 inside the last chapter.
+    expect(anchors[0]?.globalChar).toBe(0);
+    expect(anchors[5]?.globalChar).toBeGreaterThanOrEqual(m.charsBefore(2));
+    expect(anchors[5]?.globalChar).toBeLessThanOrEqual(m.totalChars);
+  });
+
+  // Product law 2 gives resume a one-second budget. Resolving the page-list by
+  // parsing each chapter again means parsing the whole book twice at open.
+  test('resolves without parsing the book a second time', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    const metrics = bookMetrics(book);
+    const guarded: BookMetrics = {
+      ...metrics,
+      chapterBody: (): Element | null => {
+        throw new Error('pageAnchors re-parsed a chapter bookMetrics had already parsed');
+      },
+    };
+    expect(pageAnchors(book, guarded).map((a) => a.label)).toEqual(['1', '2', '3', '4', '5', '6']);
+  });
+
+  test('a fragment the book never names is dropped, not guessed at', async () => {
+    const book = await Book.open(buildFixtureEpub());
+    expect(bookMetrics(book).charsBeforeFragment(0, 'nowhere')).toBeNull();
+  });
+
+  test('a book without a page-list yields no anchors', async () => {
+    const book = await Book.open(knownEpub(['<p>text</p>']));
+    expect(pageAnchors(book, bookMetrics(book))).toEqual([]);
+  });
+});
+
+describe('rawOffsetForFlat', () => {
+  test('maps flattened offsets onto the raw text that holds them', () => {
+    //             raw: "  the\n   quick   fox"
+    // flattened:       "the quick fox"
+    const raw = '  the\n   quick   fox';
+    expect(rawOffsetForFlat(raw, 0)).toBe(0);
+    // Flattened offset 4 is the "q" of quick; in the raw text that is index 9.
+    expect(raw.slice(rawOffsetForFlat(raw, 4))).toStartWith('quick');
+    const flat = flattenText(raw);
+    const foxAt = flat.indexOf('fox');
+    expect(raw.slice(rawOffsetForFlat(raw, foxAt))).toStartWith('fox');
+  });
+
+  test('an offset past the end lands at the end, never out of range', () => {
+    expect(rawOffsetForFlat('short', 9000)).toBe(5);
+    expect(rawOffsetForFlat('', 5)).toBe(0);
+  });
+
+  test('an excerpt taken through it starts on the intended word', () => {
+    const raw = 'Alpha beta.\n   Gamma delta epsilon zeta eta theta iota kappa lambda mu.';
+    const flat = flattenText(raw);
+    const gammaAt = flat.indexOf('Gamma');
+    expect(excerptAt(raw, rawOffsetForFlat(raw, gammaAt), 24)).toStartWith('Gamma delta');
+  });
+
+  test('an offset inside a word drops that partial word', () => {
+    // A location is a character count, so it lands wherever it lands; the
+    // excerpt should still start on a real word.
+    expect(excerptAt('single viewport and position', 3, 40)).toBe('viewport and position');
+    // An offset at a word start keeps that word.
+    expect(excerptAt('single viewport', 7, 40)).toBe('viewport');
+    expect(excerptAt('single viewport', 0, 40)).toBe('single viewport');
+  });
+});

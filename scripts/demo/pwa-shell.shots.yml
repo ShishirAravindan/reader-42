@@ -1,0 +1,16 @@
+# Visual captures of the welcome screen, via shot-scraper (https://github.com/simonw/shot-scraper).
+# Nothing here asserts anything: the assertions live in the acceptance suite
+# (`bun run demo`, the `pwa-shell` scene), and these are the human-eyeball
+# frames at two widths. Optional, and not part of the gate.
+#
+#   bun scripts/dev.ts &        # serves on :4242
+#   shot-scraper multi scripts/demo/pwa-shell.shots.yml
+
+- output: scripts/demo/out/welcome-desktop.png
+  url: http://localhost:4242/
+  width: 1024
+  height: 720
+- output: scripts/demo/out/welcome-phone.png
+  url: http://localhost:4242/
+  width: 390
+  height: 844

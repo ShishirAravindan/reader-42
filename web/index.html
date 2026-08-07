@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>reader-42</title>
+  <meta name="theme-color" content="#f5f4ef" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="reader-42" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main id="app">
+    <section id="welcome" hidden>
+      <h1>reader-42</h1>
+      <p>Point the reader at your library folder to begin.</p>
+      <button id="open-library" type="button">Open library folder</button>
+    </section>
+
+    <section id="shelf" hidden>
+      <header class="shelf-header">
+        <h1>Library</h1>
+        <div class="shelf-actions">
+          <button id="install-app" type="button" hidden>Install</button>
+          <label class="import-label">
+            Import EPUB
+            <input id="import-input" type="file" accept=".epub" hidden />
+          </label>
+        </div>
+      </header>
+      <ul id="book-list"></ul>
+      <p id="shelf-empty" hidden>Nothing here yet. Import an EPUB to start reading.</p>
+    </section>
+
+    <section id="reader" hidden>
+      <div id="viewport"></div>
+      <div id="bookmark-ribbon" aria-hidden="true" hidden></div>
+      <button id="jump-back" type="button" hidden></button>
+      <!-- The hairline: everything that is left of the old bottom bar, which is
+           "where am I, and let me look elsewhere". The rule opens the peek; the
+           readout keeps its cycle, and the cycle ends in nothing. -->
+      <div id="status-line">
+        <button id="status-cycle" type="button" aria-label="Cycle reading progress display" title="Cycle reading progress display"></button>
+        <button id="status-track" type="button" aria-label="Page flip" title="Page flip: look ahead without losing your place">
+          <span id="status-progress"></span>
+        </button>
+        <span id="status-percent"></span>
+      </div>
+      <header id="top-bar" class="chrome-bar">
+        <!-- Drawn marks, not words. The SVG is inline and static so the chrome
+             is complete before the bundle runs; every mark keeps its name in
+             aria-label AND title, because an icon for "highlights" is an
+             inference, not a convention, and a forgotten one must be
+             recoverable by hover or long-press. -->
+        <div class="bar-group">
+          <button id="back-to-shelf" class="btn-icon" type="button" aria-label="Back to library" title="Back to library">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg>
+          </button>
+          <button id="toc-toggle" class="btn-icon" type="button" aria-label="Go to a place in the book" title="Go to a place in the book" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 7h11"/><path d="M4.5 12h15"/><path d="M4.5 17h8.5"/></svg>
+          </button>
+          <button id="search-toggle" class="btn-icon" type="button" aria-label="Search in book" title="Search in book" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l4.5 4.5"/></svg>
+          </button>
+        </div>
+        <span id="reader-book-title"></span>
+        <div class="bar-group">
+          <!-- Aa stays type: it is the typographic convention for this control
+               and no drawn glyph beats it. -->
+          <button id="aa-toggle" class="btn-icon" type="button" aria-label="Typography and themes" title="Typography and themes" aria-expanded="false">Aa</button>
+          <button id="notebook-toggle" class="btn-icon" type="button" aria-label="Highlights and notes" title="Highlights and notes" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19l1-3.6L16.4 5a1.8 1.8 0 0 1 2.6 2.6L8.6 18 5 19z"/><path d="M15 6.4l2.6 2.6"/></svg>
+          </button>
+        </div>
+      </header>
+      <nav id="goto-panel" hidden>
+        <div id="toc"></div>
+      </nav>
+      <aside id="search-panel" hidden></aside>
+      <aside id="notebook" hidden></aside>
+      <div id="aa-panel" role="dialog" aria-label="Typography and themes" hidden></div>
+      <div id="selection-menu" hidden></div>
+      <div id="dict-card" hidden>
+        <p id="dict-headword"></p>
+        <p id="dict-body"></p>
+        <div class="dict-footer">
+          <span class="dict-source">Webster’s Revised Unabridged (1913)</span>
+          <a id="dict-wiki" href="https://en.wikipedia.org/wiki/Special:Search" target="_blank" rel="noopener">Search Wikipedia</a>
+        </div>
+      </div>
+      <div id="footnote-popover" hidden>
+        <div id="footnote-body"></div>
+        <div class="fn-actions">
+          <button id="footnote-goto" type="button">Go to note</button>
+        </div>
+      </div>
+      <div id="note-editor" hidden>
+        <div class="note-card">
+          <textarea id="note-text" rows="4" placeholder="Add a note…"></textarea>
+          <div class="note-actions">
+            <button id="note-cancel" type="button">Cancel</button>
+            <button id="note-save" type="button">Save</button>
+          </div>
+        </div>
+      </div>
+      <div id="finish-nudge" hidden>
+        <div class="finish-card">
+          <p class="finish-heading">The End</p>
+          <p id="finish-book-title" class="muted"></p>
+          <div id="finish-actions" class="finish-actions">
+            <button id="finish-yes" type="button">Mark as finished</button>
+            <button id="finish-not-yet" type="button">Not yet</button>
+          </div>
+          <p id="finish-confirm" class="muted" hidden>Marked as finished.</p>
+        </div>
+      </div>
+      <div id="peek-sheet" hidden></div>
+    </section>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

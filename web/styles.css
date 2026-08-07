@@ -1,0 +1,1286 @@
+/* App chrome. Deliberately plain: the aesthetic pass is its own milestone,
+   decided mockups-first. Paper-and-ink tokens shared with the shadow CSS. */
+
+/* Curated reading faces (parity C1): bundled and licensed (OFL texts ship in
+   /fonts/licenses/). Declared at the document level on purpose — font-family
+   names resolve document-wide, so chapter text inside the shadow root can use
+   them without the shadow CSS carrying its own @font-face. */
+@font-face {
+  font-family: "Literata";
+  src: url("/fonts/Literata-var.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Literata";
+  src: url("/fonts/Literata-Italic-var.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("/fonts/AtkinsonHyperlegible-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("/fonts/AtkinsonHyperlegible-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("/fonts/AtkinsonHyperlegible-Italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("/fonts/AtkinsonHyperlegible-BoldItalic.woff2") format("woff2");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+/* OpenDyslexic ships no italic; font-synthesis (on by default) slants it. */
+@font-face {
+  font-family: "OpenDyslexic";
+  src: url("/fonts/OpenDyslexic-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "OpenDyslexic";
+  src: url("/fonts/OpenDyslexic-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Page-color themes (parity D1). The ONLY place colors are defined: the
+   shadow CSS consumes these same custom properties (they inherit through the
+   shadow boundary), so app chrome and book page always agree — the salvage §7
+   token duplication is dead. Each block carries the full set. The selector is
+   `[data-theme=…]`, not `:root[data-theme=…]`, so an Aa-panel swatch can
+   preview a theme by carrying its data-theme attribute — same single source.
+   Order matters: the themed blocks must follow the paper default. */
+:root,
+[data-theme="paper"] {
+  --bg: #f5f4ef;
+  --fg: #24211b;
+  --muted: #6e6759;
+  --link: #33518a;
+  --line: #ddd8cc;
+  --hover: rgba(36, 33, 27, 0.06);
+  --scrim: rgba(36, 33, 27, 0.16);
+  --img-dim: none;
+  --hl-yellow: #f2dd80;
+  --hl-pink: #f4bccb;
+  --hl-blue: #b1d4f2;
+  --hl-orange: #f5c491;
+  /* Find hits (H5): a distinct, quieter tint than any highlight color. */
+  --find-hit: #cfe3b0;
+}
+[data-theme="white"] {
+  --bg: #ffffff;
+  --fg: #1c1c1c;
+  --muted: #6b6b6b;
+  --link: #2f5aa8;
+  --line: #e4e4e1;
+  --hover: rgba(0, 0, 0, 0.05);
+  --scrim: rgba(0, 0, 0, 0.14);
+  --img-dim: none;
+  --hl-yellow: #f6e388;
+  --hl-pink: #f8c5d3;
+  --hl-blue: #b8daf8;
+  --hl-orange: #f9cb97;
+  --find-hit: #d3e8b4;
+}
+[data-theme="sepia"] {
+  --bg: #f3e7d0;
+  --fg: #3f3222;
+  --muted: #7c6c52;
+  --link: #6f5322;
+  --line: #e0d0b0;
+  --hover: rgba(63, 50, 34, 0.07);
+  --scrim: rgba(63, 50, 34, 0.18);
+  --img-dim: none;
+  --hl-yellow: #ecd47c;
+  --hl-pink: #ecb6bd;
+  --hl-blue: #b3cde2;
+  --hl-orange: #eebe85;
+  --find-hit: #d6dda2;
+}
+[data-theme="dark"] {
+  --bg: #121212;
+  --fg: #d6d3cd;
+  --muted: #8f8c85;
+  --link: #92aede;
+  --line: #2c2c2a;
+  --hover: rgba(255, 255, 255, 0.07);
+  --scrim: rgba(0, 0, 0, 0.5);
+  /* Kindle dims images in dark mode rather than inverting them. */
+  --img-dim: brightness(0.87);
+  /* Dimmed tints: backgrounds the light text stays readable on. */
+  --hl-yellow: #55491b;
+  --hl-pink: #5c2f3d;
+  --hl-blue: #23405e;
+  --hl-orange: #5c3d1e;
+  --find-hit: #384a24;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  /* Literata first, and not only for one voice across the chrome and the page:
+     the oldstyle figures the hairline asks for exist only in a face that
+     carries them, and a system Charter or the generic serif quietly ignores
+     `onum`. Bundling the face is what makes that rule true rather than
+     decorative. (The Aa panel's "Publisher default" row keeps the system
+     stack, because that row is a preview of exactly that.) */
+  font-family: "Literata", "Charter", "Iowan Old Style", Georgia, serif;
+  /* Phones: no auto-inflated text, no gray tap flash. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app {
+  height: 100%;
+}
+.muted {
+  color: var(--muted);
+}
+button {
+  font: inherit;
+  color: var(--fg);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+  /* A tap is a tap: no double-tap-zoom wait on controls. */
+  touch-action: manipulation;
+}
+button:hover {
+  border-color: var(--muted);
+}
+
+/* Chrome marks: the reading bar's controls are drawn icons with no border and
+   no background — five bordered words in a row read as a toolbar, and a
+   toolbar is not a book. A 44px target at EVERY width (product law 5 does not
+   begin at a coarse pointer), with the mark drawn at 21px inside it. The
+   bordered `button` base above stays for panels and dialogs. */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  color: var(--fg);
+}
+.btn-icon:hover,
+.btn-icon:focus-visible {
+  background: var(--hover);
+}
+.btn-icon svg {
+  display: block;
+  width: 21px;
+  height: 21px;
+}
+/* Aa is type, so it is set rather than drawn — same target, same quiet. */
+#aa-toggle {
+  font-size: 1.05rem;
+}
+
+/* welcome */
+#welcome {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+/* shelf */
+#shelf {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+.shelf-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.75rem;
+}
+.shelf-actions {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+}
+.shelf-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+.import-label {
+  color: var(--link);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+#book-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+#book-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+#book-list .book-title {
+  font-size: 1.05rem;
+}
+#book-list .book-meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+/* reader: a full-bleed viewport with the chrome bars OVERLAYING it, so
+   showing or hiding chrome never resizes the mount (a resize would
+   re-paginate the whole chapter). */
+#reader {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+}
+#viewport {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+}
+/* The top bar's own height, which every panel that hangs below it offsets by.
+   It must track the bar for real: 0.5rem padding + a 44px target + 0.5rem
+   padding + the hairline border. A stale value shows up as a panel sliding
+   under the bar, so it lives in one place. */
+:root {
+  --bar-h: 3.9rem;
+}
+.chrome-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  background: var(--bg);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+#top-bar {
+  top: 0;
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 10px var(--scrim);
+}
+#reader.chrome-hidden .chrome-bar {
+  opacity: 0;
+  pointer-events: none;
+}
+#reader.chrome-hidden #top-bar {
+  transform: translateY(-35%);
+}
+/* Final bar layout (I2): navigation left, the book's name in the middle,
+   annotation and taste right — each side a group so the title keeps the
+   centre no matter how wide the labels are. */
+.bar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+#reader-book-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  text-align: center;
+}
+
+/* Phones: the title steps aside rather than being squeezed to an ellipsis —
+   the reader knows which book they are in. The controls need no narrow-screen
+   rule of their own: they are marks at every width. */
+@media (max-width: 40rem) {
+  #reader-book-title {
+    display: none;
+  }
+  .chrome-bar {
+    gap: 0.4rem;
+    justify-content: space-between;
+  }
+}
+
+/* The progress hairline: what is left after the bottom bar dissolved. A strip
+   one fingertip tall (product law 5) pinned to the very bottom edge, carrying
+   the cycling readout, a 2px rule, and the percent — "where am I, and let me
+   look elsewhere", and nothing else. It stays up with the chrome too: there is
+   no bar below it to defer to any more. The strip itself lets taps through to
+   the page; only the readout and the rule are interactive. */
+#status-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* Above the peek sheet: the rule is what opened it, and it stays put at the
+     bottom edge instead of vanishing under the thing it summoned. */
+  z-index: 5;
+  height: calc(44px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  pointer-events: none;
+  padding: 0 calc(1rem + env(safe-area-inset-right)) env(safe-area-inset-bottom)
+    calc(1rem + env(safe-area-inset-left));
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+/* Oldstyle figures wherever the app states a number in running text: they sit
+   inside the line instead of standing up like signage. Only faces that carry
+   text figures can honour this — the reading faces do; a substituted system
+   serif silently keeps its lining figures. */
+#status-cycle,
+#status-percent,
+.peek-loc,
+.peek-excerpt {
+  font-feature-settings: "onum" 1;
+}
+#status-cycle {
+  pointer-events: auto;
+  align-self: stretch;
+  border: none;
+  background: none;
+  padding: 0;
+  min-width: 3rem;
+  display: flex;
+  align-items: center;
+  text-align: left;
+  white-space: nowrap;
+  color: inherit;
+  font-size: inherit;
+}
+#status-cycle:hover {
+  color: var(--fg);
+}
+/* The rule: 2px of ink, a faint full-width base (::before, so the fill paints
+   over it) and the read portion filled in. Tapping it opens the Page Flip
+   peek, so the hit area is the whole strip height even though it draws 2px. */
+#status-track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  pointer-events: auto;
+  border: none;
+  background: none;
+  padding: 0;
+}
+#status-track::before,
+#status-progress {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 2px;
+  margin-top: -1px;
+}
+/* A hairline, not a rule: 1px, and the ink held well back. At full strength
+   this line was the loudest thing on the page — heavier than the text it sits
+   under — which is the opposite of what it is for. It should be findable when
+   looked for and invisible when read past. */
+#status-track::before {
+  right: 0;
+  height: 1px;
+  background: var(--line);
+  opacity: 0.7;
+}
+#status-progress {
+  width: var(--progress, 0%);
+  height: 1px;
+  background: var(--muted);
+  opacity: 0.5;
+}
+/* Off: the strip paints nothing — no readout, no rule, no percent — leaving
+   only the invisible cycle target, so a tap brings it all back. Tapping
+   through to a completely clean page is how focus works here: no separate
+   mode, no new state to explain. */
+#status-line.status-off #status-cycle {
+  color: transparent;
+}
+/* Hide the PAINT, not the button. `visibility: hidden` also removes the
+   element from hit testing, and this rule is a 44px-tall Page Flip target:
+   with the readout cycled off it took the whole strip out of reach, and
+   `peek.open()` has only two callers — this click and the bottom-edge swipe,
+   which is paged-only. In scroll mode that left Page Flip unreachable by any
+   input at all. Opacity paints nothing and stays a button, which is also what
+   the cycle already promises: "only the invisible hit target survives". */
+#status-line.status-off #status-track {
+  opacity: 0;
+}
+
+/* The dog-ear ribbon (G1): a folded corner over the top-right of the page,
+   shown whenever the visible page carries a bookmark. Purely an indicator —
+   the corner GESTURE lives on the viewport, so the ribbon never eats a tap.
+   Two triangles: the accent fold, and a lighter notch that reads as the page
+   turning back on itself in every theme. */
+#bookmark-ribbon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  width: 1.6rem;
+  height: 2.1rem;
+  pointer-events: none;
+  background: var(--link);
+  opacity: 0.75;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+}
+#reader:not(.chrome-hidden) #bookmark-ribbon {
+  /* Under the top bar while chrome is open; the bar owns that band. */
+  opacity: 0;
+}
+
+/* The jump-back pill (H3): a small offer, bottom-left, clear of the hairline
+   strip (which is 44px tall and always up now, chrome or no chrome). It
+   appears on any in-book jump and settles away once the reader has turned a
+   few pages — the way back stays, the nagging does not. */
+#jump-back {
+  position: absolute;
+  left: calc(1rem + env(safe-area-inset-left));
+  bottom: calc(44px + 0.5rem + env(safe-area-inset-bottom));
+  z-index: 4;
+  font-size: 0.82rem;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  background: var(--bg);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.14);
+}
+
+/* End-of-book nudge (B6): a quiet centered card in the app's paper tones.
+   It is a panel: Escape closes it before touching anything else. */
+#finish-nudge {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--scrim);
+}
+.finish-card {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 40px var(--scrim);
+  padding: 1.8rem 2.2rem;
+  text-align: center;
+  max-width: min(22rem, 85vw);
+}
+.finish-heading {
+  font-size: 1.35rem;
+  margin: 0 0 0.35rem;
+}
+#finish-book-title {
+  margin: 0 0 1.2rem;
+  font-style: italic;
+}
+.finish-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+#finish-confirm {
+  margin: 0;
+}
+/* The Go To panel (H1): Cover/Beginning, a page-or-location box, the book's
+   contents, and every bookmarked page — one panel that answers "take me
+   somewhere". The TOC list keeps its own id and behavior inside it. */
+#goto-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: min(22rem, 100%);
+  z-index: 2;
+  overflow-y: auto;
+  background: var(--bg);
+  border-right: 1px solid var(--line);
+  padding: calc(var(--bar-h) + env(safe-area-inset-top)) 1rem
+    calc(1rem + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.goto-quick {
+  display: flex;
+  gap: 0.4rem;
+}
+.goto-quick button {
+  flex: 1;
+}
+.goto-entry {
+  display: flex;
+  gap: 0.4rem;
+}
+#goto-location {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  /* Tabular, not oldstyle: typed digits must line up in the box. */
+  font-feature-settings: "tnum" 1;
+  font-size: 0.9rem;
+  color: var(--fg);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+}
+.goto-error:empty {
+  display: none;
+}
+.goto-error {
+  font-size: 0.8rem;
+}
+.goto-heading {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 0.4rem;
+}
+.goto-bm-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.3rem;
+  border-bottom: 1px solid var(--line);
+}
+.goto-bm-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  text-align: left;
+  border: none;
+  border-radius: 0;
+  padding: 0.55rem 0.15rem;
+}
+.goto-bm-main:hover {
+  background: var(--hover);
+  border-color: transparent;
+}
+.goto-bm-chapter {
+  font-size: 0.9rem;
+}
+.goto-bm-snippet {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.goto-bm-date {
+  font-size: 0.72rem;
+}
+.goto-bm-delete {
+  flex: 0 0 auto;
+  border: none;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0 0.5rem;
+}
+.goto-bm-delete:hover {
+  color: var(--fg);
+  border-color: transparent;
+}
+.goto-empty {
+  margin: 0.6rem 0.15rem;
+  font-size: 0.85rem;
+}
+#toc {
+  margin: 0;
+}
+#toc ol {
+  list-style: none;
+  margin: 0;
+  padding-left: 0.75rem;
+}
+#toc > ol {
+  padding-left: 0;
+}
+#toc a {
+  display: block;
+  color: var(--fg);
+  text-decoration: none;
+  padding: 0.3rem 0.25rem;
+  border-radius: 4px;
+}
+#toc a:hover {
+  background: var(--hover);
+}
+
+/* The Aa panel: a right-anchored popover under the top bar; a bottom sheet
+   on narrow screens. Every control applies live — no Save button. */
+#aa-panel {
+  position: absolute;
+  top: calc(var(--bar-h) + env(safe-area-inset-top));
+  right: 0.75rem;
+  z-index: 4;
+  width: 21rem;
+  max-height: calc(100% - 6rem);
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 40px var(--scrim);
+  padding: 0.9rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+@media (max-width: 40rem) {
+  #aa-panel {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 75%;
+    border-radius: 12px 12px 0 0;
+    border-bottom: none;
+    padding-left: calc(1rem + env(safe-area-inset-left));
+    padding-right: calc(1rem + env(safe-area-inset-right));
+    /* The hairline's band (see the panel rule near #search-panel): as a bottom
+       sheet this panel reaches the bottom edge, so its last row — Layout —
+       sat under the Page Flip target and could not be tapped. The desktop
+       popover is anchored under the top bar and never reaches the strip, so it
+       keeps its ordinary padding. */
+    padding-bottom: calc(44px + env(safe-area-inset-bottom));
+  }
+}
+.aa-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.aa-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* A row of controls, and the row must never cost the reader a label. The
+   buttons are `nowrap`, so a flex item can not shrink below its longest word:
+   four weight steps (the widest is "Semibold") wanted 335px inside a 304px
+   panel, the row overflowed, and since the panel is a scroll container the
+   surplus was simply clipped — "Heavy" shipped drawn as "Hea".
+
+   Two rules, in order of who does the work. `flex-wrap` is the GUARANTEE: a
+   control that does not fit drops to the next line instead of being cut in
+   half, whatever the face, the base size, or the label's language. The
+   tightened side padding is what keeps the wrap a safety net rather than the
+   everyday look — the weight row fits on one line again at the stock size,
+   with room to spare. */
+.aa-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.aa-row > button {
+  flex: 1;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
+}
+#aa-panel button[aria-pressed="true"] {
+  border-color: var(--link);
+  box-shadow: inset 0 0 0 1px var(--link);
+}
+/* Theme swatches preview their own palette: each button carries data-theme,
+   so the token blocks above scope to it — no duplicated color values. */
+.aa-swatch {
+  background: var(--bg);
+  color: var(--fg);
+  border-color: var(--line);
+}
+/* Font rows render in their own face. */
+.aa-font-row {
+  text-align: left;
+}
+.aa-font-publisher {
+  font-family: "Charter", "Iowan Old Style", Georgia, serif;
+}
+.aa-font-literata {
+  font-family: "Literata", Georgia, serif;
+}
+.aa-font-atkinson {
+  font-family: "Atkinson Hyperlegible", Verdana, sans-serif;
+}
+.aa-font-opendyslexic {
+  font-family: "OpenDyslexic", Verdana, sans-serif;
+  font-size: 0.8rem; /* the face runs large */
+}
+#aa-size-down,
+#aa-size-up {
+  flex: 0 0 auto;
+  min-width: 3rem;
+}
+#aa-size-down {
+  font-size: 0.8rem;
+}
+#aa-size-down:disabled,
+#aa-size-up:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.aa-dots {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  gap: 0.32rem;
+}
+.aa-dots span {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--line);
+}
+.aa-dots span.on {
+  background: var(--fg);
+}
+
+/* The Notebook panel (F4): the TOC pattern, mirrored to the right side. */
+#notebook {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: min(22rem, 100%);
+  z-index: 2;
+  overflow-y: auto;
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+  padding: calc(var(--bar-h) + env(safe-area-inset-top)) 1rem
+    calc(1rem + env(safe-area-inset-bottom)) 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.nb-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.nb-heading {
+  font-size: 1.05rem;
+}
+.nb-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.nb-chip {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+}
+.nb-chip[aria-pressed="true"] {
+  border-color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--fg);
+}
+/* Color filters wear their color, so the chips read at a glance. */
+.nb-chip-yellow {
+  background: var(--hl-yellow);
+}
+.nb-chip-pink {
+  background: var(--hl-pink);
+}
+.nb-chip-blue {
+  background: var(--hl-blue);
+}
+.nb-chip-orange {
+  background: var(--hl-orange);
+}
+.nb-list {
+  display: flex;
+  flex-direction: column;
+}
+.nb-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  text-align: left;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.65rem 0.15rem;
+}
+.nb-row:hover {
+  background: var(--hover);
+  border-color: var(--line);
+}
+.nb-dot {
+  flex: 0 0 auto;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  margin-top: 0.28rem;
+  border: 1px solid var(--line);
+}
+.nb-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.nb-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.92rem;
+}
+.nb-note {
+  font-style: italic;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.nb-chapter {
+  font-size: 0.78rem;
+}
+.nb-empty {
+  margin: 1rem 0.15rem;
+  font-size: 0.9rem;
+}
+
+/* The selection/highlight menu (E2, F1): a chrome-independent floating card
+   positioned by the annotation layer near the selection or tapped mark. */
+#selection-menu {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 6px 30px rgba(0, 0, 0, 0.18);
+  padding: 0.55rem 0.6rem;
+}
+.sel-colors {
+  display: flex;
+  justify-content: center;
+  gap: 0.55rem;
+}
+.hl-dot {
+  width: 1.7rem;
+  height: 1.7rem;
+  min-width: 1.7rem;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+}
+.hl-dot[aria-pressed="true"] {
+  border-color: var(--fg);
+  box-shadow: inset 0 0 0 2px var(--bg);
+}
+.hl-dot-yellow {
+  background: var(--hl-yellow);
+}
+.hl-dot-pink {
+  background: var(--hl-pink);
+}
+.hl-dot-blue {
+  background: var(--hl-blue);
+}
+.hl-dot-orange {
+  background: var(--hl-orange);
+}
+.sel-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+.sel-actions button {
+  flex: 1;
+  white-space: nowrap;
+  font-size: 0.88rem;
+}
+
+/* The dictionary card (E1): an inline popup low over the page, set like a
+   dictionary entry — serif headword, quiet source line, Wikipedia off-ramp. */
+#dict-card {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(3rem + env(safe-area-inset-bottom));
+  z-index: 7;
+  width: min(34rem, calc(100% - 2rem));
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.2);
+  padding: 1rem 1.2rem 0.85rem;
+}
+#dict-headword {
+  margin: 0 0 0.45rem;
+  font-family: "Literata", Georgia, serif;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+#dict-body {
+  margin: 0 0 0.7rem;
+  font-family: "Literata", Georgia, serif;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  max-height: 9.5rem;
+  overflow-y: auto;
+}
+#dict-card[data-state="loading"] #dict-body,
+#dict-card[data-state="miss"] #dict-body {
+  color: var(--muted);
+  font-style: italic;
+}
+.dict-footer {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.55rem;
+  font-size: 0.78rem;
+}
+.dict-source {
+  color: var(--muted);
+}
+#dict-wiki {
+  color: var(--link);
+  white-space: nowrap;
+}
+
+/* The footnote popover (H2): the note floats over the page near its marker,
+   clamped inside the reader; a bottom sheet on phones. The page beneath does
+   not move — reading the note is not leaving the page. */
+#footnote-popover {
+  position: absolute;
+  left: var(--fn-x, 50%);
+  top: var(--fn-y, 30%);
+  z-index: 7;
+  width: min(28rem, calc(100% - 2rem));
+  max-height: 60%;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.2);
+  padding: 0.9rem 1rem 0.7rem;
+}
+#footnote-body {
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+#footnote-body p {
+  margin: 0 0 0.5rem;
+}
+#footnote-body p:last-child {
+  margin-bottom: 0;
+}
+.fn-actions {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+  margin-top: 0.6rem;
+  padding-top: 0.55rem;
+}
+#footnote-goto {
+  font-size: 0.85rem;
+}
+@media (max-width: 40rem) {
+  #footnote-popover {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    border-radius: 12px 12px 0 0;
+    border-bottom: none;
+    padding-left: calc(1rem + env(safe-area-inset-left));
+    padding-right: calc(1rem + env(safe-area-inset-right));
+    padding-bottom: calc(0.7rem + env(safe-area-inset-bottom));
+  }
+}
+
+/* The note editor (F2): a small sheet, chrome-independent, thumb-friendly. */
+#note-editor {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  display: flex;
+  justify-content: center;
+  /* Clear of the hairline strip, which is always up now. */
+  padding: 0 1rem calc(44px + 0.5rem + env(safe-area-inset-bottom));
+}
+.note-card {
+  width: min(30rem, 100%);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.2);
+  padding: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+#note-text {
+  font: inherit;
+  color: var(--fg);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.5rem;
+  resize: vertical;
+}
+.note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+/* Touch: every control is a real fingertip target (44px minimum). */
+@media (pointer: coarse) {
+  button {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0.45rem 1rem;
+  }
+  .import-label {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  #book-list li {
+    padding: 1.1rem 0;
+  }
+  #toc a {
+    padding: 0.65rem 0.5rem;
+  }
+  .hl-dot {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* Phones with notches and home bars: chrome respects the safe area, and the
+   reading column never hides under it. */
+#top-bar {
+  padding-top: calc(0.5rem + env(safe-area-inset-top));
+  padding-left: calc(1rem + env(safe-area-inset-left));
+  padding-right: calc(1rem + env(safe-area-inset-right));
+}
+#shelf {
+  padding-left: calc(1.5rem + env(safe-area-inset-left));
+  padding-right: calc(1.5rem + env(safe-area-inset-right));
+  padding-bottom: calc(2rem + env(safe-area-inset-bottom));
+}
+
+/* Full-height side panels sit ABOVE the page, so they need to look like it:
+   without an edge shadow the text they cover reads as clipped mid-word rather
+   than as text behind a panel. */
+#search-panel,
+#notebook,
+#goto-panel {
+  box-shadow: -10px 0 28px var(--scrim);
+}
+
+/* Search panel (H5): the notebook's shape, a query box instead of chips. */
+#search-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: min(24rem, 100%);
+  z-index: 2;
+  overflow-y: auto;
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+  padding: calc(var(--bar-h) + env(safe-area-inset-top)) 1rem
+    calc(1rem + env(safe-area-inset-bottom)) 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+/* The hairline's band, claimed by every panel that reaches the bottom edge.
+   The strip is z-index 5 and always up, and its rule is a 44px-tall hit target
+   spanning the width — so a control sitting in the last 44px of a panel is not
+   the reader's to tap: the thumb opens Page Flip instead, and the setting they
+   aimed at never changes. Reserving the band is what makes the bottom row of a
+   panel reachable. #peek-sheet has always done this; these three now do too.
+   (Declared after all three rules so it wins over their padding shorthands.) */
+#goto-panel,
+#notebook,
+#search-panel {
+  padding-bottom: calc(44px + env(safe-area-inset-bottom));
+}
+
+.search-form {
+  display: flex;
+}
+#search-input {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  width: 100%;
+  min-height: 44px;
+}
+#search-input:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 1px;
+}
+.search-summary {
+  margin: 0;
+  font-size: 0.8rem;
+}
+.search-results {
+  display: flex;
+  flex-direction: column;
+}
+.search-chapter {
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0.7rem 0 0.3rem;
+}
+.search-hit {
+  text-align: left;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 0.6rem 0.25rem;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  /* Long books have long snippets; the row wraps rather than truncating the
+     match out of view. */
+  white-space: normal;
+}
+.search-hit:hover {
+  background: var(--hover);
+}
+.search-hit strong {
+  background: var(--find-hit);
+  font-weight: 600;
+}
+
+/* Page Flip peek (H4): a sheet over the page, which stays exactly where it is.
+   The scrim dims the text so the preview reads as a place you are NOT yet. */
+#peek-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -8px 24px var(--scrim);
+  /* Its bottom padding is the hairline's band: the sheet opens ABOVE the rule
+     that summoned it, and the rule keeps drawing at the very bottom edge. */
+  padding: 0.9rem 1rem calc(44px + env(safe-area-inset-bottom));
+  padding-left: calc(1rem + env(safe-area-inset-left));
+  padding-right: calc(1rem + env(safe-area-inset-right));
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.peek-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-height: 5.2rem;
+}
+.peek-loc {
+  font-size: 0.9rem;
+}
+.peek-chapter {
+  font-size: 0.8rem;
+}
+.peek-excerpt {
+  margin: 0.3rem 0 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  /* Three lines, so the sheet never jumps height as you scrub. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.peek-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+#peek-slider {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--link);
+  /* A thumb a thumb can actually hit. */
+  height: 44px;
+}
+.peek-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+#peek-go {
+  border-color: var(--fg);
+}
