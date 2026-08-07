@@ -113,6 +113,28 @@ describe('parseHighlight', () => {
     });
     expect(hl?.text).toHaveLength(5000);
   });
+
+  test('color and editedAt round-trip', () => {
+    const hl = parseHighlight({
+      ...validSidecar.highlights[0],
+      color: 'pink',
+      editedAt: '2026-07-04T09:00:00.000Z',
+    });
+    expect(hl?.color).toBe('pink');
+    expect(hl?.editedAt).toBe('2026-07-04T09:00:00.000Z');
+  });
+
+  test('an unknown color drops the field, not the highlight (absent = yellow)', () => {
+    const hl = parseHighlight({ ...validSidecar.highlights[0], color: 'chartreuse' });
+    expect(hl).not.toBeNull();
+    expect(hl?.color).toBeUndefined();
+  });
+
+  test('a mangled editedAt drops the field, not the highlight', () => {
+    const hl = parseHighlight({ ...validSidecar.highlights[0], editedAt: 'not a date' });
+    expect(hl).not.toBeNull();
+    expect(hl?.editedAt).toBeUndefined();
+  });
 });
 
 describe('parseIndex', () => {

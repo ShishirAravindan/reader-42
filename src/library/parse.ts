@@ -9,9 +9,11 @@
 import {
   type BookSidecar,
   type BookState,
+  HIGHLIGHT_COLORS,
   HIGHLIGHT_TEXT_CAP,
   type Highlight,
   type HighlightBoundary,
+  type HighlightColor,
   type LibraryIndex,
   type PositionAnchor,
   type ReadingPosition,
@@ -80,14 +82,22 @@ export function parseHighlight(value: unknown): Highlight | null {
     return null;
   }
   const note = asString(value.note);
+  // Optional fields degrade individually: an unknown color or a mangled
+  // editedAt drops the FIELD, never the highlight.
+  const color = HIGHLIGHT_COLORS.includes(value.color as HighlightColor)
+    ? (value.color as HighlightColor)
+    : null;
+  const editedAt = asIsoDate(value.editedAt);
   return {
     id,
     chapter,
     start,
     end,
     text: text.slice(0, HIGHLIGHT_TEXT_CAP),
+    ...(color ? { color } : {}),
     ...(note ? { note } : {}),
     createdAt,
+    ...(editedAt ? { editedAt } : {}),
   };
 }
 

@@ -46,9 +46,15 @@ export interface ReaderView {
 
 export interface RenderedChapter {
   host: HTMLElement;
+  /** Structural chapter root; the annotation layer serializes and marks against it. */
+  wrapper: HTMLElement;
+  /** The chapter's shadow root, for engine-specific selection lookup (salvage §1). */
+  shadow: ShadowRoot;
   /** Tear down: revokes blob URLs and removes the host. */
   dispose(): void;
   scrollToFragment(id: string): void;
+  /** Bring an element's page (paged) or offset (scroll) into view. */
+  revealElement(el: Element): void;
   getScroll(): number;
   setScroll(offset: number): void;
   /** Structural locator for the current viewport start (top or left edge). */
@@ -209,6 +215,8 @@ export function renderChapter(
 
   const rendered: RenderedChapter = {
     host,
+    wrapper,
+    shadow,
     dispose(): void {
       observer?.disconnect();
       if (resizeTimer) clearTimeout(resizeTimer);
@@ -217,7 +225,9 @@ export function renderChapter(
     },
     scrollToFragment(id: string): void {
       const target = shadow.getElementById(id);
-      if (!target) return;
+      if (target) rendered.revealElement(target);
+    },
+    revealElement(target: Element): void {
       // Paged: snap to the page containing the element; scrollIntoView would
       // land between pages.
       if (applied === 'paged') mount.scrollLeft = pageStartFor(absoluteStart(target, mount, 'h'));
@@ -565,6 +575,32 @@ const SHADOW_BASE_CSS = `
     margin: 1em 0;
     padding: 0 0 0 1em;
     color: var(--muted, #6e6759);
+  }
+  /* Highlights (F1–F3): overlay marks, invisible to locators (mark.hl in
+     locator.ts). Tints come from the theme token blocks in web/styles.css;
+     the fallbacks mirror the paper theme for headless rendering. Marks wrap
+     only text; the note marker is a pseudo-element so that stays true. */
+  mark.hl {
+    color: inherit;
+    background: var(--hl-yellow, #f2dd80);
+    border-radius: 2px;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+  mark.hl.hl-pink { background: var(--hl-pink, #f4bccb); }
+  mark.hl.hl-blue { background: var(--hl-blue, #b1d4f2); }
+  mark.hl.hl-orange { background: var(--hl-orange, #f5c491); }
+  mark.hl.has-note::after {
+    content: '\\270E';
+    font-size: 0.72em;
+    vertical-align: super;
+    margin-left: 0.12em;
+    color: var(--muted, #6e6759);
+  }
+  mark.hl.hl-flash { animation: hl-flash 0.9s ease-out; }
+  @keyframes hl-flash {
+    0% { outline: 3px solid var(--link, #33518a); outline-offset: 1px; }
+    100% { outline: 3px solid transparent; outline-offset: 1px; }
   }
   .chapter img, .chapter svg, .chapter image { max-width: 100%; height: auto; }
   /* Dark theme dims images (Kindle-style), never inverts; other themes set none. */

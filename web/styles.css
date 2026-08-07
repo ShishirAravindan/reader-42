@@ -80,6 +80,10 @@
   --hover: rgba(36, 33, 27, 0.06);
   --scrim: rgba(36, 33, 27, 0.16);
   --img-dim: none;
+  --hl-yellow: #f2dd80;
+  --hl-pink: #f4bccb;
+  --hl-blue: #b1d4f2;
+  --hl-orange: #f5c491;
 }
 [data-theme="white"] {
   --bg: #ffffff;
@@ -90,6 +94,10 @@
   --hover: rgba(0, 0, 0, 0.05);
   --scrim: rgba(0, 0, 0, 0.14);
   --img-dim: none;
+  --hl-yellow: #f6e388;
+  --hl-pink: #f8c5d3;
+  --hl-blue: #b8daf8;
+  --hl-orange: #f9cb97;
 }
 [data-theme="sepia"] {
   --bg: #f3e7d0;
@@ -100,6 +108,10 @@
   --hover: rgba(63, 50, 34, 0.07);
   --scrim: rgba(63, 50, 34, 0.18);
   --img-dim: none;
+  --hl-yellow: #ecd47c;
+  --hl-pink: #ecb6bd;
+  --hl-blue: #b3cde2;
+  --hl-orange: #eebe85;
 }
 [data-theme="dark"] {
   --bg: #121212;
@@ -111,6 +123,11 @@
   --scrim: rgba(0, 0, 0, 0.5);
   /* Kindle dims images in dark mode rather than inverting them. */
   --img-dim: brightness(0.87);
+  /* Dimmed tints: backgrounds the light text stays readable on. */
+  --hl-yellow: #55491b;
+  --hl-pink: #5c2f3d;
+  --hl-blue: #23405e;
+  --hl-orange: #5c3d1e;
 }
 
 * {
@@ -500,6 +517,96 @@ button:hover {
   background: var(--fg);
 }
 
+/* The selection/highlight menu (E2, F1): a chrome-independent floating card
+   positioned by the annotation layer near the selection or tapped mark. */
+#selection-menu {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 6px 30px rgba(0, 0, 0, 0.18);
+  padding: 0.55rem 0.6rem;
+}
+.sel-colors {
+  display: flex;
+  justify-content: center;
+  gap: 0.55rem;
+}
+.hl-dot {
+  width: 1.7rem;
+  height: 1.7rem;
+  min-width: 1.7rem;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+}
+.hl-dot[aria-pressed="true"] {
+  border-color: var(--fg);
+  box-shadow: inset 0 0 0 2px var(--bg);
+}
+.hl-dot-yellow {
+  background: var(--hl-yellow);
+}
+.hl-dot-pink {
+  background: var(--hl-pink);
+}
+.hl-dot-blue {
+  background: var(--hl-blue);
+}
+.hl-dot-orange {
+  background: var(--hl-orange);
+}
+.sel-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+.sel-actions button {
+  flex: 1;
+  white-space: nowrap;
+  font-size: 0.88rem;
+}
+
+/* The note editor (F2): a small sheet, chrome-independent, thumb-friendly. */
+#note-editor {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  display: flex;
+  justify-content: center;
+  padding: 0 1rem calc(1rem + env(safe-area-inset-bottom));
+}
+.note-card {
+  width: min(30rem, 100%);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.2);
+  padding: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+#note-text {
+  font: inherit;
+  color: var(--fg);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.5rem;
+  resize: vertical;
+}
+.note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
 /* Touch: every control is a real fingertip target (44px minimum). */
 @media (pointer: coarse) {
   button {
@@ -517,6 +624,11 @@ button:hover {
   }
   #toc a {
     padding: 0.65rem 0.5rem;
+  }
+  .hl-dot {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
   }
 }
 

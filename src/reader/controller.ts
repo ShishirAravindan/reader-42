@@ -78,6 +78,11 @@ export class ReaderController {
     return this.chapterIndex;
   }
 
+  /** The live rendered chapter, for layers that mark or measure its DOM. */
+  chapterView(): RenderedChapter | null {
+    return this.rendered;
+  }
+
   /** How far through the current chapter the viewport start sits, 0..1. */
   currentFraction(): number {
     return this.rendered?.chapterFraction() ?? 0;
