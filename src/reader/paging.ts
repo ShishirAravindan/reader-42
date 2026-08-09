@@ -11,12 +11,30 @@ export interface ColumnGeometry {
   sidePad: number;
 }
 
-/** Text never touches the screen edge, even on narrow phones. */
-export const MIN_SIDE_PAD_PX = 24;
+/**
+ * Text never touches the screen edge, even on narrow phones. Equivalent to
+ * the CSS `clamp(0.5rem, 4vw, 1rem)`: scales with the viewport down to a
+ * phone-appropriate minimum, and caps out at a modest value on wide screens.
+ * The rem base ties the floor to the root font-size, so a reader who has
+ * bumped their OS/browser text size gets a proportionally larger safe edge.
+ * This file has no DOM access (see header comment), so the caller resolves
+ * rem-to-px once (e.g. via getComputedStyle) and passes it in.
+ */
+export function minSidePad(clientWidth: number, rootFontSizePx: number): number {
+  const min = 0.5 * rootFontSizePx;
+  const max = 1 * rootFontSizePx;
+  const preferred = 0.04 * clientWidth;
+  return Math.min(Math.max(preferred, min), max);
+}
 
-export function columnGeometry(clientWidth: number, measurePx: number): ColumnGeometry {
+export function columnGeometry(
+  clientWidth: number,
+  measurePx: number,
+  rootFontSizePx: number,
+): ColumnGeometry {
   const width = Math.max(clientWidth, 1);
-  let columnWidth = Math.min(measurePx, width - 2 * MIN_SIDE_PAD_PX);
+  const sidePadFloor = minSidePad(width, rootFontSizePx);
+  let columnWidth = Math.min(measurePx, width - 2 * sidePadFloor);
   if (columnWidth < 1) columnWidth = Math.max(width - 2, 1); // degenerate widths
   const gap = width - columnWidth;
   return { columnWidth, gap, sidePad: gap / 2 };
