@@ -1,10 +1,46 @@
 import { describe, expect, test } from 'bun:test';
 import { Library } from './store.ts';
+import type { LibraryTransport } from './transport.ts';
 import { MemoryTransport } from './transports/memory.ts';
 import type { BookSidecar } from './types.ts';
 
 const clock = () => '2026-07-12T00:00:00.000Z';
 const epub = (content: string) => new TextEncoder().encode(content);
+
+/**
+ * A transport whose write() never settles until the test releases it, and
+ * whose read() answers with whatever was durably written so far (i.e. not
+ * the in-flight write). Models the real shape of the bug: a device cache
+ * whose json path is network-first, raced by a fire-and-forget save.
+ */
+class StalledWriteTransport implements LibraryTransport {
+  private readonly inner = new MemoryTransport();
+  private release: (() => void) | null = null;
+  private gate: Promise<void> | null = null;
+
+  /** Hold the next write() from settling until releaseWrite() is called. */
+  stallNextWrite(): void {
+    this.gate = new Promise((resolve) => {
+      this.release = resolve;
+    });
+  }
+
+  releaseWrite(): void {
+    this.release?.();
+  }
+
+  async read(path: string): Promise<Uint8Array | null> {
+    return this.inner.read(path);
+  }
+
+  async write(path: string, bytes: Uint8Array): Promise<void> {
+    if (this.gate) {
+      await this.gate;
+      this.gate = null;
+    }
+    await this.inner.write(path, bytes);
+  }
+}
 
 describe('Library', () => {
   test('opens empty on a blank transport', async () => {
@@ -60,6 +96,38 @@ describe('Library', () => {
     const read = await lib.readSidecar(sidecar.id);
     expect(read?.state).toBe('reading');
     expect(read?.position?.anchor?.path).toEqual([4]);
+  });
+
+  test('an un-awaited saveSidecar is immediately visible to readSidecar, even mid-flight to the transport', async () => {
+    const t = new StalledWriteTransport();
+    const lib = await Library.open(t, clock);
+    const { sidecar } = await lib.importBook(epub('racing'), { title: 'Race', author: null });
+
+    t.stallNextWrite();
+    // Fire-and-forget, exactly like reader-shell.ts: nobody awaits this.
+    void lib.saveSidecar({ ...sidecar, state: 'reading', progress: 0.42 });
+
+    // The shelf's readSidecar lands before the transport write has settled.
+    const read = await lib.readSidecar(sidecar.id);
+    expect(read?.progress).toBe(0.42);
+
+    t.releaseWrite();
+  });
+
+  test('a saveSidecar write still lands on the transport once it settles', async () => {
+    const t = new StalledWriteTransport();
+    const lib = await Library.open(t, clock);
+    const { sidecar } = await lib.importBook(epub('durable'), { title: 'Durable', author: null });
+
+    t.stallNextWrite();
+    const saved = lib.saveSidecar({ ...sidecar, state: 'reading', progress: 0.75 });
+    t.releaseWrite();
+    await saved;
+
+    // A fresh Library instance has no cache, so this only passes if the
+    // write actually reached the transport, not just the in-memory cache.
+    const reopened = await Library.open(t, clock);
+    expect((await reopened.readSidecar(sidecar.id))?.progress).toBe(0.75);
   });
 
   test('saveSidecar for an unknown book throws', async () => {

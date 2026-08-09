@@ -33,6 +33,14 @@ export class Library {
   private readonly transport: LibraryTransport;
   private readonly now: Clock;
   private current: LibraryIndex;
+  // A write from this device is the newest known state for that book, full
+  // stop ("writes queue and flush when online, latest timestamp wins" —
+  // docs/decisions.md). Caching it here means a readSidecar() that lands
+  // right after a fire-and-forget saveSidecar() never races the transport
+  // for bytes we already know. Scoped to this Library instance's lifetime:
+  // no TTL, no invalidation — a fresh instance (reload, reopen) starts empty
+  // and reads through, same as today.
+  private readonly sidecarCache = new Map<string, BookSidecar>();
 
   private constructor(transport: LibraryTransport, index: LibraryIndex, now: Clock) {
     this.transport = transport;
@@ -94,6 +102,8 @@ export class Library {
   async readSidecar(id: string): Promise<BookSidecar | null> {
     const entry = this.current.books.find((b) => b.id === id);
     if (!entry) return null;
+    const cached = this.sidecarCache.get(id);
+    if (cached) return cached;
     return parseSidecar(
       await readJson(this.transport, `${entry.dir}/${SIDECAR_FILENAME}`),
       this.now(),
@@ -113,6 +123,11 @@ export class Library {
   }
 
   private async writeSidecar(dir: string, sidecar: BookSidecar): Promise<void> {
+    // Populate before awaiting the transport: a reader that races this write
+    // with an immediate read (fire-and-forget saveSidecar, then navigate back
+    // to the shelf) sees the fresh sidecar synchronously, not whatever the
+    // transport had a moment ago.
+    this.sidecarCache.set(sidecar.id, sidecar);
     await writeJson(this.transport, `${dir}/${SIDECAR_FILENAME}`, sidecar);
   }
 
