@@ -276,6 +276,16 @@ button:hover {
   font-size: 0.85rem;
   white-space: nowrap;
 }
+/* Sidecars for a remote library (Drive) fetch over the network; while they
+   are in flight the list is empty, so this is the only sign anything is
+   happening. */
+#book-list[data-state="loading"]::before {
+  content: "Loading library…";
+  display: block;
+  padding: 0.9rem 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
 
 /* reader: a full-bleed viewport with the chrome bars OVERLAYING it, so
    showing or hiding chrome never resizes the mount (a resize would

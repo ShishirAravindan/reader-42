@@ -4,10 +4,53 @@
 
 import { readFileSync } from 'node:fs';
 import type { Page } from 'playwright';
-import { buildFixtureEpub } from '../../test/fixture-epub.ts';
+import { buildFixtureEpub, buildZip } from '../../test/fixture-epub.ts';
 import { expect, expectEq, scene } from './harness.ts';
 
 const TITLE = 'The Fixture of Everything';
+
+/** A minimal, distinctly-titled EPUB — just enough to import and show on the
+ * shelf, for scenes that need several DIFFERENT books rather than the one
+ * shared fixture (which every scene would collide on: identical bytes import
+ * as the same book, not a twin). */
+function buildNamedEpub(id: string, title: string): Uint8Array {
+  const xhtml = (t: string, body: string): string => `<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>${t}</title></head><body>${body}</body></html>`;
+  return buildZip([
+    ['mimetype', 'application/epub+zip'],
+    [
+      'META-INF/container.xml',
+      `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`,
+    ],
+    [
+      'OEBPS/content.opf',
+      `<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="uid">${id}</dc:identifier>
+    <dc:title>${title}</dc:title>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="ch1"/></spine>
+</package>`,
+    ],
+    [
+      'OEBPS/nav.xhtml',
+      xhtml(
+        'Contents',
+        '<nav epub:type="toc" xmlns:epub="http://www.idpf.org/2007/ops"><ol><li><a href="ch1.xhtml">One</a></li></ol></nav>',
+      ),
+    ],
+    ['OEBPS/ch1.xhtml', xhtml('One', `<h1>${title}</h1><p>Chapter one of ${title}.</p>`)],
+  ]);
+}
 
 interface ViewportMetrics {
   scrollLeft: number;
@@ -2803,5 +2846,69 @@ scene('offline-writes', async ({ base, onFreshDevice }) => {
       "and the OTHER device's highlight, so the merge is a union and not a clobber",
       (s) => (s.highlights ?? []).some((h) => h.id === 'hl-other-device'),
     );
+  });
+});
+
+scene('shelf-loading', async ({ base, onFreshDevice }) => {
+  // The shelf used to fetch one sidecar at a time; on a remote transport
+  // (Drive) that serialized N network round trips back to back. It now
+  // fetches them all at once and shows a loading state for the in-flight
+  // window instead of a blank list. A fresh device so this scene's own two
+  // extra books, and the artificial delay on their reads, cannot bleed into
+  // any other scene's shared page.
+  await onFreshDevice(async ({ page, capture }) => {
+    await page.goto(`${base}/?lib=dev`);
+    await page.locator('#shelf').waitFor({ state: 'visible' });
+
+    // The dev library already holds the shared fixture from import-and-open;
+    // two more distinctly-titled books gives three sidecars to fetch.
+    await page.setInputFiles('#import-input', {
+      name: 'second.epub',
+      mimeType: 'application/epub+zip',
+      buffer: Buffer.from(buildNamedEpub('shelf-loading-2', 'A Second Book')),
+    });
+    await page.locator('.book-title', { hasText: 'A Second Book' }).waitFor();
+    await page.setInputFiles('#import-input', {
+      name: 'third.epub',
+      mimeType: 'application/epub+zip',
+      buffer: Buffer.from(buildNamedEpub('shelf-loading-3', 'A Third Book')),
+    });
+    await page.locator('.book-title', { hasText: 'A Third Book' }).waitFor();
+    const bookCount = await page.locator('#book-list li').count();
+    expectEq(bookCount, 3, 'three books on the shelf before the reload under test');
+
+    // Delay every sidecar read. Fetched one at a time, three books would take
+    // 3 * DELAY to settle; fetched concurrently (the fix), all three land in
+    // about one DELAY, which the elapsed-time assertion below pins down.
+    const DELAY = 700;
+    await page.route('**/lib/books/*/book.json', async (route) => {
+      await new Promise((r) => setTimeout(r, DELAY));
+      await route.continue();
+    });
+
+    const started = Date.now();
+    await page.reload();
+    // Caught mid-flight: nothing has rendered yet, and the list says so.
+    expectEq(
+      await page.locator('#book-list').getAttribute('data-state'),
+      'loading',
+      'the shelf marks itself loading while sidecars are in flight',
+    );
+    expectEq(await page.locator('#book-list li').count(), 0, 'no rows before the fetch settles');
+    await capture('shelf-loading');
+
+    await page.locator('#book-list li').nth(2).waitFor();
+    const elapsed = Date.now() - started;
+    expect(
+      elapsed < DELAY * 2,
+      `all three sidecars settled in ${elapsed}ms — sequential fetching would need ~${DELAY * 3}ms`,
+    );
+    expectEq(
+      await page.locator('#book-list').getAttribute('data-state'),
+      null,
+      'the loading state clears once the rows are in',
+    );
+    expectEq(await page.locator('#book-list li').count(), 3, 'all three books rendered');
+    await capture('shelf-loaded');
   });
 });

@@ -14,10 +14,10 @@ import { DevHttpTransport } from '../library/transports/dev-http.ts';
 import { OAuthTokenProvider, captureDriveToken } from '../library/transports/drive-auth.ts';
 import { DriveTransport } from '../library/transports/drive.ts';
 import { LocalFolderTransport } from '../library/transports/local-folder.ts';
-import type { BookSidecar } from '../library/types.ts';
 import { el } from './dom.ts';
 import { getTheme } from './prefs.ts';
 import { closeReader, openReader } from './reader-shell.ts';
+import { loadShelfRows } from './shelf.ts';
 import { applyTheme } from './theme.ts';
 
 const sections = {
@@ -156,31 +156,26 @@ function route(): void {
 
 // --- shelf ---
 
+// Guards against overlapping renders: renderShelf runs on every hashchange
+// back to the shelf, and a slow remote fetch from a prior call must never
+// clobber a faster, more recent one's rows or clear its loading state out
+// from under it (mirrors the showToken idiom in dictionary-card.ts).
+let shelfToken = 0;
+
 async function renderShelf(): Promise<void> {
   if (!library) return;
+  const lib = library;
+  const token = ++shelfToken;
   show('shelf');
   const list = el<HTMLUListElement>('book-list');
   list.replaceChildren();
+  delete list.dataset.state;
 
-  const entries = library.index().books;
+  const entries = lib.index().books;
   el<HTMLElement>('shelf-empty').hidden = entries.length > 0;
 
-  for (const entry of entries) {
-    const sidecar = await library.readSidecar(entry.id);
-    const li = document.createElement('li');
-    const title = document.createElement('span');
-    title.className = 'book-title';
-    title.textContent = sidecar?.title ?? entry.title;
-    const meta = document.createElement('span');
-    meta.className = 'book-meta';
-    meta.textContent = shelfMeta(sidecar);
-    li.append(title, meta);
-    li.addEventListener('click', () => {
-      location.hash = `#/book/${entry.id}`;
-    });
-    list.appendChild(li);
-  }
-
+  // Wired before the fetch resolves so Import stays usable while the shelf
+  // is still loading.
   const input = el<HTMLInputElement>('import-input');
   input.onchange = async () => {
     const file = input.files?.[0];
@@ -199,15 +194,30 @@ async function renderShelf(): Promise<void> {
       alert(`Could not import: ${err instanceof Error ? err.message : 'not a valid EPUB'}`);
     }
   };
-}
 
-function shelfMeta(sidecar: BookSidecar | null): string {
-  if (!sidecar) return '';
-  const bits: string[] = [];
-  if (sidecar.author) bits.push(sidecar.author);
-  if (sidecar.state === 'reading') bits.push(`${Math.round(sidecar.progress * 100)}%`);
-  else if (sidecar.state !== 'unread') bits.push(sidecar.state);
-  return bits.join(' · ');
+  if (entries.length === 0) return;
+
+  list.dataset.state = 'loading';
+  try {
+    const rows = await loadShelfRows(entries, (id) => lib.readSidecar(id));
+    if (token !== shelfToken) return; // superseded by a later renderShelf
+    for (const row of rows) {
+      const li = document.createElement('li');
+      const title = document.createElement('span');
+      title.className = 'book-title';
+      title.textContent = row.title;
+      const meta = document.createElement('span');
+      meta.className = 'book-meta';
+      meta.textContent = row.meta;
+      li.append(title, meta);
+      li.addEventListener('click', () => {
+        location.hash = `#/book/${row.id}`;
+      });
+      list.appendChild(li);
+    }
+  } finally {
+    if (token === shelfToken) delete list.dataset.state;
+  }
 }
 
 void boot();
