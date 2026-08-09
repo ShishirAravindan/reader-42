@@ -604,6 +604,17 @@ async function columnWidth(page: Page): Promise<number> {
   });
 }
 
+/** The paged mode's edge gutter the renderer derived, in px (see paging.ts). */
+async function sidePad(page: Page): Promise<number> {
+  return await page.evaluate(() => {
+    const wrapper = document
+      .querySelector('#viewport .chapter-host')
+      ?.shadowRoot?.querySelector('.chapter') as HTMLElement | null;
+    if (!wrapper) throw new Error('no chapter wrapper');
+    return Number.parseFloat(wrapper.style.getPropertyValue('--side-pad'));
+  });
+}
+
 /**
  * The measure as the reader actually gets it: the paged column in pixels, and
  * the characters the browser really fits on a line of the book's prose. The
@@ -2237,6 +2248,15 @@ scene('phone', async ({ base, onPhone }) => {
     );
     expect(await noOverflow(), 'reader: nothing overflows 390px');
     await capture('phone-reading');
+
+    // The edge gutter scales with the viewport (clamp(0.5rem, 4vw, 1rem)),
+    // not a flat 24px: on a 390px phone the old floor made every margin
+    // setting collapse to the same overly generous gutter (see paging.ts).
+    const gutter = await sidePad(page);
+    expect(
+      gutter > 7 && gutter < 17,
+      `phone gutter sits inside the 0.5rem-1rem floor, well under the old flat 24px (${gutter.toFixed(1)}px)`,
+    );
 
     // A real touch tap in the forward zone turns the page.
     const box = await page.locator('#viewport').boundingBox();
