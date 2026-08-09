@@ -210,6 +210,17 @@ export function renderChapter(
     );
   }
 
+  /**
+   * The root font-size in px, for converting the rem-based side-pad floor
+   * (see columnGeometry) to pixels. Read from the document root, not the
+   * chapter's own type size: the safe edge is an app-chrome concern tied to
+   * what the reader's OS/browser considers a rem, not the in-book face.
+   */
+  function rootFontSizePx(): number {
+    const fontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+    return Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 16;
+  }
+
   // Typography rides the same capture -> apply -> restore cycle as a mode
   // switch: the view accessors are read HERE, at apply time, so relayout()'s
   // anchor capture still sees the previous layout. Writing the properties
@@ -269,7 +280,7 @@ export function renderChapter(
     const measure = measurePx();
     host.style.setProperty('--reader-measure', `${measure}px`);
     if (applied === 'paged') {
-      const geom = columnGeometry(mount.clientWidth, measure);
+      const geom = columnGeometry(mount.clientWidth, measure, rootFontSizePx());
       gap = geom.gap;
       // The mount never scrolls vertically in paged mode; chrome bars overlay
       // the viewport, so showing them must not change this geometry.
