@@ -257,7 +257,11 @@ export function renderChapter(
       // (host.remove()) but reuses the same mount, so a stale callback would
       // otherwise scroll the NEW chapter to the OLD chapter's anchor.
       if (faceSeen !== spec || !host.isConnected) return;
-      rendered.relayout();
+      // Same reasoning as the resize handler below: the face swap has already
+      // changed the metrics the fallback was measured against, so a live
+      // anchorFor() read here would read the NEW layout and "restore" the
+      // reader to a position they have not reached yet.
+      rendered.relayout(applied === 'paged' ? placed : null);
     });
   }
 

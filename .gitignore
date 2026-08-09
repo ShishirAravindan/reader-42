@@ -32,3 +32,6 @@ Thumbs.db
 
 # Demo script evidence output
 scripts/demo/out/
+
+# playwright-cli skill state (snapshots, console/network logs)
+.playwright-cli/

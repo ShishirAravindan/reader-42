@@ -755,10 +755,28 @@ scene('typography', async ({ page, capture }) => {
   expectEq(hyphenation.lang, 'en', 'the wrapper carries the book language for the hyphenator');
 
   // Weight and spacing steps apply live.
+  //
+  // 575 is a step Atkinson never shipped (it has only 400 and 700), so this
+  // is also where a face-arrival second pass would run if the nearest face
+  // were not already resident — it usually is by now, because paged columns
+  // need the whole chapter laid out and this chapter opens on a bold h1, so
+  // 700 got fetched the moment the family switched. That means this check
+  // does not reliably exercise the second pass itself (render.test.ts pins
+  // that: relayoutWhenFaceArrives must thread the remembered anchor through,
+  // never call relayout() bare). It still holds as a plain invariant of the
+  // control, so it stays.
+  const beforeWeightId = await firstVisibleParagraph(page);
+  expect(beforeWeightId, 'a paragraph is visible at the page start before the weight change');
   await page.locator('#aa-weight-575').click();
+  await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(80);
   style = await chapterParagraphStyle(page);
   expectEq(style.fontWeight, '575', 'the heavy weight step reaches the text');
+  expectEq(
+    await firstVisibleParagraph(page),
+    beforeWeightId,
+    'the reading position survives a weight step with no native face',
+  );
   const beforeLeading = style.lineHeightPx;
   await page.locator('#aa-spacing-relaxed').click();
   await page.waitForTimeout(80);
