@@ -34,6 +34,7 @@ import {
   startDevServer,
   waitForServer,
 } from './harness.ts';
+import { hush, installOverlay, mark, say, tap, tapSelector } from './narrate.ts';
 
 // The EPUB parser needs a DOMParser; a plain `bun scripts/...` run has none
 // (only `bun test` preloads one). Same reason as test/setup.ts.
@@ -51,107 +52,8 @@ const query = (args.includes('--query') ? args[args.indexOf('--query') + 1] : un
 
 // --- the overlay the recording talks through ---
 
-const OVERLAY_CSS = `
-  #showcase-caption {
-    position: fixed;
-    left: 50%;
-    bottom: 3.2rem;
-    transform: translateX(-50%) translateY(0.4rem);
-    max-width: 46rem;
-    z-index: 2147483647;
-    pointer-events: none;
-    background: rgba(18, 17, 15, 0.9);
-    color: #f7f5ef;
-    font: 500 1.05rem/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    padding: 0.7rem 1.1rem;
-    border-radius: 10px;
-    text-align: center;
-    opacity: 0;
-    transition: opacity 260ms ease, transform 260ms ease;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
-  }
-  #showcase-caption.on { opacity: 1; transform: translateX(-50%) translateY(0); }
-  .showcase-tap {
-    position: fixed;
-    z-index: 2147483646;
-    pointer-events: none;
-    width: 44px;
-    height: 44px;
-    margin: -22px 0 0 -22px;
-    border-radius: 50%;
-    border: 2px solid rgba(51, 81, 138, 0.9);
-    background: rgba(51, 81, 138, 0.22);
-    animation: showcase-tap 620ms ease-out forwards;
-  }
-  @keyframes showcase-tap {
-    0% { transform: scale(0.5); opacity: 0.95; }
-    100% { transform: scale(1.5); opacity: 0; }
-  }
-`;
-
-async function installOverlay(page: Page): Promise<void> {
-  await page.addStyleTag({ content: OVERLAY_CSS });
-  await page.evaluate(() => {
-    if (document.getElementById('showcase-caption')) return;
-    const caption = document.createElement('div');
-    caption.id = 'showcase-caption';
-    document.body.appendChild(caption);
-  });
-}
-
-async function say(page: Page, text: string, holdMs = 2600): Promise<void> {
-  await page.evaluate((t: string) => {
-    const el = document.getElementById('showcase-caption');
-    if (!el) return;
-    el.textContent = t;
-    el.classList.add('on');
-  }, text);
-  await page.waitForTimeout(holdMs);
-}
-
-async function hush(page: Page, ms = 350): Promise<void> {
-  await page.evaluate(() => document.getElementById('showcase-caption')?.classList.remove('on'));
-  await page.waitForTimeout(ms);
-}
-
-/** Draw the tap marker, so the recording shows where a tap landed. */
-async function mark(page: Page, x: number, y: number): Promise<void> {
-  await page.evaluate(
-    ([px, py]: number[]) => {
-      const dot = document.createElement('div');
-      dot.className = 'showcase-tap';
-      dot.style.left = `${px}px`;
-      dot.style.top = `${py}px`;
-      document.body.appendChild(dot);
-      setTimeout(() => dot.remove(), 700);
-    },
-    [x, y],
-  );
-  await page.waitForTimeout(180);
-}
-
-/** Click a raw point (the reading zones have no element of their own). */
-async function tap(page: Page, x: number, y: number, settleMs = 700): Promise<void> {
-  await mark(page, x, y);
-  await page.mouse.click(x, y);
-  await page.waitForTimeout(settleMs);
-}
-
-/**
- * Tap a control. Waits for it to be actually clickable first and clicks through
- * the locator (Playwright's own actionability checks), with the marker drawn at
- * its box — a raw coordinate click can land while chrome is still animating.
- */
-async function tapSelector(page: Page, selector: string, settleMs = 700): Promise<void> {
-  // .first(): a showcase taps "the next one of these", and several selectors
-  // here (a search hit, a book on the shelf) legitimately match many.
-  const target = page.locator(selector).first();
-  await target.waitFor({ state: 'visible', timeout: 8000 });
-  const box = await target.boundingBox();
-  if (box) await mark(page, box.x + box.width / 2, box.y + box.height / 2);
-  await target.click();
-  await page.waitForTimeout(settleMs);
-}
+// Narration helpers (caption, tap marker, clicking) live in narrate.ts so this
+// recording and the KOReader spike cannot drift apart.
 
 /**
  * Open a chrome panel and wait for it. An overlay that is still up (a selection

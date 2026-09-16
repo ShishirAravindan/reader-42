@@ -2805,3 +2805,98 @@ scene('offline-writes', async ({ base, onFreshDevice }) => {
     );
   });
 });
+
+// --- the KOReader seam (spike: docs/koreader-poc.md) -----------------------
+//
+// Unit tests prove the parse, the mapping, and that the recovered boundaries
+// are the same numbers serializeRange would have written. None of that proves
+// the highlight is DRAWN: jsdom has no layout, so a locator that resolves to
+// the wrong element, or to a zero-width box, passes every unit test and fails
+// the only thing the reader cares about. That is this scene's whole job.
+scene('koreader-seam', async ({ page, base, capture }) => {
+  const { ingestSidecar } = await import('../../src/koreader/ingest.ts');
+  const { Book } = await import('../../src/epub/book.ts');
+  // The EPUB parser needs a DOMParser and the harness process has none (the
+  // other scenes only ever parse inside the browser). Installed here rather
+  // than at module scope: one scene's dependency should not become the
+  // suite's, and jsdom ships nothing to the app.
+  const { JSDOM } = await import('jsdom');
+  (globalThis as { DOMParser?: unknown }).DOMParser ??= new JSDOM().window.DOMParser;
+
+  // A sidecar the way KOReader writes one, over text this book really contains.
+  // The xpointer is deliberately crengine-shaped: it addresses a DOM the
+  // browser never builds, so only the text can locate this highlight.
+  const koSidecar = [
+    'return {',
+    '    ["annotations"] = {',
+    '        [1] = {',
+    '            ["chapter"] = "Three: An End",',
+    '            ["color"] = "blue",',
+    '            ["datetime"] = "2026-09-14 19:22:08",',
+    '            ["drawer"] = "lighten",',
+    '            ["note"] = "made on the device",',
+    '            ["pos0"] = "/body/DocFragment[3]/body/div/p[1]/text().0",',
+    '            ["text"] = "It ends, as chapters do,",',
+    '        },',
+    '    },',
+    '    ["percent_finished"] = 0.62,',
+    '}',
+  ].join('\n');
+
+  const report = ingestSidecar(await Book.open(buildFixtureEpub()), koSidecar);
+  expectEq(report.resolved, 1, 'the device annotation resolved against the real EPUB');
+  expectEq(report.viaHint, 1, "crengine's DocFragment named the right spine item");
+  const imported = report.highlights[0];
+  expect(imported !== undefined, 'there is a highlight to write');
+
+  // Write it into the sidecar the way another device would: through the file,
+  // which is the contract. Existing highlights stay — a device's highlights
+  // have to coexist with the ones made here, not replace them.
+  const wrote = await page.evaluate(
+    async (highlight) => {
+      const index = await (await fetch('/lib/library.json')).json();
+      const dir = index.books[0]?.dir;
+      if (!dir) return null;
+      const sidecar = await (await fetch(`/lib/${dir}/book.json`)).json();
+      const kept = (sidecar.highlights ?? []).filter((h: { id: string }) => h.id !== highlight.id);
+      const next = { ...sidecar, progress: 0.62, highlights: [...kept, highlight] };
+      await fetch(`/lib/${dir}/book.json`, {
+        method: 'PUT',
+        body: JSON.stringify(next, null, 2),
+      });
+      return { dir, count: next.highlights.length };
+    },
+    imported as unknown as Record<string, unknown>,
+  );
+  expect(wrote !== null, 'the library index named a book folder to write into');
+
+  // Back to the shelf by URL, not by reload: the scenes share one page and
+  // the previous one left it inside a book, where a reload just reopens that
+  // book. This also forces the app to read the sidecar from the file.
+  await page.goto(`${base}/?lib=dev`);
+  await page.locator('.book-title').first().waitFor();
+  await page.locator('#book-list li').first().click();
+  await page.waitForTimeout(400);
+  await tocNav(page, 'Three: An End');
+  await centerTap(page);
+  expectEq(await chapterNumber(page), '3', 'in the chapter the device pointed at');
+
+  // The assertion jsdom cannot make: it is on screen, and it has a box.
+  const marks = await marksIn(page);
+  const ko = marks.find((m) => m.id === imported?.id);
+  expect(ko !== undefined, 'the device highlight is drawn in the page');
+  expect(ko?.classes.includes('hl-blue') === true, "it kept the device's colour, mapped to ours");
+  expect(ko?.hasNote === true, 'and its note came with it');
+  expectEq(ko?.text, 'It ends, as chapters do,', 'over exactly the text the device recorded');
+
+  const box = await page.evaluate((id: string) => {
+    const shadow = document.querySelector('#viewport .chapter-host')?.shadowRoot;
+    const mark = shadow?.querySelector<HTMLElement>(`mark.hl[data-hl="${id}"]`);
+    if (!mark) return null;
+    const r = mark.getBoundingClientRect();
+    return { width: r.width, height: r.height };
+  }, imported?.id ?? '');
+  expect((box?.width ?? 0) > 0 && (box?.height ?? 0) > 0, 'it has real geometry, not a zero box');
+
+  await capture('koreader-seam');
+});

@@ -43,6 +43,8 @@ does.
 | `harness.ts` | Spawns the dev server against a throwaway library, launches chromium, and provides `scene`, `expect`, `expectEq`, `capture`, `onPhone`, `onFreshDevice`. |
 | `scenes.ts` | The scenes. Registration order is execution order. |
 | `showcase.ts` | Not a gate: a narrated walkthrough for evidence packs (`bun run showcase`). |
+| `narrate.ts` | The caption strip, the tap marker, and the two ways a recording clicks. Shared, so a second recording cannot grow its own copy. |
+| `koreader.showcase.ts` | Not a gate: the KOReader spike, recorded (`docs/koreader-poc.md`). |
 | `pwa-shell.shots.yml` | Optional shot-scraper frames of the welcome screen. Not a gate. |
 
 Scenes share one page on purpose, in order, so a scene may rely on the state
