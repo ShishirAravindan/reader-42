@@ -1,0 +1,394 @@
+/* The shelf, when the shelf is the product.
+   Paper-and-ink tokens copied from styles.css rather than imported: this is a
+   spike with its own entry point, and it should be deletable in one move. */
+
+:root {
+  --bg: #f5f4ef;
+  --fg: #24211b;
+  --muted: #6e6759;
+  --line: #ddd8cc;
+  --hover: rgba(36, 33, 27, 0.06);
+  --scrim: rgba(36, 33, 27, 0.16);
+  --hl-yellow: #f2dd80;
+  --hl-pink: #f4bccb;
+  --hl-blue: #b1d4f2;
+  --hl-orange: #f5c491;
+}
+
+@font-face {
+  font-family: "Literata";
+  src: url("/fonts/Literata-var.woff2") format("woff2");
+  font-weight: 200 900;
+  font-display: swap;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Literata", Georgia, serif;
+  font-variant-numeric: oldstyle-num;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 2.5rem 1rem 6rem;
+}
+
+/* --- masthead --- */
+
+#masthead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 2.5rem;
+}
+
+#masthead h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+#views {
+  display: flex;
+  gap: 0.25rem;
+}
+
+#views button {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.92rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+#views button:hover {
+  background: var(--hover);
+}
+#views button.on {
+  color: var(--fg);
+  background: var(--hover);
+}
+
+h2 {
+  margin: 0 0 1rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* --- on deck: a short row, deliberately capped --- */
+
+#ondeck {
+  margin-bottom: 3.25rem;
+}
+
+#ondeck-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 1.6rem 1.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.deck-cover {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--hover);
+  box-shadow: 0 1px 2px var(--scrim), 0 8px 22px -12px var(--scrim);
+}
+
+.deck-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* A book without art still gets a face, never a grey rectangle. */
+.deck-cover .generated {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 100%;
+  padding: 1rem 0.85rem;
+  background: linear-gradient(170deg, #efece3, #e2ddd0);
+}
+
+.deck-cover .generated .gt {
+  font-size: 0.95rem;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+.deck-cover .generated .ga {
+  margin-top: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+/* The progress hairline rides the cover, the way it rides the page. */
+.deck-cover .bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--fg);
+  opacity: 0.55;
+}
+
+.deck-meta {
+  margin-top: 0.6rem;
+}
+.deck-meta .t {
+  font-size: 0.88rem;
+  line-height: 1.3;
+}
+.deck-meta .a {
+  font-size: 0.76rem;
+  color: var(--muted);
+  margin-top: 0.15rem;
+}
+
+#ondeck-list li {
+  cursor: pointer;
+}
+#ondeck-list li:hover .deck-cover {
+  box-shadow: 0 2px 4px var(--scrim), 0 14px 30px -12px var(--scrim);
+}
+
+/* --- the collection: a list, because a record reads as a list --- */
+
+#shelf-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+#shelf-list li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.75rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+#shelf-list li:hover {
+  background: var(--hover);
+}
+
+.row-title {
+  font-size: 1rem;
+}
+.row-author {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.state {
+  font-size: 0.7rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.state.reading {
+  color: var(--fg);
+}
+.state.dnf {
+  text-decoration: line-through;
+}
+
+.count {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+  min-width: 4.5rem;
+  text-align: right;
+}
+
+/* --- notebook: every highlight in the library, which a file browser cannot do --- */
+
+#search-row {
+  display: block;
+  margin-bottom: 1.25rem;
+}
+
+#search {
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.95rem;
+}
+
+#search:focus {
+  outline: 2px solid var(--scrim);
+  outline-offset: -1px;
+}
+
+#search-count {
+  margin: 0 0 1.5rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+#notebook-list {
+  margin: 0 0 2rem;
+  padding: 0;
+  list-style: none;
+}
+
+#notebook-list li {
+  display: grid;
+  grid-template-columns: 0.6rem 1fr;
+  gap: 0.85rem;
+  padding: 1rem 0.2rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  margin-top: 0.45rem;
+}
+
+.dot.yellow {
+  background: var(--hl-yellow);
+}
+.dot.pink {
+  background: var(--hl-pink);
+}
+.dot.blue {
+  background: var(--hl-blue);
+}
+.dot.orange {
+  background: var(--hl-orange);
+}
+
+.hl-text {
+  font-size: 0.98rem;
+  line-height: 1.5;
+}
+.hl-note {
+  margin-top: 0.4rem;
+  font-size: 0.88rem;
+  font-style: italic;
+  color: var(--muted);
+  white-space: pre-line;
+}
+.hl-where {
+  margin-top: 0.45rem;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+#export {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0.55rem 1.1rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+#export:hover {
+  background: var(--hover);
+}
+
+#empty {
+  color: var(--muted);
+}
+
+/* --- the handoff: the moment reader-42 declines to be a reader --- */
+
+#handoff {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: inherit;
+  max-width: 34rem;
+  padding: 1.6rem;
+  box-shadow: 0 20px 60px -20px var(--scrim);
+}
+
+#handoff::backdrop {
+  background: rgba(36, 33, 27, 0.35);
+}
+#handoff h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+#handoff p {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+#handoff pre {
+  margin: 0 0 1.2rem;
+  padding: 0.8rem 0.9rem;
+  background: var(--hover);
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+#handoff-close {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.45rem 1rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+@media (max-width: 40rem) {
+  #app {
+    padding: 1.75rem 1rem 4rem;
+  }
+  #shelf-list li {
+    grid-template-columns: 1fr auto;
+  }
+  #shelf-list li .count {
+    grid-column: 1 / -1;
+    text-align: left;
+    min-width: 0;
+  }
+}

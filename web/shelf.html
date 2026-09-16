@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" data-theme="paper">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>reader-42 — shelf</title>
+    <link rel="stylesheet" href="/shelf.css" />
+  </head>
+  <body>
+    <main id="app">
+      <header id="masthead">
+        <h1>Library</h1>
+        <nav id="views">
+          <button type="button" data-view="shelf" class="on">Shelf</button>
+          <button type="button" data-view="notebook">Notebook</button>
+        </nav>
+      </header>
+
+      <section id="shelf-view">
+        <section id="ondeck">
+          <h2>On deck</h2>
+          <ol id="ondeck-list"></ol>
+        </section>
+        <section id="collection">
+          <h2>Everything</h2>
+          <ol id="shelf-list"></ol>
+        </section>
+      </section>
+
+      <section id="notebook-view" hidden>
+        <label id="search-row">
+          <input id="search" type="search" placeholder="Where did I read about…" />
+        </label>
+        <p id="search-count"></p>
+        <ol id="notebook-list"></ol>
+        <button type="button" id="export">Export to Logseq</button>
+      </section>
+
+      <p id="empty" hidden>No EPUBs in this folder yet.</p>
+    </main>
+
+    <dialog id="handoff">
+      <h3 id="handoff-title"></h3>
+      <p id="handoff-note">reader-42 does not open books. KOReader does.</p>
+      <pre id="handoff-cmd"></pre>
+      <button type="button" id="handoff-close">Close</button>
+    </dialog>
+
+    <script type="module" src="/shelf.js"></script>
+  </body>
+</html>

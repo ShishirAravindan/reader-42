@@ -1,53 +1,75 @@
 # KOReader as the reading surface: a spike
 
 Scaffolding, like [`salvage.md`](salvage.md) and [`kindle-parity.md`](kindle-parity.md).
-It answers one question with running code and leaves the decision alone. Delete
-it once the question is settled either way.
+It answers a question with running code and leaves the decision alone. Delete it
+once the question is settled either way.
 
-**The question.** If KOReader became the reading surface — because it is
-battle-tested, because its typography is a CSS surface, because it is a decade
-of ergonomics nobody here has to write — could reader-42 keep the shelf and the
-plumbing to Logseq? What does a reading session lose in the crossing?
+**The question.** If the reading experience is already battle-tested and good
+enough elsewhere, can reader-42 be the library — and is that a smaller thing or
+a different thing?
 
-**Not in scope.** Forking KOReader, patching its UI, or writing a line of Lua.
-This measures the seam. If the seam does not hold, nothing upstream of it
-matters.
+Two directions were built, and they are not the same proposal.
 
-## What was built
+| | What it makes KOReader | What it makes reader-42 |
+|---|---|---|
+| **A. Ingest** | a data source | still a reader |
+| **B. Shelf** | the reading surface | the library, and nothing else |
 
-One directory, `src/koreader/`, and nothing in the shipped app imports it.
+**B is the real proposal.** A was built first and it quietly begs the question:
+its climax is a device's highlight rendered in *our* reader, which only proves
+we can still read. If KOReader is the reader, that is the wrong thing to prove.
 
-| File | What it does |
-|---|---|
-| `lua.ts` | Parses KOReader's sidecar serialization. A parser, never `dofile`. |
-| `sdr.ts` | Its annotation schema, mapped onto reader-42's vocabulary. |
-| `resolve.ts` | Finds a KOReader highlight in reader-42's coordinate system. |
-| `ingest.ts` | The whole seam, plus the report that measures it. |
+Not in scope either way: forking KOReader, patching its UI, or writing Lua.
 
-Plus `scripts/koreader-seam.ts` (run it over real files), the `koreader-seam`
-acceptance scene, and `scripts/demo/koreader.showcase.ts` (the recording).
+## B — the shelf, with no reader
 
 ```sh
-bun scripts/koreader-seam.ts --book pride.epub --sidecar metadata.epub.lua
-bun scripts/demo/koreader.showcase.ts --book pride.epub   # the recording
+LIBRARY_DIR=/path/to/koreader/library bun scripts/shelf-dev.ts
+bun scripts/demo/shelf.showcase.ts --library /path/to/koreader/library
 ```
 
-The test fixture, `test/fixture-koreader-sidecar.lua`, was serialized by
-KOReader's *own* `frontend/dump.lua` in ordered mode, wrapped exactly as
-`util.writeToFile` wraps it. The annotation text is real Pride and Prejudice
-prose. What is synthesized is the reading session itself — no device here could
-run KOReader — so the file's *shape* is authentic and its *content* is staged,
-including one deliberate miss.
-
-## The finding
-
-Run against Gutenberg's Pride and Prejudice (16 spine items, 61 chapters):
+**KOReader's folder is the library.** Not imported into one — it *is* one:
 
 ```
-  progress from KOReader   29.1%
-  highlights resolved      3/4  (75%)      ← the 4th is the planted miss
-    via the DocFragment    3  (100% of resolved)
-  ambiguous (text repeats) 0
+<library>/
+  Pride and Prejudice.epub
+  Pride and Prejudice.sdr/metadata.epub.lua     ← the device's own file
+  Emma.epub                                     ← never opened; still on the shelf
+```
+
+No `library.json`. No `book.json`. No import step. No id of our own. A book is
+on the shelf because the file is in the folder, and everything known about it
+is what the device wrote. This is the part that costs something: reader-42
+gives up its own storage format, the thing `decisions.md` (2026-07-12) called
+the contract, and adopts KOReader's.
+
+**`src/shelf/` has no viewport and no code path to one.** Tapping a book opens
+a dialog that says *reader-42 does not open books. KOReader does*, and shows the
+handoff. That absence is the argument.
+
+What it turns out to be good at, and none of it needs a reader:
+
+- **A shelf** — covers pulled out of the EPUBs in the browser with the zip
+  reader this project already owns, on-deck capped at five, progress as a
+  hairline on the cover.
+- **Four honest states**, including the one most shelves refuse: KOReader's
+  `abandoned` is DNF, recorded by the reader that watched you stop.
+- **A cross-book notebook.** Every highlight in the library, searchable —
+  *where did I read about night?* answered across the whole shelf at once. A
+  per-book file browser structurally cannot do this, and KOReader's isn't
+  trying to.
+- **The off-ramp to Logseq**, one outline per book, through reader-42's own
+  exporter — with chapter titles from the device, which are *better than ours*
+  (crengine follows the TOC at a finer grain than a spine item).
+
+## A — ingest, and the one durable finding
+
+Built first, kept because its measurement is what makes B safe.
+
+```
+progress from KOReader   29.1%
+highlights resolved      3/4  (75%)      ← the 4th is a planted miss
+  via the DocFragment    3  (100% of resolved)
 ```
 
 **An xpointer splits in two, and only one half travels.**
@@ -59,75 +81,64 @@ Run against Gutenberg's Pride and Prejudice (16 spine items, 61 chapters):
    portable           not portable
 ```
 
-The `DocFragment` index is the spine item, which is the same spine reader-42
-counts. Everything after it is a path through crengine's normalized internal
-tree — versioned, in the sidecar, by `cre_dom_version` — and that is not the
-tree a browser builds from the same XHTML. So the tail is useless here and the
-head is a hint.
+The `DocFragment` index is the spine item, the same spine reader-42 counts.
+Everything after it walks crengine's normalized internal tree — versioned in
+the sidecar by `cre_dom_version` — which is not the tree a browser builds. So
+highlights are located by matching their **text**, with the DocFragment only
+choosing which chapter to search first. The recovered boundaries are provably
+the numbers `annotate.ts` writes for a selection made here (pinned against
+`serializeRange`), and the `koreader-seam` scene proves the result is actually
+*drawn*, with real geometry, in a real browser.
 
-**Text is the real locator.** A highlight is found by matching its text, using
-the DocFragment only to search the right chapter first. The recovered
-boundaries are provably the same numbers `annotate.ts` would have written for a
-selection made here — that equivalence is pinned by unit tests against
-`serializeRange`, and the `koreader-seam` scene proves the resulting highlight
-is actually *drawn*, with real geometry, in a real browser. jsdom cannot make
-that assertion, and a locator that resolves to a zero-width box passes every
-unit test.
+**Why this matters for B:** the thing that does not cross is the reading
+*position*, and under B nothing needs it to. The device keeps place because the
+device does the reading. The finding that made A awkward is the finding that
+makes B clean.
 
-### What crosses
+## What is built
 
-- **Highlights** — text, note (multi-line intact), colour, creation time.
-- **Progress** — KOReader's `percent_finished`, straight onto the shelf.
-- **Reading state** — its `summary.status`.
-- **Chapter titles, better than ours.** crengine follows the TOC at a finer
-  grain than a spine item. On this book it knows a highlight was in
-  "CHAPTER I."; reader-42 can only name the file, and calls it "I hope Mr.
-  Bingley will like it. CHAPTER II." This is a genuine gain from the crossing.
+```
+src/koreader/lua.ts       parses KOReader's sidecar format (a parser, never dofile)
+src/koreader/sdr.ts       its annotation schema, in our vocabulary
+src/koreader/library.ts   a KOReader folder, read as the library          ← B
+src/koreader/cover.ts     cover art out of an EPUB without opening it     ← B
+src/koreader/resolve.ts   finding a device highlight in our coordinates   ← A
+src/koreader/ingest.ts    the ingest seam, and the report that measures it ← A
+src/shelf/main.ts         reader-42 with no reader                        ← B
+```
 
-### What does not
+Plus `scripts/shelf-dev.ts`, `scripts/koreader-seam.ts`, the `koreader-seam`
+acceptance scene, and two recordings under `scripts/demo/`.
 
-- **The reading position.** This is the one that matters. Progress crosses as a
-  percentage; *where you were* does not, because that is exactly the
-  crengine-DOM tail. Open a book in reader-42 after reading it on a device and
-  you land on the cover with the shelf saying 29%.
+The test fixture was serialized by KOReader's *own* `frontend/dump.lua` in
+ordered mode, wrapped exactly as `util.writeToFile` wraps it, over real
+Gutenberg prose. What is synthesized is the reading session — no device here
+could run KOReader — so the file's shape is authentic and its content staged.
 
-  Which is survivable only under one reading of the arrangement: **if
-  reader-42 stops being a reader.** If reading happens solely in KOReader, the
-  position never needs to cross — the device keeps it. If both are readers,
-  product law 2 is broken in the most visible way there is.
+## What it costs, honestly
 
-- **Deletions.** The sidecar merge unions by id (decisions.md 2026-08-01), so a
-  highlight deleted on the device comes back on the next ingest. Same
-  tombstone problem already recorded there, one step worse.
-
-- **Those better chapter titles, into the app.** `book.json` has nowhere to put
-  a chapter label — highlights carry a spine index, and the title is derived.
-  The CLI export uses KOReader's label; the notebook panel cannot, and shows
-  the derived one. Fixing that means widening the sidecar format, which is the
-  owner's file and not a spike's to change.
-
-## What it would cost, beyond the seam
-
-- **One-way by construction.** Nothing here writes back to a sidecar it does
-  not own. Two-way sync of two apps' formats is a different project.
-- **The handoff.** Launching KOReader from the shelf is an app switch (Android
-  intent, desktop argv). Product law 2 wants one tap and no decisions.
-- **AGPL-3.0.** Fine personally; a live constraint on the "productization stays
-  possible" clause in `vision.md`.
-- **iOS.** Parked, not solved. iOS forbids runtime codegen, LuaJIT hard-disables
-  its JIT there, and there is no official target — so this arrangement has no
-  iPhone story, which is where product law 5 lives.
+- **Deletions resurrect.** Ingest unions by id, so a highlight deleted on the
+  device returns. Same tombstone gap as `decisions.md` (2026-08-01), one worse.
+- **The handoff is an app switch.** Under B, product law 2 has to be *reassigned*
+  rather than met: KOReader serves the boredom moment (it resumes instantly),
+  and reader-42 becomes the place you go deliberately. Friction asymmetry still
+  holds — it just points at a different app.
+- **AGPL-3.0**, a live constraint on the "productization stays possible" clause.
+- **iOS.** Parked, not solved. iOS forbids runtime codegen, LuaJIT disables its
+  JIT there, no official target. Under B this is the sharpest cost, because
+  reading is the part that would have no iPhone story.
+- **No stats.** KOReader keeps real reading statistics in its own database, not
+  the sidecar. The shelf shows a last-touched date derived from annotations and
+  nothing more; the reading log in `vision.md`'s *Next* tier would need that
+  database, which is a further dependency on KOReader's internals.
 
 ## What is left to decide
 
-The seam holds. That was the open technical question and it is now closed: a
-device's highlights arrive as first-class reader-42 highlights, render in the
-page, and export to Logseq through the app's own exporter.
+The technical question is closed in both directions. What remains is one
+sentence in `vision.md`: whether "the core" is the from-scratch reader, or the
+library and the plumbing around a reader someone else already perfected.
 
-What remains is not technical. If reading moves to KOReader, what is left here
-is a shelf, a state machine, and a highlights exporter — and `non-goals.md`
-refuses to be a library manager. `vision.md` calls the from-scratch reader "the
-core" and "the bare minimum first step, and the hardest".
-
-That is an owner's call, and it belongs in `decisions.md` in the owner's voice,
-whichever way it goes.
+`non-goals.md` currently refuses to be a library manager. That refusal was
+written when reader-42 owned the reading; under B it is not a wall, it is the
+doc that would get rewritten — the way the 2026-07-11 re-founding rewrote the
+telos. A spike does not get to make that call, and this one does not.
