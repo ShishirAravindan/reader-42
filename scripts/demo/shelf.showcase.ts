@@ -15,7 +15,8 @@ import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from 'node:f
 import path from 'node:path';
 import type { Page } from 'playwright';
 import { launchChromium, waitForServer } from './harness.ts';
-import { hush, installOverlay, say, tapSelector } from './narrate.ts';
+import { hush, installOverlay, narration, say, startNarration, tapSelector } from './narrate.ts';
+import { mixNarration } from './voice.ts';
 
 const OUT = path.join(import.meta.dir, 'out');
 const VIDEO = { width: 1280, height: 800 };
@@ -112,6 +113,8 @@ try {
     recordVideo: { dir: OUT, size: VIDEO },
   });
   const page = await context.newPage();
+  // Same moment the video starts. --silent keeps the old, wordless recording.
+  startNarration(!args.includes('--silent'));
   await page.goto(BASE);
   await page.locator('#shelf-list li').first().waitFor({ timeout: 20000 });
   await installOverlay(page);
@@ -193,7 +196,12 @@ try {
       rmSync(target, { force: true });
       renameSync(newest, target);
     }
-    console.log(`recording: ${path.relative(process.cwd(), target)}`);
+    const spoken = path.join(OUT, 'shelf-no-reader.mp4');
+    if (mixNarration(target, narration(), spoken)) {
+      console.log(`recording: ${path.relative(process.cwd(), spoken)} (narrated)`);
+    } else {
+      console.log(`recording: ${path.relative(process.cwd(), target)}`);
+    }
   }
 } finally {
   server.kill();

@@ -43,7 +43,8 @@ does.
 | `harness.ts` | Spawns the dev server against a throwaway library, launches chromium, and provides `scene`, `expect`, `expectEq`, `capture`, `onPhone`, `onFreshDevice`. |
 | `scenes.ts` | The scenes. Registration order is execution order. |
 | `showcase.ts` | Not a gate: a narrated walkthrough for evidence packs (`bun run showcase`). |
-| `narrate.ts` | The caption strip, the tap marker, and the two ways a recording clicks. Shared, so a second recording cannot grow its own copy. |
+| `narrate.ts` | The caption strip, the tap marker, the two ways a recording clicks, and the narration clock. Shared, so a second recording cannot grow its own copy. |
+| `voice.ts` | Spoken narration: local TTS per caption, and the mix onto the video. |
 | `koreader.showcase.ts` | Not a gate: the KOReader spike, recorded (`docs/koreader-poc.md`). |
 | `pwa-shell.shots.yml` | Optional shot-scraper frames of the welcome screen. Not a gate. |
 
@@ -62,3 +63,41 @@ nothing is worse than no suite.
 The run stops at the first failure, prints the assertion with actual and
 expected, and writes `out/FAIL-<scene>.png`. CI uploads `out/*.png` on every
 run, red or green.
+
+## Narrated recordings
+
+The captions are also spoken, by [Piper](https://github.com/rhasspy/piper) —
+a small neural TTS that runs entirely on this machine. No API, no key, and
+nothing on the network at synthesis time.
+
+Sync is by construction, not by editing: `say()` synthesizes the line *before*
+showing the caption, holds the caption for at least as long as the speech
+lasts, and records the offset against the clock the video started on. Mixing is
+then pure placement. A line that needs four seconds gets four seconds, instead
+of being cut off by a hold someone guessed at a year ago.
+
+Setup, once:
+
+```sh
+pip3 install piper-tts
+mkdir -p scripts/demo/voice && cd scripts/demo/voice
+curl -sSLO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx
+curl -sSLO https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
+```
+
+The model is 63MB and gitignored — downloaded, never committed (`decisions.md`
+2026-08-01 bounds in-tree assets to the ones the reading act depends on, and a
+demo voice is not one). `PIPER_MODEL` points somewhere else if you prefer.
+`ffmpeg` does the mix.
+
+Narration is on by default and degrades to silence: no model, no piper, or no
+ffmpeg and the recording runs exactly as it did before, same timings, and says
+why. `--silent` turns it off deliberately.
+
+Synthesized lines are cached by content under `out/voice/`, so re-running after
+changing one caption re-synthesizes one line rather than all of them.
+
+**Written text is not spoken text.** `voice.ts` keeps a small pronunciation
+map — an em dash is a pause rather than a word, and "reader-42" said literally
+comes out "reader minus forty two". Only the audio changes; the caption on
+screen stays exactly as written.

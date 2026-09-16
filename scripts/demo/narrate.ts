@@ -5,8 +5,14 @@
 // because showcase.ts once carried a private duplicate of the driving code and
 // one half rotted unnoticed (see its header, and scripts/demo/README.md):
 // nothing in CI runs a recording, so a stale copy stays green forever.
+//
+// A caption can also be SPOKEN (voice.ts). When narration is on, `say()`
+// synthesizes the line first, holds the caption for at least as long as the
+// speech, and records the offset against the recording's own clock — so the
+// mix afterwards is placement, never editing. See startNarration().
 
 import type { Page } from 'playwright';
+import { type NarrationLine, speak, voiceAvailable } from './voice.ts';
 
 const OVERLAY_CSS = `
   #showcase-caption {
@@ -56,13 +62,53 @@ export async function installOverlay(page: Page): Promise<void> {
   });
 }
 
+// --- narration clock -------------------------------------------------------
+//
+// Offsets are measured from the moment the recording started, which is the
+// moment the page was created. Everything else (the goto, the first waits) is
+// already in the video, so anchoring here keeps speech and picture aligned
+// without a calibration step.
+
+let clockStart: number | null = null;
+let lines: NarrationLine[] = [];
+let voiceOn = false;
+
+/** Start the clock, at the same moment the video does. `voice` off leaves the
+ * recording exactly as it was: silent, same timings. */
+export function startNarration(voice: boolean): void {
+  clockStart = Date.now();
+  lines = [];
+  voiceOn = voice && voiceAvailable();
+}
+
+/** What was said, and when. Empty when narration was off. */
+export function narration(): NarrationLine[] {
+  return lines;
+}
+
+/** Breathing room after a line, so two captions never run together. */
+const TAIL_MS = 320;
+
 export async function say(page: Page, text: string, holdMs = 2600): Promise<void> {
+  // Synthesize BEFORE the caption appears: the duration decides the hold, and
+  // the clip has to exist before we can say when it started.
+  const spokenLine = voiceOn ? speak(text) : null;
+  const at = clockStart === null ? 0 : Date.now() - clockStart;
+
   await page.evaluate((t: string) => {
     const el = document.getElementById('showcase-caption');
     if (!el) return;
     el.textContent = t;
     el.classList.add('on');
   }, text);
+
+  if (spokenLine) {
+    lines.push({ text, atMs: at, file: spokenLine.file, ms: spokenLine.ms });
+    // A written hold is a guess at reading speed; speech is a measurement.
+    // Take whichever is longer so a line is never cut off mid-sentence.
+    await page.waitForTimeout(Math.max(holdMs, spokenLine.ms + TAIL_MS));
+    return;
+  }
   await page.waitForTimeout(holdMs);
 }
 

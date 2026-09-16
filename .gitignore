@@ -32,3 +32,6 @@ Thumbs.db
 
 # Demo script evidence output
 scripts/demo/out/
+
+# Local TTS voice model for narrated recordings (63MB, downloaded, never committed).
+scripts/demo/voice/

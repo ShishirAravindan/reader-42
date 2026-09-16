@@ -27,7 +27,8 @@ import {
   startDevServer,
   waitForServer,
 } from './harness.ts';
-import { hush, installOverlay, say, tapSelector } from './narrate.ts';
+import { hush, installOverlay, narration, say, startNarration, tapSelector } from './narrate.ts';
+import { mixNarration } from './voice.ts';
 
 (globalThis as { DOMParser?: unknown }).DOMParser ??= new JSDOM().window.DOMParser;
 
@@ -168,6 +169,8 @@ try {
     recordVideo: { dir: OUT, size: VIDEO },
   });
   const page = await context.newPage();
+  // Same moment the video starts. --silent keeps the old, wordless recording.
+  startNarration(!args.includes('--silent'));
 
   // 1. The foreign file.
   await page.goto(`${BASE}/?lib=dev`);
@@ -256,7 +259,12 @@ try {
       rmSync(target, { force: true });
       renameSync(newest, target);
     }
-    console.log(`recording: ${path.relative(process.cwd(), target)}`);
+    const spoken = path.join(OUT, 'koreader-seam.mp4');
+    if (mixNarration(target, narration(), spoken)) {
+      console.log(`recording: ${path.relative(process.cwd(), spoken)} (narrated)`);
+    } else {
+      console.log(`recording: ${path.relative(process.cwd(), target)}`);
+    }
   }
 } finally {
   server.kill();
