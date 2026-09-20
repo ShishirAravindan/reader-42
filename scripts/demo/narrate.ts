@@ -112,6 +112,25 @@ export async function say(page: Page, text: string, holdMs = 2600): Promise<void
   await page.waitForTimeout(holdMs);
 }
 
+/**
+ * A spoken line with nothing to caption.
+ *
+ * The reel cuts to real KOReader footage, where there is no page to inject a
+ * caption strip into — and painting one over someone else's application would
+ * be the wrong thing anyway. The voice carries those beats alone; the pictures
+ * there (a page turning, a passage filling with colour) do not need a label.
+ */
+export async function sayOver(text: string, holdMs = 2600): Promise<void> {
+  const spokenLine = voiceOn ? speak(text) : null;
+  const at = clockStart === null ? 0 : Date.now() - clockStart;
+  if (spokenLine) {
+    lines.push({ text, atMs: at, file: spokenLine.file, ms: spokenLine.ms });
+    await new Promise((r) => setTimeout(r, Math.max(holdMs, spokenLine.ms + TAIL_MS)));
+    return;
+  }
+  await new Promise((r) => setTimeout(r, holdMs));
+}
+
 export async function hush(page: Page, ms = 350): Promise<void> {
   await page.evaluate(() => document.getElementById('showcase-caption')?.classList.remove('on'));
   await page.waitForTimeout(ms);
