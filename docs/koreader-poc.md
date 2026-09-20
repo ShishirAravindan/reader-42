@@ -115,6 +115,60 @@ ordered mode, wrapped exactly as `util.writeToFile` wraps it, over real
 Gutenberg prose. What is synthesized is the reading session — no device here
 could run KOReader — so the file's shape is authentic and its content staged.
 
+## Syncthing, and the subtraction it makes possible
+
+The spike above treats the library folder as a thing that has to get to other
+devices somehow. Syncthing removes the *somehow*, and that is what turns a
+smaller product into a much smaller **codebase**.
+
+Syncthing has no API. It does not hand you a client to write against; it makes
+the folder be the same folder on every device. The 2026-07-12 decision said
+*files are the contract, the drive is a transport* — this is the transport that
+makes that literally true instead of aspirationally true. There is a
+[KOReader plugin that runs Syncthing on the e-reader itself](https://github.com/jasonchoimtt/koreader-syncthing),
+so the device is a peer rather than something that needs docking.
+
+What that deletes, counted rather than estimated:
+
+| | lines |
+|---|---|
+| `src/reader/` — the from-scratch reader | 5,034 |
+| `src/app/` — the reader's shell | 5,077 |
+| `src/library/` — transports, merge, device cache, offline queue | 3,040 |
+| `src/koreader/{resolve,ingest}.ts` — no reader to render into | 354 |
+| **retired** | **13,505** |
+| **kept** — sidecar parsing, the shelf, zip/OPF for covers | **1,435** |
+
+Roughly ten lines out for every one kept. And the debts go with them: the
+tombstone gap (2026-08-01, *a delete loses to a stale copy*) stops existing,
+because Syncthing syncs files rather than merging fields. The offline story
+stops being a service worker mirroring a cloud drive and becomes *the file is
+on the disk*. The OAuth client in `drive-setup.md` is not simplified, it is
+deleted.
+
+Three costs, and only one is serious.
+
+1. **"Nothing depends on any machine being awake" stops being true.** That is a
+   literal promise in `vision.md`'s multi-device section, and Syncthing is
+   peer-to-peer: two devices sync when both are on. An always-on node (a Pi, a
+   NAS, a cheap VPS) restores it; without one, the sentence has to be rewritten
+   rather than quietly broken.
+
+2. **KOReader does not reliably re-read a sidecar changed underneath it.** It
+   holds the sidecar in memory and flushes on close, and users syncing `.sdr`
+   folders
+   [report progress not being picked up](https://github.com/koreader/koreader/discussions/9189).
+   This is the real technical risk of the whole arrangement and the first thing
+   to test on actual devices. The
+   [Syncery plugin](https://github.com/iav/syncery.koplugin) exists because of
+   it, which is evidence both that the problem is real and that it is solved.
+
+3. **iOS compounds rather than persists.** Not only does KOReader have no iOS
+   target — Syncthing has no real one either. Möbius Sync is a third-party
+   wrapper, and iOS forbids background daemons, so it is an "open the app to
+   sync" workflow with both devices awake. On an iPhone this arrangement does
+   not degrade; it is absent.
+
 ## What it costs, honestly
 
 - **Deletions resurrect.** Ingest unions by id, so a highlight deleted on the
