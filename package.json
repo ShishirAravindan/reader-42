@@ -3,13 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun scripts/dev.ts",
-    "demo": "bun scripts/demo/run.ts",
+    "shelf": "bun scripts/shelf-dev.ts",
+    "showcase": "bun scripts/demo/shelf.showcase.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "test": "bun test",
-    "showcase": "bun scripts/demo/showcase.ts"
+    "test": "bun test"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

@@ -6,6 +6,13 @@
 // IS the index. A real deployment gets that listing from the drive API or from
 // a local folder handle; here it comes from readdir.
 //
+// It also performs the handoff. POST /open with a filename and it launches
+// KOReader on that book — which is the whole integration: the shelf decides
+// WHAT to read and then gets out of the way. KOREADER points at the binary
+// (koreader.sh, an AppImage, or whatever the platform calls it); without it
+// the shelf still runs and the handoff reports that there is nothing to hand
+// off to, rather than failing silently.
+//
 //   LIBRARY_DIR=/path/to/koreader/library bun scripts/shelf-dev.ts
 
 import fs from 'node:fs';
@@ -14,6 +21,8 @@ import path from 'node:path';
 const PORT = Number(process.env.PORT ?? 4310);
 const WEB_DIR = path.join(import.meta.dir, '..', 'web');
 const LIBRARY_DIR = path.resolve(process.env.LIBRARY_DIR ?? 'data/koreader-library');
+/** The reader. Absent, the shelf is honest about having nowhere to send you. */
+const KOREADER = process.env.KOREADER ?? '';
 
 fs.mkdirSync(LIBRARY_DIR, { recursive: true });
 
@@ -46,6 +55,27 @@ Bun.serve({
   port: PORT,
   async fetch(req) {
     const url = new URL(req.url);
+
+    // The handoff: hand a real book to the real reader.
+    if (url.pathname === '/open' && req.method === 'POST') {
+      const { file } = (await req.json()) as { file?: string };
+      if (!file) return Response.json({ ok: false, why: 'no file' }, { status: 400 });
+      const abs = libPath(`/lib/${file}`);
+      if (!fs.existsSync(abs))
+        return Response.json({ ok: false, why: 'not found' }, { status: 404 });
+      if (!KOREADER) {
+        return Response.json({
+          ok: false,
+          why: 'KOREADER is not set',
+          command: `koreader "${file}"`,
+        });
+      }
+      // Detached on purpose: the reader outlives the request, and the shelf
+      // has no business waiting on how long someone reads for.
+      Bun.spawn([KOREADER, abs], { stdout: 'ignore', stderr: 'ignore' });
+      console.log(`handoff -> ${file}`);
+      return Response.json({ ok: true, launched: path.basename(KOREADER) });
+    }
 
     // The folder is the index: one flat listing of what is actually there.
     if (url.pathname === '/lib/' || url.pathname === '/lib') {

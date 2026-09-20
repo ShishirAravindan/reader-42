@@ -9,7 +9,6 @@
 // Everything is derived at load: no index file, no import, no state of our
 // own. Delete this app and the library is exactly as KOReader left it.
 
-import { logseqOutline } from '../app/notebook.ts';
 import { readFace } from '../koreader/cover.ts';
 import {
   type FolderAccess,
@@ -19,6 +18,7 @@ import {
   readShelf,
   searchAnnotations,
 } from '../koreader/library.ts';
+import { logseqOutline } from './logseq.ts';
 
 const LIB = '/lib';
 
@@ -84,15 +84,32 @@ function coverNode(book: ShelfBook, art: string | null): HTMLElement {
 /**
  * The handoff.
  *
- * This is the whole posture in one dialog: the shelf knows the book, and then
- * declines to open it. On a device this is an intent or an argv; here it is
- * shown rather than fired, because a recording of a launch that cannot happen
- * in a browser would be a lie.
+ * The whole posture in one dialog: the shelf knows the book, and then hands it
+ * to the thing that reads. It really launches — `POST /open` spawns KOReader
+ * on that file — so this is the product's actual seam rather than a mock of
+ * one. When there is no reader configured it says so and shows the command,
+ * which is the honest degradation: a shelf with nowhere to send you should
+ * admit it rather than pretend the tap did something.
  */
-function handoff(book: ShelfBook): void {
+async function handoff(book: ShelfBook): Promise<void> {
+  const dialog = el('handoff') as HTMLDialogElement;
   el('handoff-title').textContent = book.title;
+  el('handoff-note').textContent = 'Opening in KOReader…';
   el('handoff-cmd').textContent = `koreader "${book.file}"`;
-  (el('handoff') as HTMLDialogElement).showModal();
+  dialog.showModal();
+
+  try {
+    const response = await fetch('/open', {
+      method: 'POST',
+      body: JSON.stringify({ file: book.file }),
+    });
+    const result = (await response.json()) as { ok: boolean; why?: string; launched?: string };
+    el('handoff-note').textContent = result.ok
+      ? `Reading in ${result.launched}. reader-42 does not open books.`
+      : `No reader to hand off to (${result.why}). Run it yourself:`;
+  } catch {
+    el('handoff-note').textContent = 'Could not reach the shelf server. Run it yourself:';
+  }
 }
 
 async function main(): Promise<void> {
@@ -142,7 +159,7 @@ async function main(): Promise<void> {
     author.textContent = [book.author, percent(book.progress)].filter(Boolean).join(' · ');
     meta.append(title, author);
     item.appendChild(meta);
-    item.onclick = (): void => handoff(book);
+    item.onclick = (): void => void handoff(book);
     deck.appendChild(item);
   }
 
@@ -172,7 +189,7 @@ async function main(): Promise<void> {
       .join('  ');
 
     row.append(names, state, count);
-    row.onclick = (): void => handoff(book);
+    row.onclick = (): void => void handoff(book);
     list.appendChild(row);
   }
 

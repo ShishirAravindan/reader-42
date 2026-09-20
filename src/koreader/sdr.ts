@@ -21,8 +21,17 @@
 // what actually locates a highlight on this side. That asymmetry is the whole
 // finding; see docs/koreader-poc.md.
 
-import { HIGHLIGHT_COLORS, type HighlightColor } from '../library/types.ts';
 import { array, isTable, num, parseSidecar, str, table } from './lua.ts';
+
+/**
+ * The four highlight tints.
+ *
+ * These were the reader's palette; with the reader retired they belong here,
+ * because the only thing that still needs them is the shelf drawing a dot
+ * beside a highlight some device made.
+ */
+export const HIGHLIGHT_COLORS = ['yellow', 'pink', 'blue', 'orange'] as const;
+export type HighlightColor = (typeof HIGHLIGHT_COLORS)[number];
 
 /** One KOReader annotation, reduced to the fields that can cross. */
 export interface KoAnnotation {
@@ -144,6 +153,3 @@ export function readSidecar(source: string): KoSidecar {
     annotations,
   };
 }
-
-/** Exported for the test that pins the palette mapping to the real palette. */
-export const READER42_COLORS = HIGHLIGHT_COLORS;

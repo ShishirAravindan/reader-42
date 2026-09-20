@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { HIGHLIGHT_COLORS } from '../library/types.ts';
-import { mapColor, readSidecar, spineIndexFromXPointer, toIsoish } from './sdr.ts';
+import {
+  HIGHLIGHT_COLORS,
+  mapColor,
+  readSidecar,
+  spineIndexFromXPointer,
+  toIsoish,
+} from './sdr.ts';
 
 const FIXTURE = Bun.file(new URL('../../test/fixture-koreader-sidecar.lua', import.meta.url));
 
