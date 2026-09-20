@@ -26,9 +26,9 @@ const KOREADER = process.env.KOREADER ?? '';
 
 fs.mkdirSync(LIBRARY_DIR, { recursive: true });
 
-async function bundle(): Promise<Response> {
+async function bundle(entry: 'shelf' | 'vision'): Promise<Response> {
   const result = await Bun.build({
-    entrypoints: [path.join(import.meta.dir, '..', 'src', 'shelf', 'main.ts')],
+    entrypoints: [path.join(import.meta.dir, '..', 'src', entry, 'main.ts')],
     target: 'browser',
   });
   if (!result.success) {
@@ -90,7 +90,10 @@ Bun.serve({
       return new Response(Bun.file(abs));
     }
 
-    if (url.pathname === '/shelf.js') return bundle();
+    if (url.pathname === '/shelf.js') return bundle('shelf');
+    // The pitch deck: screens that do not exist yet, in the shape they would
+    // take. Served beside the real thing, and labelled as unbuilt on the page.
+    if (url.pathname === '/vision.js') return bundle('vision');
 
     const file = url.pathname === '/' ? 'shelf.html' : url.pathname.slice(1);
     const abs = path.join(WEB_DIR, file);

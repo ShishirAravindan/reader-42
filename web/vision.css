@@ -1,0 +1,356 @@
+/* The screens that do not exist yet, in the shape they would take.
+   Same tokens and the same restraint as shelf.css on purpose: a pitch that
+   invents its own design language is pitching a different product. */
+
+:root {
+  --bg: #f5f4ef;
+  --fg: #24211b;
+  --muted: #6e6759;
+  --line: #ddd8cc;
+  --hover: rgba(36, 33, 27, 0.06);
+  --scrim: rgba(36, 33, 27, 0.16);
+  --hl-yellow: #f2dd80;
+  --hl-pink: #f4bccb;
+  --hl-blue: #b1d4f2;
+  --hl-orange: #f5c491;
+  --ink-soft: #8d8778;
+}
+
+@font-face {
+  font-family: "Literata";
+  src: url("/fonts/Literata-var.woff2") format("woff2");
+  font-weight: 200 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Literata";
+  src: url("/fonts/Literata-Italic-var.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Literata", Georgia, serif;
+  font-variant-numeric: oldstyle-num;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 5rem;
+}
+
+#masthead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 3rem;
+}
+#masthead h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+#views {
+  display: flex;
+  gap: 0.25rem;
+}
+#views button {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.92rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+#views button:hover {
+  background: var(--hover);
+}
+#views button.on {
+  color: var(--fg);
+  background: var(--hover);
+}
+
+.section-rule {
+  margin: 3rem 0 1.2rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.lede {
+  margin: 0 0 2.5rem;
+  font-size: 1.05rem;
+  color: var(--muted);
+}
+
+/* --- 1. the afterpage --- */
+
+.eyebrow {
+  margin: 0 0 0.8rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.book-title {
+  margin: 0;
+  font-size: 2.3rem;
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+}
+.byline {
+  margin: 0.5rem 0 2.5rem;
+  font-size: 1rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.vitals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 1.5rem;
+  margin: 0 0 2.75rem;
+  padding: 1.25rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.vitals div {
+  margin: 0;
+}
+.vitals dt {
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.vitals dd {
+  margin: 0.4rem 0 0;
+  font-size: 1.15rem;
+}
+
+.verdict {
+  margin: 0 0 1rem;
+  padding: 0 0 0 1.4rem;
+  border-left: 2px solid var(--fg);
+}
+.verdict p {
+  margin: 0;
+  font-size: 1.12rem;
+  line-height: 1.62;
+}
+.verdict cite {
+  display: block;
+  margin-top: 0.9rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-style: normal;
+}
+
+.marks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: mark;
+}
+.marks li {
+  display: grid;
+  grid-template-columns: 0.55rem 1fr;
+  gap: 0.9rem;
+  padding: 1.1rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.marks .dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  margin-top: 0.55rem;
+}
+.marks .t {
+  font-size: 1rem;
+  line-height: 1.55;
+}
+.marks .n {
+  margin-top: 0.45rem;
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--muted);
+}
+.marks .w {
+  margin-top: 0.45rem;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+
+.dot.yellow {
+  background: var(--hl-yellow);
+}
+.dot.pink {
+  background: var(--hl-pink);
+}
+.dot.blue {
+  background: var(--hl-blue);
+}
+.dot.orange {
+  background: var(--hl-orange);
+}
+
+.kept {
+  margin: 2rem 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* --- 2. the year --- */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 1.5rem;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.stat .n {
+  font-size: 2.1rem;
+  line-height: 1;
+}
+.stat .l {
+  font-size: 0.72rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+#heatmap {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 0.72rem);
+  gap: 3px;
+}
+#heatmap i {
+  width: 0.72rem;
+  height: 0.72rem;
+  border-radius: 2px;
+  background: var(--hover);
+  display: block;
+}
+#heatmap i[data-v="1"] {
+  background: #dcd6c4;
+}
+#heatmap i[data-v="2"] {
+  background: #c2b894;
+}
+#heatmap i[data-v="3"] {
+  background: #9c8f63;
+}
+#heatmap i[data-v="4"] {
+  background: #6e6338;
+}
+
+.finished {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.finished li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1rem;
+  align-items: baseline;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.finished .ft {
+  font-size: 0.98rem;
+}
+.finished .fa {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.finished .fd {
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* --- 3. the commonplace --- */
+
+.commonplace {
+  margin: 0 0 2rem;
+}
+.commonplace blockquote {
+  margin: 0;
+  padding: 0 0 0 1.4rem;
+  border-left: 2px solid var(--hl-yellow);
+  font-size: 1.32rem;
+  line-height: 1.58;
+}
+.commonplace figcaption {
+  margin: 1.1rem 0 0 1.4rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+#cp-again {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0.55rem 1.1rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+#cp-again:hover {
+  background: var(--hover);
+}
+
+.footnote {
+  margin: 2.5rem 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  max-width: 32rem;
+}
+
+#stamp {
+  margin: 4rem 0 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+@media (max-width: 40rem) {
+  #app {
+    padding: 1.75rem 1rem 4rem;
+  }
+  .book-title {
+    font-size: 1.8rem;
+  }
+}

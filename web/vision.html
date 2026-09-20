@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en" data-theme="paper">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>reader-42 — what the hour leaves behind</title>
+    <link rel="stylesheet" href="/vision.css" />
+  </head>
+  <body>
+    <main id="app">
+      <header id="masthead">
+        <h1>Library</h1>
+        <nav id="views">
+          <button type="button" data-view="afterpage" class="on">Afterpage</button>
+          <button type="button" data-view="log">The year</button>
+          <button type="button" data-view="commonplace">Commonplace</button>
+        </nav>
+      </header>
+
+      <!-- 1. The reward loop: what a finished book leaves behind. -->
+      <section id="afterpage-view">
+        <article class="afterpage">
+          <p class="eyebrow">Finished</p>
+          <h2 class="book-title">The Yellow Wallpaper</h2>
+          <p class="byline">Charlotte Perkins Gilman</p>
+
+          <dl class="vitals">
+            <div><dt>Read</dt><dd>18–20 September</dd></div>
+            <div><dt>In the book</dt><dd>2h 14m</dd></div>
+            <div><dt>Marked</dt><dd>7 passages</dd></div>
+            <div><dt>Pace</dt><dd>241 wpm</dd></div>
+          </dl>
+
+          <blockquote class="verdict">
+            <p>
+              A woman is prescribed rest and loses herself to the pattern on a wall. The horror is
+              that every cruelty in it is administered kindly. I will not forget the creeping women
+              in the garden.
+            </p>
+            <cite>— your verdict, written the day you finished</cite>
+          </blockquote>
+
+          <h3 class="section-rule">In sequence</h3>
+          <ol class="marks" id="afterpage-marks"></ol>
+
+          <p class="kept">Kept forever. Nothing here expires, and nothing resurfaces uninvited.</p>
+        </article>
+      </section>
+
+      <!-- 2. The record: a year of reading, honestly counted. -->
+      <section id="log-view" hidden>
+        <p class="lede">2026, so far.</p>
+        <div class="stats">
+          <div class="stat"><span class="n">14</span><span class="l">finished</span></div>
+          <div class="stat"><span class="n">3</span><span class="l">put down</span></div>
+          <div class="stat"><span class="n">61h</span><span class="l">in books</span></div>
+          <div class="stat"><span class="n">18</span><span class="l">week streak</span></div>
+        </div>
+        <h3 class="section-rule">Days read</h3>
+        <div id="heatmap" aria-label="Reading heatmap for the year"></div>
+        <h3 class="section-rule">Finished</h3>
+        <ol class="finished" id="finished-list"></ol>
+      </section>
+
+      <!-- 3. The commonplace book: resurfacing you asked for. -->
+      <section id="commonplace-view" hidden>
+        <p class="lede">Something you marked, once.</p>
+        <figure class="commonplace">
+          <blockquote id="cp-text"></blockquote>
+          <figcaption id="cp-where"></figcaption>
+        </figure>
+        <button type="button" id="cp-again">Show me another</button>
+        <p class="footnote">
+          You asked for this. It does not arrive on its own, it does not learn, and there is no feed
+          underneath it.
+        </p>
+      </section>
+
+      <p id="stamp">Not built yet — an imagining, in the shape it would take.</p>
+    </main>
+    <script type="module" src="/vision.js"></script>
+  </body>
+</html>
