@@ -392,3 +392,203 @@ h2 {
     min-width: 0;
   }
 }
+
+/* --- the afterpage: what a finished book leaves behind ------------------
+   Built entirely from fields the device already wrote. The reward half of
+   the library, and it costs KOReader nothing. */
+
+#after-back {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0.3rem 0.6rem 0.3rem 0;
+  cursor: pointer;
+  margin-bottom: 2rem;
+}
+#after-back:hover {
+  color: var(--fg);
+}
+
+.eyebrow {
+  margin: 0 0 0.8rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.book-title {
+  margin: 0;
+  font-size: 2.2rem;
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+}
+
+.byline {
+  margin: 0.5rem 0 1rem;
+  font-size: 1rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.stars {
+  margin: 0 0 2rem;
+  font-size: 1.1rem;
+  letter-spacing: 0.12em;
+  color: var(--fg);
+}
+.stars .off {
+  color: var(--line);
+}
+
+.vitals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: 1.4rem;
+  margin: 0 0 2.5rem;
+  padding: 1.2rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.vitals div {
+  margin: 0;
+}
+.vitals dt {
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.vitals dd {
+  margin: 0.4rem 0 0;
+  font-size: 1.12rem;
+}
+
+.verdict {
+  margin: 0 0 1.6rem;
+  padding: 0 0 0 1.4rem;
+  border-left: 2px solid var(--fg);
+}
+.verdict p {
+  margin: 0;
+  font-size: 1.1rem;
+  line-height: 1.6;
+}
+.verdict cite {
+  display: block;
+  margin-top: 0.85rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-style: normal;
+}
+
+.keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+.keywords li {
+  font-size: 0.72rem;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.22rem 0.6rem;
+}
+
+.section-rule {
+  margin: 2.6rem 0 1rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.marks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.marks li {
+  display: grid;
+  grid-template-columns: 0.55rem 1fr;
+  gap: 0.9rem;
+  padding: 1.1rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.marks .dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  margin-top: 0.55rem;
+}
+.marks .t {
+  font-size: 1rem;
+  line-height: 1.55;
+}
+.marks .n {
+  margin-top: 0.45rem;
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--muted);
+}
+.marks .w {
+  margin-top: 0.45rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.kept {
+  margin: 2rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* --- read shelf, freshness, empty states --- */
+
+#read {
+  margin-bottom: 3.25rem;
+}
+#read-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 1.6rem 1.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+#read-list li {
+  cursor: pointer;
+}
+#read-list .deck-cover {
+  box-shadow: 0 1px 2px var(--scrim), 0 8px 22px -12px var(--scrim);
+}
+#read-list li:hover .deck-cover {
+  box-shadow: 0 2px 4px var(--scrim), 0 14px 30px -12px var(--scrim);
+}
+.deck-meta .r {
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  letter-spacing: 0.1em;
+}
+
+#freshness {
+  margin: 2.5rem 0 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-style: italic;
+}
+#ondeck-empty,
+#notebook-empty {
+  color: var(--muted);
+  font-size: 0.9rem;
+}

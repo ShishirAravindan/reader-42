@@ -95,3 +95,70 @@ describe('reading the sidecar KOReader serialized', () => {
     expect(sidecar.annotations.length).toBe(0);
   });
 });
+
+// An end-to-end read produced a sidecar with a rating, a review, a finish
+// date, keywords and per-highlight page numbers — and the shelf displayed
+// none of them, because the parser read past all of it. These pin the fields
+// that carry the "reward for having read" half of the product.
+describe('the fields it is easiest to skip', () => {
+  const withSummary = [
+    'return {',
+    '    ["annotations"] = {',
+    '        [1] = {',
+    '            ["datetime"] = "2026-09-20 13:21:26",',
+    '            ["pageno"] = 15,',
+    '            ["pos0"] = "/body/DocFragment[2]/body/p[81]/text().81",',
+    '            ["text"] = "a strange, provoking, formless sort of figure",',
+    '        },',
+    '    },',
+    '    ["doc_props"] = {',
+    '        ["keywords"] = "Psychological fiction\\',
+    'Feminist fiction",',
+    '        ["title"] = "The Yellow Wallpaper",',
+    '    },',
+    '    ["summary"] = {',
+    '        ["modified"] = "2026-09-20",',
+    '        ["note"] = "A rest cure told from inside.",',
+    '        ["rating"] = 4,',
+    '        ["status"] = "complete",',
+    '    },',
+    '}',
+  ].join('\n');
+
+  test('the star rating crosses', () => {
+    expect(readSidecar(withSummary).rating).toBe(4);
+  });
+
+  test('the review crosses', () => {
+    expect(readSidecar(withSummary).review).toBe('A rest cure told from inside.');
+  });
+
+  test('the day it was finished crosses', () => {
+    expect(readSidecar(withSummary).statusChangedAt).toBe('2026-09-20');
+  });
+
+  test('keywords are one string in the file and a list here', () => {
+    expect(readSidecar(withSummary).keywords).toEqual([
+      'Psychological fiction',
+      'Feminist fiction',
+    ]);
+  });
+
+  // The xpointer cannot locate a highlight on this side, but the page number
+  // is how a person walks a quote back to its place in the book.
+  test('the page number rides with its highlight', () => {
+    expect(readSidecar(withSummary).annotations[0]?.pageno).toBe(15);
+  });
+
+  test('an unrated book carries no rating rather than a zero', () => {
+    const sidecar = readSidecar('return { ["summary"] = { ["rating"] = 0, }, }');
+    expect(sidecar.rating).toBeUndefined();
+  });
+
+  test('a book with no summary at all still parses', () => {
+    const sidecar = readSidecar('return { ["percent_finished"] = 0.4, }');
+    expect(sidecar.rating).toBeUndefined();
+    expect(sidecar.review).toBeUndefined();
+    expect(sidecar.keywords).toEqual([]);
+  });
+});

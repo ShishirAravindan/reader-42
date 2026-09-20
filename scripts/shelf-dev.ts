@@ -87,7 +87,12 @@ Bun.serve({
       if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) {
         return new Response('not found', { status: 404 });
       }
-      return new Response(Bun.file(abs));
+      // Last-Modified is how the shelf knows how stale it is. KOReader flushes
+      // its sidecar on exit, so while someone is still reading, the folder is
+      // behind — and a library that cannot say "as of" is just lying quietly.
+      return new Response(Bun.file(abs), {
+        headers: { 'Last-Modified': fs.statSync(abs).mtime.toUTCString() },
+      });
     }
 
     if (url.pathname === '/shelf.js') return bundle('shelf');

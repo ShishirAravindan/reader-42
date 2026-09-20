@@ -35,6 +35,9 @@ export type HighlightColor = (typeof HIGHLIGHT_COLORS)[number];
 
 /** One KOReader annotation, reduced to the fields that can cross. */
 export interface KoAnnotation {
+  /** The device's own page number. It cannot resolve a position here, but it
+   * is how a person walks a quote back to its place in the book. */
+  pageno?: number;
   /** The highlighted text. The only field that reliably locates it here. */
   text: string;
   note?: string;
@@ -56,6 +59,18 @@ export interface KoSidecar {
   percentFinished: number | null;
   /** KOReader's reading status, when it has one. */
   status?: string;
+  /**
+   * What the reader thought. KOReader's Book status screen takes a star
+   * rating and a review, and both sit in the sidecar unread by most things
+   * that read these files. They are the whole "reward for having read" half
+   * of this library, already written down, requiring nothing of the device.
+   */
+  rating?: number;
+  review?: string;
+  /** The day the status last changed — in practice, the day it was finished. */
+  statusChangedAt?: string;
+  /** The publisher's subject keywords, one per line in the sidecar. */
+  keywords: string[];
   annotations: KoAnnotation[];
 }
 
@@ -129,6 +144,7 @@ export function readSidecar(source: string): KoSidecar {
       const pos0 = str(entry, 'pos0') ?? str(entry, 'page');
       annotations.push({
         text,
+        ...(num(entry, 'pageno') !== undefined ? { pageno: num(entry, 'pageno') as number } : {}),
         ...(str(entry, 'note') !== undefined ? { note: str(entry, 'note') as string } : {}),
         ...(str(entry, 'chapter') !== undefined
           ? { chapter: str(entry, 'chapter') as string }
@@ -141,6 +157,8 @@ export function readSidecar(source: string): KoSidecar {
     }
   }
 
+  const rating = summary ? num(summary, 'rating') : undefined;
+
   return {
     ...(props && str(props, 'title') !== undefined ? { title: str(props, 'title') as string } : {}),
     ...(props && str(props, 'authors') !== undefined
@@ -150,6 +168,16 @@ export function readSidecar(source: string): KoSidecar {
     ...(summary && str(summary, 'status') !== undefined
       ? { status: str(summary, 'status') as string }
       : {}),
+    ...(rating !== undefined && rating > 0 ? { rating } : {}),
+    ...(summary && str(summary, 'note') ? { review: str(summary, 'note') as string } : {}),
+    ...(summary && str(summary, 'modified')
+      ? { statusChangedAt: str(summary, 'modified') as string }
+      : {}),
+    // KOReader stores keywords newline-separated inside one string.
+    keywords: (props && str(props, 'keywords') ? (str(props, 'keywords') as string) : '')
+      .split('\n')
+      .map((k) => k.trim())
+      .filter(Boolean),
     annotations,
   };
 }

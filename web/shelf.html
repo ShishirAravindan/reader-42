@@ -20,19 +20,49 @@
         <section id="ondeck">
           <h2>On deck</h2>
           <ol id="ondeck-list"></ol>
+          <p id="ondeck-empty" hidden>Nothing on deck. Drop an EPUB in the folder.</p>
         </section>
+
+        <!-- Finishing a book must not make the shelf emptier. -->
+        <section id="read" hidden>
+          <h2>Read</h2>
+          <ol id="read-list"></ol>
+        </section>
+
         <section id="collection">
           <h2>Everything</h2>
           <ol id="shelf-list"></ol>
         </section>
+        <p id="freshness"></p>
+      </section>
+
+      <!-- What a finished book leaves behind. Built from the sidecar alone. -->
+      <section id="afterpage-view" hidden>
+        <button type="button" id="after-back">← Shelf</button>
+        <article class="afterpage">
+          <p class="eyebrow" id="after-eyebrow">Finished</p>
+          <h2 class="book-title" id="after-title"></h2>
+          <p class="byline" id="after-byline"></p>
+          <p class="stars" id="after-stars"></p>
+          <dl class="vitals" id="after-vitals"></dl>
+          <blockquote class="verdict" id="after-verdict" hidden>
+            <p id="after-review"></p>
+            <cite>— your own words, from the device</cite>
+          </blockquote>
+          <ul class="keywords" id="after-keywords"></ul>
+          <h3 class="section-rule" id="after-marks-head">In sequence</h3>
+          <ol class="marks" id="after-marks"></ol>
+          <p class="kept">Kept for as long as the file is. Nothing here expires.</p>
+        </article>
       </section>
 
       <section id="notebook-view" hidden>
         <label id="search-row">
-          <input id="search" type="search" placeholder="Where did I read about…" />
+          <input id="search" type="search" placeholder="Search your highlights and notes…" />
         </label>
         <p id="search-count"></p>
         <ol id="notebook-list"></ol>
+        <p id="notebook-empty" hidden></p>
         <button type="button" id="export">Export to Logseq</button>
       </section>
 
@@ -41,8 +71,8 @@
 
     <dialog id="handoff">
       <h3 id="handoff-title"></h3>
-      <p id="handoff-note">reader-42 does not open books. KOReader does.</p>
-      <pre id="handoff-cmd"></pre>
+      <p id="handoff-note"></p>
+      <pre id="handoff-cmd" hidden></pre>
       <button type="button" id="handoff-close">Close</button>
     </dialog>
 

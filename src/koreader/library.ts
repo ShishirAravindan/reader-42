@@ -37,6 +37,17 @@ export interface ShelfBook {
   progress: number | null;
   /** Last time the device touched this book, when it says. */
   lastRead: string | null;
+  /** What the reader thought of it — stars and a sentence, from the device's
+   * own Book status screen. The reward half of the library, already written. */
+  rating?: number;
+  review?: string;
+  /** The day it was finished (or last changed status). */
+  finishedAt?: string;
+  /** The publisher's subject keywords. */
+  keywords: string[];
+  /** When the sidecar was last written. The shelf is only ever as fresh as
+   * this, and saying so is the difference between latency and lying. */
+  sidecarModifiedAt: string | null;
   annotations: KoAnnotation[];
 }
 
@@ -82,6 +93,10 @@ export interface FolderAccess {
   list(): Promise<string[]>;
   /** A file's text, or null when it is not there. */
   readText(path: string): Promise<string | null>;
+  /** When a file was last written, where the transport can tell. Optional: a
+   * transport that cannot say simply leaves the shelf without a freshness
+   * line, which is better than one that guesses. */
+  modifiedAt?(path: string): Promise<string | null>;
 }
 
 /**
@@ -110,6 +125,8 @@ export async function readShelf(folder: FolderAccess): Promise<ShelfBook[]> {
         state: 'unread',
         progress: null,
         lastRead: null,
+        keywords: [],
+        sidecarModifiedAt: null,
         annotations: [],
       });
       continue;
@@ -125,6 +142,11 @@ export async function readShelf(folder: FolderAccess): Promise<ShelfBook[]> {
         state: shelfState(sidecar.status, sidecar.percentFinished),
         progress: sidecar.percentFinished,
         lastRead: lastTouched(sidecar.annotations),
+        ...(sidecar.rating !== undefined ? { rating: sidecar.rating } : {}),
+        ...(sidecar.review !== undefined ? { review: sidecar.review } : {}),
+        ...(sidecar.statusChangedAt !== undefined ? { finishedAt: sidecar.statusChangedAt } : {}),
+        keywords: sidecar.keywords,
+        sidecarModifiedAt: (await folder.modifiedAt?.(sidecarPath)) ?? null,
         annotations: sidecar.annotations,
       });
     } catch {
@@ -136,6 +158,8 @@ export async function readShelf(folder: FolderAccess): Promise<ShelfBook[]> {
         state: 'unread',
         progress: null,
         lastRead: null,
+        keywords: [],
+        sidecarModifiedAt: null,
         annotations: [],
       });
     }
