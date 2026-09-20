@@ -171,6 +171,21 @@ async function main(): Promise<void> {
     for (let i = 0; i < 40 && !koWindowUp(); i++) await new Promise((r) => setTimeout(r, 500));
     await new Promise((r) => setTimeout(r, 2500));
 
+    // KOReader opens in a 600x800 window on a 1000x1400 screen, so filming the
+    // screen and then letterboxing it into a landscape frame shrinks the page
+    // twice. Fill the display first; it repaints and reflows to the new size.
+    const window = Bun.spawnSync(['xdotool', 'search', '--name', 'KOReader'], {
+      env: { ...process.env, DISPLAY },
+    })
+      .stdout.toString()
+      .trim()
+      .split('\n')[0];
+    if (window) {
+      xdo('windowsize', window, String(KO_SIZE.width), String(KO_SIZE.height));
+      xdo('windowmove', window, '0', '0');
+      await new Promise((r) => setTimeout(r, 2500));
+    }
+
     await sayOver('This is KOReader. Unmodified, unforked, not ours.', 3600);
     await sayOver('A decade of reading ergonomics we will never have to write.', 3800);
 
