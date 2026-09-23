@@ -138,8 +138,18 @@ async function handoff(book: ShelfBook): Promise<void> {
       setTimeout(() => dialog.close(), 1600);
       return;
     }
-    el('handoff-note').textContent = 'No reader is set up yet. Open it yourself with:';
-    cmd.hidden = false;
+    // The server cannot spawn a reader — which is the normal case whenever the
+    // shelf is served from somewhere other than the machine you are sitting at
+    // (a Pi holding the synced folder, say). Hand the browser a koreader:// URL
+    // instead, so the launch happens on THIS machine. KOReader ships no such
+    // scheme; scripts/handoff/install-url-handler.sh registers one.
+    el('handoff-note').textContent = 'Opening on this machine…';
+    location.href = `koreader://open?file=${encodeURIComponent(book.file)}`;
+    setTimeout(() => {
+      el('handoff-note').textContent =
+        'Nothing answered. Register the handler (scripts/handoff), or open it yourself with:';
+      cmd.hidden = false;
+    }, 2500);
   } catch {
     el('handoff-note').textContent = 'Could not reach the library server. Open it yourself with:';
     cmd.hidden = false;

@@ -1,0 +1,17 @@
+#!/bin/bash
+# Handles koreader://open?file=<url-encoded path, relative to the library root>.
+# Registered against x-scheme-handler/koreader, so a BROWSER can fire it — which
+# is what lets the shelf be served from anywhere instead of only from the
+# machine the reader is installed on.
+#
+# bash, not sh: dash's printf %b does not understand \xNN, so under /bin/sh the
+# path decoded to a literal "The\x20Yellow..." and KOReader silently fell back
+# to its quickstart guide — a wrong book rather than an error.
+set -e
+url="$1"
+enc="${url#koreader://open?file=}"
+file=$(printf '%b' "$(printf '%s' "$enc" | sed 's/+/ /g; s/%/\\x/g')")
+# The extracted AppImage resolves its libraries relatively, so start it from
+# its own directory.
+cd "$(dirname "$KOREADER_BIN")"
+exec ./"$(basename "$KOREADER_BIN")" "$LIBRARY_ROOT/$file"
